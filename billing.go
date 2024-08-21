@@ -1,6 +1,7 @@
 package billing
 
 import (
+	"go.lumeweb.com/portal-plugin-billing/internal/cron"
 	pluginDb "go.lumeweb.com/portal-plugin-billing/internal/db"
 	"go.lumeweb.com/portal-plugin-billing/internal/service"
 	"go.lumeweb.com/portal/core"
@@ -9,7 +10,6 @@ import (
 const pluginName = "billing"
 
 func init() {
-
 	core.RegisterPlugin(core.PluginInfo{
 		ID: pluginName,
 		Services: func() ([]core.ServiceInfo, error) {
@@ -28,6 +28,11 @@ func init() {
 		Models: []any{
 			&pluginDb.Download{},
 			&pluginDb.UserQuota{},
+		},
+		Cron: func() core.CronFactory {
+			return func(ctx core.Context) (core.Cronable, error) {
+				return cron.NewCron(ctx), nil
+			}
 		},
 	})
 }
