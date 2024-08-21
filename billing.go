@@ -8,6 +8,7 @@ import (
 const pluginName = "billing"
 
 func init() {
+
 	core.RegisterPlugin(core.PluginInfo{
 		ID: pluginName,
 		Services: func() ([]core.ServiceInfo, error) {
@@ -19,7 +20,7 @@ func init() {
 				{
 					ID:      service.QUOTA_SERVICE,
 					Factory: service.NewQuotaService,
-					Depends: []string{core.PIN_SERVICE, core.METADATA_SERVICE},
+					Depends: []string{core.PIN_SERVICE, core.METADATA_SERVICE, service.BILLING_SERVICE},
 				},
 			}, nil
 		},
