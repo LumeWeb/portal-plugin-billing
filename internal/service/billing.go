@@ -2,24 +2,26 @@ package service
 
 import (
 	"go.lumeweb.com/portal-plugin-billing/internal/config"
+	"go.lumeweb.com/portal-plugin-billing/service"
 	"go.lumeweb.com/portal/core"
 	"gorm.io/gorm"
 	"math"
 )
 
-var _ core.Service = (*BillingService)(nil)
-var _ core.Configurable = (*BillingService)(nil)
+var _ core.Service = (*BillingServiceDefault)(nil)
+var _ core.Configurable = (*BillingServiceDefault)(nil)
+var _ service.BillingService = (*BillingServiceDefault)(nil)
 
 const BILLING_SERVICE = "billing"
 
-type BillingService struct {
+type BillingServiceDefault struct {
 	ctx    core.Context
 	db     *gorm.DB
 	logger *core.Logger
 }
 
 func NewBillingService() (core.Service, []core.ContextBuilderOption, error) {
-	_service := &BillingService{}
+	_service := &BillingServiceDefault{}
 
 	return _service, core.ContextOptions(
 		core.ContextWithStartupFunc(func(ctx core.Context) error {
@@ -32,11 +34,11 @@ func NewBillingService() (core.Service, []core.ContextBuilderOption, error) {
 	), nil
 }
 
-func (b *BillingService) ID() string {
+func (b *BillingServiceDefault) ID() string {
 	return BILLING_SERVICE
 }
 
-func (b *BillingService) GetUserQuota(ctx core.Context, userID uint) (uint64, error) {
+func (b *BillingServiceDefault) GetUserQuota(ctx core.Context, userID uint) (uint64, error) {
 	if !b.enabled() {
 		return math.MaxUint64, nil
 	}
@@ -44,12 +46,12 @@ func (b *BillingService) GetUserQuota(ctx core.Context, userID uint) (uint64, er
 	return 0, nil
 }
 
-func (b *BillingService) enabled() bool {
+func (b *BillingServiceDefault) enabled() bool {
 	svcConfig := b.ctx.Config().GetService(BILLING_SERVICE).(*config.BillingConfig)
 
 	return svcConfig.Enabled
 }
 
-func (b *BillingService) Config() (any, error) {
+func (b *BillingServiceDefault) Config() (any, error) {
 	return &config.BillingConfig{}, nil
 }

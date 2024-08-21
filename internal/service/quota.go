@@ -4,6 +4,7 @@ import (
 	"errors"
 	"go.lumeweb.com/portal-plugin-billing/internal/config"
 	pluginDb "go.lumeweb.com/portal-plugin-billing/internal/db"
+	"go.lumeweb.com/portal-plugin-billing/service"
 	"go.lumeweb.com/portal/core"
 	"go.lumeweb.com/portal/db"
 	"go.lumeweb.com/portal/event"
@@ -13,22 +14,21 @@ import (
 	"time"
 )
 
-var _ core.Service = (*BillingService)(nil)
-var _ core.Configurable = (*BillingService)(nil)
+var _ service.QuotaService = (*QuotaServiceDefault)(nil)
 
 const QUOTA_SERVICE = "quota"
 
-type QuotaService struct {
+type QuotaServiceDefault struct {
 	ctx      core.Context
 	db       *gorm.DB
 	logger   *core.Logger
 	pins     core.PinService
 	metadata core.MetadataService
-	billing  *BillingService
+	billing  *BillingServiceDefault
 }
 
 func NewQuotaService() (core.Service, []core.ContextBuilderOption, error) {
-	_service := &QuotaService{}
+	_service := &QuotaServiceDefault{}
 
 	return _service, core.ContextOptions(
 		core.ContextWithStartupFunc(func(ctx core.Context) error {
@@ -37,7 +37,7 @@ func NewQuotaService() (core.Service, []core.ContextBuilderOption, error) {
 			_service.pins = core.GetService[core.PinService](ctx, core.PIN_SERVICE)
 			_service.metadata = core.GetService[core.MetadataService](ctx, core.METADATA_SERVICE)
 			_service.logger = ctx.ServiceLogger(_service)
-			_service.billing = core.GetService[*BillingService](ctx, BILLING_SERVICE)
+			_service.billing = core.GetService[*BillingServiceDefault](ctx, BILLING_SERVICE)
 			return nil
 		}),
 
@@ -74,11 +74,11 @@ func NewQuotaService() (core.Service, []core.ContextBuilderOption, error) {
 	), nil
 }
 
-func (q *QuotaService) ID() string {
+func (q *QuotaServiceDefault) ID() string {
 	return QUOTA_SERVICE
 }
 
-func (q *QuotaService) RecordDownload(ctx core.Context, uploadID, userID uint, bytes uint64, ip string) error {
+func (q *QuotaServiceDefault) RecordDownload(ctx core.Context, uploadID, userID uint, bytes uint64, ip string) error {
 	if !q.enabled() {
 		return nil
 	}
@@ -116,7 +116,7 @@ func (q *QuotaService) RecordDownload(ctx core.Context, uploadID, userID uint, b
 		return nil
 	})
 }
-func (q *QuotaService) CheckQuota(ctx core.Context, userID uint, requestedBytes uint64) (bool, error) {
+func (q *QuotaServiceDefault) CheckQuota(ctx core.Context, userID uint, requestedBytes uint64) (bool, error) {
 	if !q.enabled() {
 		return true, nil
 	}
@@ -144,7 +144,7 @@ func (q *QuotaService) CheckQuota(ctx core.Context, userID uint, requestedBytes 
 	return requestedBytes <= maxQuota, nil
 }
 
-func (q *QuotaService) Reconcile(ctx core.Context) error {
+func (q *QuotaServiceDefault) Reconcile(ctx core.Context) error {
 	yesterday := time.Now().UTC().Add(-24 * time.Hour).Truncate(24 * time.Hour)
 	var userBytes []struct {
 		UserID    uint
@@ -183,11 +183,11 @@ func (q *QuotaService) Reconcile(ctx core.Context) error {
 	})
 }
 
-func (b *QuotaService) Config() (any, error) {
+func (b *QuotaServiceDefault) Config() (any, error) {
 	return &config.QuotaConfig{}, nil
 }
 
-func (b *QuotaService) enabled() bool {
+func (b *QuotaServiceDefault) enabled() bool {
 	svcConfig := b.ctx.Config().GetService(QUOTA_SERVICE).(*config.QuotaConfig)
 
 	return svcConfig.Enabled
