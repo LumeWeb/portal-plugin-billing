@@ -6,6 +6,7 @@ import (
 	"go.lumeweb.com/portal/db"
 	"go.lumeweb.com/portal/event"
 	"gorm.io/gorm"
+	"math"
 )
 
 var _ core.Service = (*BillingService)(nil)
@@ -46,7 +47,7 @@ func NewQuotaService() (core.Service, []core.ContextBuilderOption, error) {
 					return err
 				}
 
-				shardedBytes := upload.Size / uint64(len(pins))
+				shardedBytes := uint64(math.Ceil(float64(upload.Size) / float64(uint64(len(pins)))))
 
 				return _service.db.Transaction(func(tx *gorm.DB) error {
 					for _, pin := range pins {
