@@ -1,6 +1,7 @@
 package billing
 
 import (
+	pluginDb "go.lumeweb.com/portal-plugin-billing/internal/db"
 	"go.lumeweb.com/portal-plugin-billing/internal/service"
 	"go.lumeweb.com/portal/core"
 )
@@ -23,6 +24,10 @@ func init() {
 					Depends: []string{core.PIN_SERVICE, core.METADATA_SERVICE, service.BILLING_SERVICE},
 				},
 			}, nil
+		},
+		Models: []any{
+			&pluginDb.Download{},
+			&pluginDb.UserQuota{},
 		},
 	})
 }
