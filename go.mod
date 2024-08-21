@@ -64,7 +64,7 @@ require (
 	go.etcd.io/etcd/client/pkg/v3 v3.5.15 // indirect
 	go.etcd.io/etcd/client/v3 v3.5.15 // indirect
 	go.lumeweb.com/httputil v0.0.0-20240616192644-3d270a528d86 // indirect
-	go.lumeweb.com/portal v0.1.2-0.20240821044607-6f6564c3bcdc // indirect
+	go.lumeweb.com/portal v0.1.2-0.20240821051121-182b2d0d6241 // indirect
 	go.sia.tech/core v0.4.3 // indirect
 	go.sia.tech/coreutils v0.2.5 // indirect
 	go.sia.tech/mux v1.2.0 // indirect
