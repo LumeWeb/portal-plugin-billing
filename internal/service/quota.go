@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"go.lumeweb.com/portal-plugin-billing/internal/config"
 	pluginDb "go.lumeweb.com/portal-plugin-billing/internal/db"
 	"go.lumeweb.com/portal/core"
@@ -128,7 +129,7 @@ func (q *QuotaService) CheckQuota(ctx core.Context, userID uint, requestedBytes 
 			return tx.Model(&pluginDb.UserQuota{}).Where(&pluginDb.UserQuota{UserID: userID, Date: today}).First(&userQuota)
 		})
 	}); err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return true, nil
 		}
 		return false, err
