@@ -4,7 +4,8 @@ import (
 	"fmt"
 	"github.com/gorilla/mux"
 	"go.lumeweb.com/httputil"
-	"go.lumeweb.com/portal-plugin-billing/internal/service"
+	"go.lumeweb.com/portal-plugin-billing/internal/api/messages"
+	"go.lumeweb.com/portal-plugin-billing/service"
 	"go.lumeweb.com/portal/config"
 	"go.lumeweb.com/portal/core"
 	"net/http"
@@ -13,8 +14,9 @@ import (
 var _ core.API = (*API)(nil)
 
 type API struct {
-	ctx    core.Context
-	logger *core.Logger
+	ctx            core.Context
+	logger         *core.Logger
+	billingService service.BillingService
 }
 
 func NewAPI() (core.API, []core.ContextBuilderOption, error) {
@@ -23,6 +25,7 @@ func NewAPI() (core.API, []core.ContextBuilderOption, error) {
 		core.ContextWithStartupFunc(func(ctx core.Context) error {
 			api.ctx = ctx
 			api.logger = ctx.APILogger(api)
+			api.billingService = core.GetService[service.BillingService](ctx, service.BILLING_SERVICE).(service.BillingService)
 			return nil
 		}),
 	), nil
@@ -59,4 +62,12 @@ func (a API) Config() config.APIConfig {
 func (a API) getPlans(w http.ResponseWriter, r *http.Request) {
 	ctx := httputil.Context(r, w)
 
+	plans, err := a.billingService.GetPlans(ctx)
+
+	if err != nil {
+		_ = ctx.Error(err, http.StatusInternalServerError)
+		return
+	}
+
+	ctx.Encode(&messages.SubscriptionPlansResponse{Plans: plans})
 }

@@ -1,7 +1,7 @@
 package messages
 
 type SubscriptionPlansResponse struct {
-	Plans []SubscriptionPlan `json:"plans"`
+	Plans []*SubscriptionPlan `json:"plans"`
 }
 
 type SubscriptionPlan struct {

@@ -1,6 +1,7 @@
 package billing
 
 import (
+	"go.lumeweb.com/portal-plugin-billing/internal/api"
 	"go.lumeweb.com/portal-plugin-billing/internal/cron"
 	pluginDb "go.lumeweb.com/portal-plugin-billing/internal/db"
 	"go.lumeweb.com/portal-plugin-billing/internal/service"
@@ -12,6 +13,9 @@ const pluginName = "billing"
 func init() {
 	core.RegisterPlugin(core.PluginInfo{
 		ID: pluginName,
+		API: func() (core.API, []core.ContextBuilderOption, error) {
+			return api.NewAPI()
+		},
 		Services: func() ([]core.ServiceInfo, error) {
 			return []core.ServiceInfo{
 				{
