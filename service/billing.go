@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"go.lumeweb.com/portal-plugin-billing/internal/api/messages"
 	"go.lumeweb.com/portal-plugin-billing/internal/service"
 	"go.lumeweb.com/portal/core"
 	"go.lumeweb.com/portal/db/models"
@@ -27,4 +28,7 @@ type BillingService interface {
 
 	// GetUserMaxDownload returns the max download for a given user
 	GetUserMaxDownload(ctx context.Context, userID uint) (uint64, error)
+
+	// GetPlans returns all available subscription plans
+	GetPlans(ctx context.Context) ([]*messages.SubscriptionPlan, error)
 }

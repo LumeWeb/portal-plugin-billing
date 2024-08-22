@@ -9,7 +9,9 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/killbill/kbcli/v3/kbclient"
 	"github.com/killbill/kbcli/v3/kbclient/account"
+	"github.com/killbill/kbcli/v3/kbclient/catalog"
 	"github.com/killbill/kbcli/v3/kbmodel"
+	"go.lumeweb.com/portal-plugin-billing/internal/api/messages"
 	"go.lumeweb.com/portal-plugin-billing/internal/config"
 	pluginDb "go.lumeweb.com/portal-plugin-billing/internal/db"
 	"go.lumeweb.com/portal-plugin-billing/service"
@@ -184,14 +186,8 @@ func (b *BillingServiceDefault) getUsageByUserID(ctx context.Context, userID uin
 		return 0, nil
 	}
 
-	var plan pluginDb.Plan
-
-	if err = db.RetryableTransaction(b.ctx, b.db, func(tx *gorm.DB) *gorm.DB {
-		return tx.Model(&pluginDb.Plan{}).Where(&pluginDb.Plan{Identifier: *subscription.PlanName}).First(&plan)
-	}); err != nil {
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			b.logger.Error("failed to get plan", zap.Error(err))
-		}
+	plan, err := b.getPlanByIdentifier(ctx, *subscription.PlanName)
+	if err != nil {
 		return 0, err
 	}
 
@@ -205,6 +201,59 @@ func (b *BillingServiceDefault) getUsageByUserID(ctx context.Context, userID uin
 	}
 
 	return 0, nil
+}
+
+func (b *BillingServiceDefault) getPlanByIdentifier(ctx context.Context, identifier string) (*pluginDb.Plan, error) {
+	var plan pluginDb.Plan
+
+	if err := db.RetryableTransaction(b.ctx, b.db, func(tx *gorm.DB) *gorm.DB {
+		return tx.Model(&pluginDb.Plan{}).Where(&pluginDb.Plan{Identifier: identifier}).First(&plan)
+	}); err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			b.logger.Error("failed to get plan", zap.Error(err))
+		}
+		return nil, err
+	}
+
+	return &plan, nil
+}
+
+func (b *BillingServiceDefault) GetPlans(ctx context.Context) ([]*messages.SubscriptionPlan, error) {
+	if !b.enabled() {
+		return nil, nil
+	}
+
+	plans, err := b.api.Catalog.GetAvailableBasePlans(ctx, &catalog.GetAvailableBasePlansParams{})
+	if err != nil {
+		return nil, err
+	}
+
+	var result []*messages.SubscriptionPlan
+
+	if len(plans.Payload) == 0 {
+		return result, nil
+	}
+
+	for _, plan := range plans.Payload {
+		if plan.FinalPhaseRecurringPrice == nil {
+			continue
+		}
+
+		localPlan, err := b.getPlanByIdentifier(ctx, plan.Product)
+		if err != nil {
+			return nil, err
+		}
+
+		result = append(result, &messages.SubscriptionPlan{
+			Name:     plan.Product,
+			Price:    plan.FinalPhaseRecurringPrice[0].Value,
+			Upload:   localPlan.Upload,
+			Download: localPlan.Download,
+			Storage:  localPlan.Storage,
+		})
+	}
+
+	return result, nil
 }
 
 func findActiveSubscription(bundles []*kbmodel.Bundle) *kbmodel.Subscription {
