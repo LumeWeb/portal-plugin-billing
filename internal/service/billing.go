@@ -1,7 +1,9 @@
 package service
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"github.com/go-openapi/runtime"
 	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
@@ -39,6 +41,7 @@ type BillingServiceDefault struct {
 	logger *core.Logger
 	cfg    *config.BillingConfig
 	api    *kbclient.KillBill
+	user   core.UserService
 }
 
 func NewBillingService() (core.Service, []core.ContextBuilderOption, error) {
@@ -49,6 +52,7 @@ func NewBillingService() (core.Service, []core.ContextBuilderOption, error) {
 			_service.ctx = ctx
 			_service.db = ctx.DB()
 			_service.logger = ctx.ServiceLogger(_service)
+			_service.user = core.GetService[core.UserService](ctx, core.USER_SERVICE)
 			_service.cfg = ctx.Config().GetService(BILLING_SERVICE).(*config.BillingConfig)
 
 			if _service.enabled() {
@@ -76,15 +80,55 @@ func (b *BillingServiceDefault) ID() string {
 	return BILLING_SERVICE
 }
 
-func (b *BillingServiceDefault) GetUserMaxStorage(ctx core.Context, userID uint) (uint64, error) {
+func (b *BillingServiceDefault) CreateCustomer(ctx context.Context, userID uint) error {
+	if !b.enabled() {
+		return nil
+	}
+
+	exists, user, err := b.user.AccountExists(userID)
+	if err != nil {
+		return err
+	}
+
+	if !exists {
+		return errors.New("user does not exist")
+	}
+
+	externalKey := strconv.FormatUint(uint64(userID), 10)
+
+	result, err := b.api.Account.GetAccountByKey(ctx, &account.GetAccountByKeyParams{
+		ExternalKey: externalKey,
+	})
+
+	if err != nil {
+		return err
+	}
+
+	if result.Payload == nil {
+		_, err = b.api.Account.CreateAccount(ctx, &account.CreateAccountParams{
+			Body: &kbmodel.Account{
+				ExternalKey: externalKey,
+				Name:        fmt.Sprintf("%s %s", user.FirstName, user.LastName),
+			},
+		})
+
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (b *BillingServiceDefault) GetUserMaxStorage(ctx context.Context, userID uint) (uint64, error) {
 	return b.getUsageByUserID(ctx, userID, StorageUsage)
 }
 
-func (b *BillingServiceDefault) GetUserMaxUpload(ctx core.Context, userID uint) (uint64, error) {
+func (b *BillingServiceDefault) GetUserMaxUpload(ctx context.Context, userID uint) (uint64, error) {
 	return b.getUsageByUserID(ctx, userID, UploadUsage)
 }
 
-func (b *BillingServiceDefault) GetUserMaxDownload(ctx core.Context, userID uint) (uint64, error) {
+func (b *BillingServiceDefault) GetUserMaxDownload(ctx context.Context, userID uint) (uint64, error) {
 	return b.getUsageByUserID(ctx, userID, DownloadUsage)
 }
 
@@ -98,7 +142,7 @@ func (b *BillingServiceDefault) Config() (any, error) {
 	return &config.BillingConfig{}, nil
 }
 
-func (b *BillingServiceDefault) getUsageByUserID(ctx core.Context, userID uint, usageType UsageType) (uint64, error) {
+func (b *BillingServiceDefault) getUsageByUserID(ctx context.Context, userID uint, usageType UsageType) (uint64, error) {
 	if !b.enabled() {
 		return math.MaxUint64, nil
 	}
@@ -130,7 +174,7 @@ func (b *BillingServiceDefault) getUsageByUserID(ctx core.Context, userID uint, 
 
 	var plan pluginDb.Plan
 
-	if err = db.RetryableTransaction(ctx, b.db, func(tx *gorm.DB) *gorm.DB {
+	if err = db.RetryableTransaction(b.ctx, b.db, func(tx *gorm.DB) *gorm.DB {
 		return tx.Model(&pluginDb.Plan{}).Where(&pluginDb.Plan{Identifier: *subscription.PlanName}).First(&plan)
 	}); err != nil {
 		if !errors.Is(err, gorm.ErrRecordNotFound) {

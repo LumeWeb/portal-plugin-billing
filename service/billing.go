@@ -1,28 +1,26 @@
 package service
 
 import (
+	"context"
 	"go.lumeweb.com/portal-plugin-billing/internal/service"
 	"go.lumeweb.com/portal/core"
 )
 
 const BILLING_SERVICE = service.BILLING_SERVICE
 
-type QuotaService interface {
+type BillingService interface {
 	core.Service
 	core.Configurable
 
-	// RecordDownload records a download for a user
-	RecordDownload(ctx core.Context, uploadID, userID uint, bytes uint64, ip string) error
+	// CreateCustomer creates a customer in the billing system
+	CreateCustomer(ctx context.Context, userID uint) error
 
-	// CheckStorageQuota checks if a user has enough storage quota for a requested number of bytes
-	CheckStorageQuota(ctx core.Context, userID uint, requestedBytes uint64) (bool, error)
+	// GetUserQuota returns the quota for a given user
+	GetUserMaxStorage(ctx context.Context, userID uint) (uint64, error)
 
-	// CheckUploadQuota checks if a user has enough upload quota for a requested number of bytes
-	CheckUploadQuota(ctx core.Context, userID uint, requestedBytes uint64) (bool, error)
+	// GetUserMaxUpload returns the max upload for a given user
+	GetUserMaxUpload(ctx context.Context, userID uint) (uint64, error)
 
-	// CheckDownloadQuota checks if a user has enough download quota for a requested number of bytes
-	CheckDownloadQuota(ctx core.Context, userID uint, requestedBytes uint64) (bool, error)
-
-	// Reconcile reconciles the quota usage for the previous day
-	Reconcile(ctx core.Context) error
+	// GetUserMaxDownload returns the max download for a given user
+	GetUserMaxDownload(ctx context.Context, userID uint) (uint64, error)
 }

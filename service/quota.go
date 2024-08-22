@@ -7,12 +7,22 @@ import (
 
 const QUOTA_SERVICE = service.QUOTA_SERVICE
 
-type BillingService interface {
+type QuotaService interface {
 	core.Service
 	core.Configurable
 
-	// GetUserQuota returns the quota for a given user
-	GetUserMaxStorage(ctx core.Context, userID uint) (uint64, error)
-	GetUserMaxUpload(ctx core.Context, userID uint) (uint64, error)
-	GetUserMaxDownload(ctx core.Context, userID uint) (uint64, error)
+	// RecordDownload records a download for a user
+	RecordDownload(ctx core.Context, uploadID, userID uint, bytes uint64, ip string) error
+
+	// CheckStorageQuota checks if a user has enough storage quota for a requested number of bytes
+	CheckStorageQuota(ctx core.Context, userID uint, requestedBytes uint64) (bool, error)
+
+	// CheckUploadQuota checks if a user has enough upload quota for a requested number of bytes
+	CheckUploadQuota(ctx core.Context, userID uint, requestedBytes uint64) (bool, error)
+
+	// CheckDownloadQuota checks if a user has enough download quota for a requested number of bytes
+	CheckDownloadQuota(ctx core.Context, userID uint, requestedBytes uint64) (bool, error)
+
+	// Reconcile reconciles the quota usage for the previous day
+	Reconcile(ctx core.Context) error
 }
