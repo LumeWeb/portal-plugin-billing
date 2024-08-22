@@ -196,41 +196,111 @@ func (q *QuotaServiceDefault) getUserQuotaRecord(ctx core.Context, userID uint, 
 
 func (q *QuotaServiceDefault) Reconcile(ctx core.Context) error {
 	yesterday := time.Now().UTC().Add(-24 * time.Hour).Truncate(24 * time.Hour)
+
+	return q.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := q.reconcileDownloads(ctx, tx, yesterday); err != nil {
+			return err
+		}
+		if err := q.reconcileUploads(ctx, tx, yesterday); err != nil {
+			return err
+		}
+		if err := q.reconcileStorage(ctx, tx, yesterday); err != nil {
+			return err
+		}
+		return nil
+	})
+}
+
+func (q *QuotaServiceDefault) reconcileDownloads(ctx core.Context, tx *gorm.DB, date time.Time) error {
 	var userBytes []struct {
 		UserID    uint
 		BytesUsed uint64
 	}
-	return q.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		err := db.RetryableTransaction(ctx, q.db, func(tx *gorm.DB) *gorm.DB {
-			return tx.Table("downloads").
-				Select("user_id, COALESCE(SUM(bytes), 0) as bytes_used").
-				Where("created_at >= ? AND created_at < ?", yesterday, yesterday.Add(24*time.Hour)).
-				Group("user_id").
-				Scan(&userBytes)
-		})
-		if err != nil {
+
+	err := db.RetryableTransaction(ctx, tx, func(tx *gorm.DB) *gorm.DB {
+		return tx.Table("downloads").
+			Select("user_id, COALESCE(SUM(bytes), 0) as bytes_used").
+			Where("created_at >= ? AND created_at < ?", date, date.Add(24*time.Hour)).
+			Group("user_id").
+			Scan(&userBytes)
+	})
+	if err != nil {
+		return err
+	}
+
+	return q.updateQuotas(ctx, tx, userBytes, date, "bytes_downloaded")
+}
+
+func (q *QuotaServiceDefault) reconcileUploads(ctx core.Context, tx *gorm.DB, date time.Time) error {
+	var userBytes []struct {
+		UserID    uint
+		BytesUsed uint64
+	}
+
+	err := db.RetryableTransaction(ctx, tx, func(tx *gorm.DB) *gorm.DB {
+		return tx.Table("uploads").
+			Select("user_id, COALESCE(SUM(bytes), 0) as bytes_used").
+			Where("created_at >= ? AND created_at < ?", date, date.Add(24*time.Hour)).
+			Group("user_id").
+			Scan(&userBytes)
+	})
+	if err != nil {
+		return err
+	}
+
+	return q.updateQuotas(ctx, tx, userBytes, date, "bytes_uploaded")
+}
+
+func (q *QuotaServiceDefault) reconcileStorage(ctx core.Context, tx *gorm.DB, date time.Time) error {
+	var userBytes []struct {
+		UserID    uint
+		BytesUsed uint64
+	}
+
+	err := db.RetryableTransaction(ctx, tx, func(tx *gorm.DB) *gorm.DB {
+		return tx.Table("files").
+			Select("user_id, COALESCE(SUM(size), 0) as bytes_used").
+			Where("created_at < ?", date.Add(24*time.Hour)).
+			Group("user_id").
+			Scan(&userBytes)
+	})
+	if err != nil {
+		return err
+	}
+
+	return q.updateQuotas(ctx, tx, userBytes, date, "bytes_stored")
+}
+
+func (q *QuotaServiceDefault) updateQuotas(ctx core.Context, tx *gorm.DB, userBytes []struct {
+	UserID    uint
+	BytesUsed uint64
+}, date time.Time, updateColumn string) error {
+	for _, ub := range userBytes {
+		quota := &pluginDb.UserQuota{
+			UserID: ub.UserID,
+			Date:   date,
+		}
+
+		switch updateColumn {
+		case "bytes_downloaded":
+			quota.BytesDownloaded = ub.BytesUsed
+		case "bytes_uploaded":
+			quota.BytesUploaded = ub.BytesUsed
+		case "bytes_stored":
+			quota.BytesStored = ub.BytesUsed
+		}
+
+		if err := db.RetryableTransaction(ctx, tx, func(tx *gorm.DB) *gorm.DB {
+			return tx.Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "user_id"}, {Name: "date"}},
+				DoUpdates: clause.AssignmentColumns([]string{updateColumn, "updated_at"}),
+			}).Create(quota)
+		}); err != nil {
 			return err
 		}
+	}
 
-		for _, ub := range userBytes {
-			quota := &pluginDb.UserQuota{
-				UserID:          ub.UserID,
-				Date:            yesterday,
-				BytesDownloaded: ub.BytesUsed,
-			}
-
-			if err = db.RetryableTransaction(ctx, q.db, func(tx *gorm.DB) *gorm.DB {
-				return tx.Clauses(clause.OnConflict{
-					Columns:   []clause.Column{{Name: "user_id"}, {Name: "date"}},
-					DoUpdates: clause.AssignmentColumns([]string{"bytes_used", "updated_at"}),
-				}).Create(&quota)
-			}); err != nil {
-				return err
-			}
-		}
-
-		return nil
-	})
+	return nil
 }
 
 func (b *QuotaServiceDefault) Config() (any, error) {
