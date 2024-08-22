@@ -26,6 +26,11 @@ type QuotaServiceDefault struct {
 	billing  service.BillingService
 }
 
+type userByte struct {
+	UserID    uint
+	BytesUsed uint64
+}
+
 func NewQuotaService() (core.Service, []core.ContextBuilderOption, error) {
 	_service := &QuotaServiceDefault{}
 
@@ -212,10 +217,7 @@ func (q *QuotaServiceDefault) Reconcile(ctx core.Context) error {
 }
 
 func (q *QuotaServiceDefault) reconcileDownloads(ctx core.Context, tx *gorm.DB, date time.Time) error {
-	var userBytes []struct {
-		UserID    uint
-		BytesUsed uint64
-	}
+	var userBytes []userByte
 
 	err := db.RetryableTransaction(ctx, tx, func(tx *gorm.DB) *gorm.DB {
 		return tx.Table("downloads").
@@ -232,10 +234,7 @@ func (q *QuotaServiceDefault) reconcileDownloads(ctx core.Context, tx *gorm.DB, 
 }
 
 func (q *QuotaServiceDefault) reconcileUploads(ctx core.Context, tx *gorm.DB, date time.Time) error {
-	var userBytes []struct {
-		UserID    uint
-		BytesUsed uint64
-	}
+	var userBytes []userByte
 
 	err := db.RetryableTransaction(ctx, tx, func(tx *gorm.DB) *gorm.DB {
 		return tx.Table("uploads").
@@ -252,10 +251,7 @@ func (q *QuotaServiceDefault) reconcileUploads(ctx core.Context, tx *gorm.DB, da
 }
 
 func (q *QuotaServiceDefault) reconcileStorage(ctx core.Context, tx *gorm.DB, date time.Time) error {
-	var userBytes []struct {
-		UserID    uint
-		BytesUsed uint64
-	}
+	var userBytes []userByte
 
 	err := db.RetryableTransaction(ctx, tx, func(tx *gorm.DB) *gorm.DB {
 		return tx.Table("files").
@@ -271,10 +267,7 @@ func (q *QuotaServiceDefault) reconcileStorage(ctx core.Context, tx *gorm.DB, da
 	return q.updateQuotas(ctx, tx, userBytes, date, "bytes_stored")
 }
 
-func (q *QuotaServiceDefault) updateQuotas(ctx core.Context, tx *gorm.DB, userBytes []struct {
-	UserID    uint
-	BytesUsed uint64
-}, date time.Time, updateColumn string) error {
+func (q *QuotaServiceDefault) updateQuotas(ctx core.Context, tx *gorm.DB, userBytes []userByte, date time.Time, updateColumn string) error {
 	for _, ub := range userBytes {
 		quota := &pluginDb.UserQuota{
 			UserID: ub.UserID,
