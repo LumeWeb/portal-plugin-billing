@@ -1,19 +1,30 @@
 package service
 
 import (
+	"errors"
 	"github.com/go-openapi/runtime"
 	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
 	"github.com/killbill/kbcli/v3/kbclient"
 	"github.com/killbill/kbcli/v3/kbclient/account"
-	"github.com/killbill/kbcli/v3/kbclient/usage"
 	"github.com/killbill/kbcli/v3/kbmodel"
 	"go.lumeweb.com/portal-plugin-billing/internal/config"
+	pluginDb "go.lumeweb.com/portal-plugin-billing/internal/db"
 	"go.lumeweb.com/portal-plugin-billing/service"
 	"go.lumeweb.com/portal/core"
+	"go.lumeweb.com/portal/db"
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 	"math"
 	"strconv"
+)
+
+type UsageType string
+
+const (
+	StorageUsage  UsageType = "storage"
+	UploadUsage   UsageType = "upload"
+	DownloadUsage UsageType = "download"
 )
 
 var _ core.Service = (*BillingServiceDefault)(nil)
@@ -65,16 +76,16 @@ func (b *BillingServiceDefault) ID() string {
 	return BILLING_SERVICE
 }
 
-func (b *BillingServiceDefault) GetUserStorageQuota(ctx core.Context, userID uint) (uint64, error) {
-	return b.getUsageByUserID(ctx, userID, b.cfg.KillBill.StorageUsageUnitName)
+func (b *BillingServiceDefault) GetUserMaxStorage(ctx core.Context, userID uint) (uint64, error) {
+	return b.getUsageByUserID(ctx, userID, StorageUsage)
 }
 
-func (b *BillingServiceDefault) GetUserUploadQuota(ctx core.Context, userID uint) (uint64, error) {
-	return b.getUsageByUserID(ctx, userID, b.cfg.KillBill.UploadUsageUnitName)
+func (b *BillingServiceDefault) GetUserMaxUpload(ctx core.Context, userID uint) (uint64, error) {
+	return b.getUsageByUserID(ctx, userID, UploadUsage)
 }
 
-func (b *BillingServiceDefault) GetUserDownloadQuota(ctx core.Context, userID uint) (uint64, error) {
-	return b.getUsageByUserID(ctx, userID, b.cfg.KillBill.DownloadUsageUnitName)
+func (b *BillingServiceDefault) GetUserMaxDownload(ctx core.Context, userID uint) (uint64, error) {
+	return b.getUsageByUserID(ctx, userID, DownloadUsage)
 }
 
 func (b *BillingServiceDefault) enabled() bool {
@@ -87,7 +98,7 @@ func (b *BillingServiceDefault) Config() (any, error) {
 	return &config.BillingConfig{}, nil
 }
 
-func (b *BillingServiceDefault) getUsageByUserID(ctx core.Context, userID uint, unitName string) (uint64, error) {
+func (b *BillingServiceDefault) getUsageByUserID(ctx core.Context, userID uint, usageType UsageType) (uint64, error) {
 	if !b.enabled() {
 		return math.MaxUint64, nil
 	}
@@ -113,18 +124,28 @@ func (b *BillingServiceDefault) getUsageByUserID(ctx core.Context, userID uint, 
 		return 0, nil
 	}
 
-	getUsage, err := b.api.Usage.GetUsage(ctx, &usage.GetUsageParams{
-		UnitType:       unitName,
-		SubscriptionID: subscription.SubscriptionID,
-	})
-	if err != nil {
+	if len(*subscription.PlanName) == 0 {
+		return 0, nil
+	}
+
+	var plan pluginDb.Plan
+
+	if err = db.RetryableTransaction(ctx, b.db, func(tx *gorm.DB) *gorm.DB {
+		return tx.Model(&pluginDb.Plan{}).Where(&pluginDb.Plan{Identifier: *subscription.PlanName}).First(&plan)
+	}); err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			b.logger.Error("failed to get plan", zap.Error(err))
+		}
 		return 0, err
 	}
 
-	for _, unit := range getUsage.Payload.RolledUpUnits {
-		if unit.UnitType == b.cfg.KillBill.DownloadUsageUnitName {
-			return uint64(math.Ceil(unit.Amount)), nil
-		}
+	switch usageType {
+	case StorageUsage:
+		return plan.Storage, nil
+	case UploadUsage:
+		return plan.Upload, nil
+	case DownloadUsage:
+		return plan.Download, nil
 	}
 
 	return 0, nil

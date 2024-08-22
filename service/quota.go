@@ -12,7 +12,7 @@ type BillingService interface {
 	core.Configurable
 
 	// GetUserQuota returns the quota for a given user
-	GetUserStorageQuota(ctx core.Context, userID uint) (uint64, error)
-	GetUserUploadQuota(ctx core.Context, userID uint) (uint64, error)
-	GetUserDownloadQuota(ctx core.Context, userID uint) (uint64, error)
+	GetUserMaxStorage(ctx core.Context, userID uint) (uint64, error)
+	GetUserMaxUpload(ctx core.Context, userID uint) (uint64, error)
+	GetUserMaxDownload(ctx core.Context, userID uint) (uint64, error)
 }

@@ -27,7 +27,9 @@ func init() {
 		},
 		Models: []any{
 			&pluginDb.Download{},
+			&pluginDb.Upload{},
 			&pluginDb.UserQuota{},
+			&pluginDb.Plan{},
 		},
 		Cron: func() core.CronFactory {
 			return func(ctx core.Context) (core.Cronable, error) {

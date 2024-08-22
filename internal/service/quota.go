@@ -129,7 +129,7 @@ func (q *QuotaServiceDefault) CheckDownloadQuota(ctx core.Context, userID uint, 
 
 	requestedBytes = record.BytesDownloaded + requestedBytes
 
-	maxQuota, err := q.billing.GetUserStorageQuota(ctx, userID)
+	maxQuota, err := q.billing.GetUserMaxStorage(ctx, userID)
 	if err != nil {
 		return false, err
 	}
@@ -150,7 +150,7 @@ func (q *QuotaServiceDefault) CheckStorageQuota(ctx core.Context, userID uint, r
 
 	requestedBytes = record.BytesDownloaded + requestedBytes
 
-	maxQuota, err := q.billing.GetUserStorageQuota(ctx, userID)
+	maxQuota, err := q.billing.GetUserMaxStorage(ctx, userID)
 
 	if err != nil {
 		return false, err
@@ -173,7 +173,7 @@ func (q *QuotaServiceDefault) CheckUploadQuota(ctx core.Context, userID uint, re
 
 	requestedBytes = record.BytesDownloaded + requestedBytes
 
-	maxQuota, err := q.billing.GetUserStorageQuota(ctx, userID)
+	maxQuota, err := q.billing.GetUserMaxStorage(ctx, userID)
 
 	if err != nil {
 		return false, err
