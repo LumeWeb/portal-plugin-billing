@@ -1,7 +1,6 @@
 package service
 
 import (
-	"errors"
 	"go.lumeweb.com/portal-plugin-billing/internal/config"
 	pluginDb "go.lumeweb.com/portal-plugin-billing/internal/db"
 	"go.lumeweb.com/portal-plugin-billing/service"
@@ -24,7 +23,7 @@ type QuotaServiceDefault struct {
 	logger   *core.Logger
 	pins     core.PinService
 	metadata core.MetadataService
-	billing  *BillingServiceDefault
+	billing  service.BillingService
 }
 
 func NewQuotaService() (core.Service, []core.ContextBuilderOption, error) {
@@ -37,7 +36,7 @@ func NewQuotaService() (core.Service, []core.ContextBuilderOption, error) {
 			_service.pins = core.GetService[core.PinService](ctx, core.PIN_SERVICE)
 			_service.metadata = core.GetService[core.MetadataService](ctx, core.METADATA_SERVICE)
 			_service.logger = ctx.ServiceLogger(_service)
-			_service.billing = core.GetService[*BillingServiceDefault](ctx, BILLING_SERVICE)
+			_service.billing = core.GetService[service.BillingService](ctx, BILLING_SERVICE)
 			return nil
 		}),
 
@@ -105,7 +104,7 @@ func (q *QuotaServiceDefault) RecordDownload(ctx core.Context, uploadID, userID 
 			return err
 		}
 
-		userQuota.BytesUsed += bytes
+		userQuota.BytesDownloaded += bytes
 
 		if err := db.RetryableTransaction(ctx, q.db, func(tx *gorm.DB) *gorm.DB {
 			return tx.Model(&pluginDb.UserQuota{}).Where(&pluginDb.UserQuota{UserID: userID, Date: today}).First(&userQuota)
@@ -116,32 +115,83 @@ func (q *QuotaServiceDefault) RecordDownload(ctx core.Context, uploadID, userID 
 		return nil
 	})
 }
-func (q *QuotaServiceDefault) CheckQuota(ctx core.Context, userID uint, requestedBytes uint64) (bool, error) {
+func (q *QuotaServiceDefault) CheckDownloadQuota(ctx core.Context, userID uint, requestedBytes uint64) (bool, error) {
 	if !q.enabled() {
 		return true, nil
 	}
 
-	var userQuota pluginDb.UserQuota
 	today := time.Now().UTC().Truncate(24 * time.Hour)
 
-	if err := db.RetryableTransaction(ctx, q.db, func(tx *gorm.DB) *gorm.DB {
-		return tx.Model(&pluginDb.UserQuota{}).Where(&pluginDb.UserQuota{UserID: userID, Date: today}).First(&userQuota)
-	}); err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return true, nil
-		}
+	record, err := q.getUserQuotaRecord(ctx, userID, today)
+	if err != nil {
 		return false, err
 	}
 
-	requestedBytes = (userQuota.BytesUsed + requestedBytes)
+	requestedBytes = record.BytesDownloaded + requestedBytes
 
-	maxQuota, err := q.billing.GetUserQuota(ctx, userID)
+	maxQuota, err := q.billing.GetUserStorageQuota(ctx, userID)
+	if err != nil {
+		return false, err
+	}
+
+	return requestedBytes <= maxQuota, nil
+}
+
+func (q *QuotaServiceDefault) CheckStorageQuota(ctx core.Context, userID uint, requestedBytes uint64) (bool, error) {
+	if !q.enabled() {
+		return true, nil
+	}
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+
+	record, err := q.getUserQuotaRecord(ctx, userID, today)
+	if err != nil {
+		return false, err
+	}
+
+	requestedBytes = record.BytesDownloaded + requestedBytes
+
+	maxQuota, err := q.billing.GetUserStorageQuota(ctx, userID)
 
 	if err != nil {
 		return false, err
 	}
 
 	return requestedBytes <= maxQuota, nil
+}
+
+func (q *QuotaServiceDefault) CheckUploadQuota(ctx core.Context, userID uint, requestedBytes uint64) (bool, error) {
+	if !q.enabled() {
+		return true, nil
+	}
+
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+
+	record, err := q.getUserQuotaRecord(ctx, userID, today)
+	if err != nil {
+		return false, err
+	}
+
+	requestedBytes = record.BytesDownloaded + requestedBytes
+
+	maxQuota, err := q.billing.GetUserStorageQuota(ctx, userID)
+
+	if err != nil {
+		return false, err
+	}
+
+	return requestedBytes <= maxQuota, nil
+}
+
+func (q *QuotaServiceDefault) getUserQuotaRecord(ctx core.Context, userID uint, date time.Time) (*pluginDb.UserQuota, error) {
+	var userQuota pluginDb.UserQuota
+
+	if err := db.RetryableTransaction(ctx, q.db, func(tx *gorm.DB) *gorm.DB {
+		return tx.Model(&pluginDb.UserQuota{}).Where(&pluginDb.UserQuota{UserID: userID, Date: date}).First(&userQuota)
+	}); err != nil {
+		return nil, err
+	}
+
+	return &userQuota, nil
 }
 
 func (q *QuotaServiceDefault) Reconcile(ctx core.Context) error {
@@ -164,9 +214,9 @@ func (q *QuotaServiceDefault) Reconcile(ctx core.Context) error {
 
 		for _, ub := range userBytes {
 			quota := &pluginDb.UserQuota{
-				UserID:    ub.UserID,
-				Date:      yesterday,
-				BytesUsed: ub.BytesUsed,
+				UserID:          ub.UserID,
+				Date:            yesterday,
+				BytesDownloaded: ub.BytesUsed,
 			}
 
 			if err = db.RetryableTransaction(ctx, q.db, func(tx *gorm.DB) *gorm.DB {
