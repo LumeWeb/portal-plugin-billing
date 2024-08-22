@@ -15,6 +15,8 @@ import (
 	"go.lumeweb.com/portal-plugin-billing/service"
 	"go.lumeweb.com/portal/core"
 	"go.lumeweb.com/portal/db"
+	"go.lumeweb.com/portal/db/models"
+	"go.lumeweb.com/portal/event"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 	"math"
@@ -55,21 +57,27 @@ func NewBillingService() (core.Service, []core.ContextBuilderOption, error) {
 			_service.user = core.GetService[core.UserService](ctx, core.USER_SERVICE)
 			_service.cfg = ctx.Config().GetService(BILLING_SERVICE).(*config.BillingConfig)
 
-			if _service.enabled() {
-				trp := httptransport.New(_service.cfg.KillBill.APIServer, "", nil)
-				trp.Producers["text/xml"] = runtime.TextProducer()
-				trp.Debug = false
-				authWriter := runtime.ClientAuthInfoWriterFunc(func(r runtime.ClientRequest, _ strfmt.Registry) error {
-					if err := r.SetHeaderParam("X-KillBill-ApiKey", _service.cfg.KillBill.APIKey); err != nil {
-						return err
-					}
-					if err := r.SetHeaderParam("X-KillBill-ApiSecret", _service.cfg.KillBill.APISecret); err != nil {
-						return err
-					}
-					return nil
-				})
-				_service.api = kbclient.New(trp, strfmt.Default, authWriter, kbclient.KillbillDefaults{})
+			if !_service.enabled() {
+				return nil
 			}
+
+			trp := httptransport.New(_service.cfg.KillBill.APIServer, "", nil)
+			trp.Producers["text/xml"] = runtime.TextProducer()
+			trp.Debug = false
+			authWriter := runtime.ClientAuthInfoWriterFunc(func(r runtime.ClientRequest, _ strfmt.Registry) error {
+				if err := r.SetHeaderParam("X-KillBill-ApiKey", _service.cfg.KillBill.APIKey); err != nil {
+					return err
+				}
+				if err := r.SetHeaderParam("X-KillBill-ApiSecret", _service.cfg.KillBill.APISecret); err != nil {
+					return err
+				}
+				return nil
+			})
+			_service.api = kbclient.New(trp, strfmt.Default, authWriter, kbclient.KillbillDefaults{})
+
+			event.Listen[*event.UserCreatedEvent](ctx, event.EVENT_USER_CREATED, func(evt *event.UserCreatedEvent) error {
+				return _service.CreateCustomer(ctx, evt.User())
+			})
 
 			return nil
 		}),
@@ -80,21 +88,12 @@ func (b *BillingServiceDefault) ID() string {
 	return BILLING_SERVICE
 }
 
-func (b *BillingServiceDefault) CreateCustomer(ctx context.Context, userID uint) error {
+func (b *BillingServiceDefault) CreateCustomer(ctx context.Context, user *models.User) error {
 	if !b.enabled() {
 		return nil
 	}
 
-	exists, user, err := b.user.AccountExists(userID)
-	if err != nil {
-		return err
-	}
-
-	if !exists {
-		return errors.New("user does not exist")
-	}
-
-	externalKey := strconv.FormatUint(uint64(userID), 10)
+	externalKey := strconv.FormatUint(uint64(user.ID), 10)
 
 	result, err := b.api.Account.GetAccountByKey(ctx, &account.GetAccountByKeyParams{
 		ExternalKey: externalKey,
@@ -118,6 +117,19 @@ func (b *BillingServiceDefault) CreateCustomer(ctx context.Context, userID uint)
 	}
 
 	return nil
+}
+
+func (b *BillingServiceDefault) CreateCustomerById(ctx context.Context, userID uint) error {
+	exists, user, err := b.user.AccountExists(userID)
+	if err != nil {
+		return err
+	}
+
+	if !exists {
+		return errors.New("user does not exist")
+	}
+
+	return b.CreateCustomer(ctx, user)
 }
 
 func (b *BillingServiceDefault) GetUserMaxStorage(ctx context.Context, userID uint) (uint64, error) {

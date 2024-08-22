@@ -4,6 +4,7 @@ import (
 	"context"
 	"go.lumeweb.com/portal-plugin-billing/internal/service"
 	"go.lumeweb.com/portal/core"
+	"go.lumeweb.com/portal/db/models"
 )
 
 const BILLING_SERVICE = service.BILLING_SERVICE
@@ -12,8 +13,11 @@ type BillingService interface {
 	core.Service
 	core.Configurable
 
-	// CreateCustomer creates a customer in the billing system
-	CreateCustomer(ctx context.Context, userID uint) error
+	// CreateCustomer creates a new customer
+	CreateCustomer(ctx context.Context, user *models.User) error
+
+	// CreateCustomerById creates a new customer by user id
+	CreateCustomerById(ctx context.Context, userID uint) error
 
 	// GetUserQuota returns the quota for a given user
 	GetUserMaxStorage(ctx context.Context, userID uint) (uint64, error)
