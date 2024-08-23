@@ -3,7 +3,6 @@ package service
 import (
 	"go.lumeweb.com/portal-plugin-billing/internal/config"
 	pluginDb "go.lumeweb.com/portal-plugin-billing/internal/db"
-	"go.lumeweb.com/portal-plugin-billing/service"
 	"go.lumeweb.com/portal/core"
 	"go.lumeweb.com/portal/db"
 	"go.lumeweb.com/portal/event"
@@ -21,7 +20,7 @@ type QuotaServiceDefault struct {
 	logger   *core.Logger
 	pins     core.PinService
 	metadata core.MetadataService
-	billing  service.BillingService
+	billing  *BillingServiceDefault
 }
 
 type userByte struct {
@@ -39,7 +38,7 @@ func NewQuotaService() (core.Service, []core.ContextBuilderOption, error) {
 			_service.pins = core.GetService[core.PinService](ctx, core.PIN_SERVICE)
 			_service.metadata = core.GetService[core.MetadataService](ctx, core.METADATA_SERVICE)
 			_service.logger = ctx.ServiceLogger(_service)
-			_service.billing = core.GetService[service.BillingService](ctx, BILLING_SERVICE)
+			_service.billing = core.GetService[*BillingServiceDefault](ctx, BILLING_SERVICE)
 			return nil
 		}),
 
