@@ -28,6 +28,14 @@ func (c BillingConfig) Validate() error {
 		return errors.New("billing.kill_bill.api_server is required")
 	}
 
+	if c.KillBill.Username == "" {
+		return errors.New("billing.kill_bill.username is required")
+	}
+
+	if c.KillBill.Password == "" {
+		return errors.New("billing.kill_bill.password is required")
+	}
+
 	if c.KillBill.APIKey == "" {
 		return errors.New("billing.kill_bill.api_key is required")
 	}
