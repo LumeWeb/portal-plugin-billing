@@ -24,6 +24,7 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 	"math"
+	"sort"
 	"strconv"
 )
 
@@ -246,7 +247,10 @@ func (b *BillingServiceDefault) GetPlans(ctx context.Context) ([]*messages.Subsc
 		return result, nil
 	}
 
-	sortedPlans := getSortedPlans(plans.Payload[0])
+	sortedPlans, err := b.getSortedPlans(ctx, plans.Payload[0])
+	if err != nil {
+		return nil, err
+	}
 
 	for _, plan := range sortedPlans {
 		basePlan, err := b.getBasePlanByID(ctx, plan.Name)
@@ -275,7 +279,6 @@ func (b *BillingServiceDefault) GetPlans(ctx context.Context) ([]*messages.Subsc
 		}
 
 		planName, err := b.getPlanNameById(ctx, basePlan.Plan)
-
 		if err != nil {
 			continue
 		}
@@ -330,6 +333,46 @@ func (b *BillingServiceDefault) getBasePlanByID(ctx context.Context, planId stri
 	return nil, nil
 }
 
+func (b *BillingServiceDefault) getSortedPlans(ctx context.Context, catalog *kbmodel.Catalog) ([]*kbmodel.Plan, error) {
+	var plans []*kbmodel.Plan
+	priceList := catalog.PriceLists[0]
+
+	type planWithOrder struct {
+		plan  *kbmodel.Plan
+		order uint
+	}
+	var plansWithOrder []planWithOrder
+
+	for _, planName := range priceList.Plans {
+		for _, product := range catalog.Products {
+			for _, plan := range product.Plans {
+				if plan.Name == planName {
+					localPlan, err := b.getPlanByIdentifier(ctx, plan.Name)
+					if err != nil {
+						// If we can't find the plan in our local database, we'll use a high order number
+						plansWithOrder = append(plansWithOrder, planWithOrder{plan: plan, order: math.MaxUint32})
+					} else {
+						plansWithOrder = append(plansWithOrder, planWithOrder{plan: plan, order: localPlan.Order})
+					}
+					break
+				}
+			}
+		}
+	}
+
+	// Sort the plans based on the Order field
+	sort.Slice(plansWithOrder, func(i, j int) bool {
+		return plansWithOrder[i].order < plansWithOrder[j].order
+	})
+
+	// Extract the sorted plans
+	for _, p := range plansWithOrder {
+		plans = append(plans, p.plan)
+	}
+
+	return plans, nil
+}
+
 /*
 func findPrimaryBaseProduct(catalog []*kbmodel.Catalog) *kbmodel.Product {
 	for _, _catalog := range catalog {
@@ -353,23 +396,4 @@ func findActiveSubscription(bundles []*kbmodel.Bundle) *kbmodel.Subscription {
 	}
 
 	return nil
-}
-
-func getSortedPlans(catalog *kbmodel.Catalog) []*kbmodel.Plan {
-	var plans []*kbmodel.Plan
-
-	priceList := catalog.PriceLists[0]
-
-	for _, planName := range priceList.Plans {
-		for _, product := range catalog.Products {
-			for _, plan := range product.Plans {
-				if plan.Name == planName {
-					plans = append(plans, plan)
-				}
-			}
-
-		}
-	}
-
-	return plans
 }

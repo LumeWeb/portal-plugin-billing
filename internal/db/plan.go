@@ -8,4 +8,5 @@ type Plan struct {
 	Storage    uint64
 	Upload     uint64
 	Download   uint64
+	Order      uint
 }
