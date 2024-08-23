@@ -219,7 +219,7 @@ func (b *BillingServiceDefault) getPlanByIdentifier(ctx context.Context, identif
 	var plan pluginDb.Plan
 
 	if err := db.RetryableTransaction(b.ctx, b.db, func(tx *gorm.DB) *gorm.DB {
-		return tx.Model(&pluginDb.Plan{}).Where(&pluginDb.Plan{Identifier: identifier}).First(&plan)
+		return tx.WithContext(ctx).Model(&pluginDb.Plan{}).Where(&pluginDb.Plan{Identifier: identifier}).First(&plan)
 	}); err != nil {
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			b.logger.Error("failed to get plan", zap.Error(err))
@@ -267,17 +267,44 @@ func (b *BillingServiceDefault) GetPlans(ctx context.Context) ([]*messages.Subsc
 			continue
 		}
 
+		planName, err := b.getPlanNameById(ctx, plan.Plan)
+
+		if err != nil {
+			continue
+		}
+
 		result = append(result, &messages.SubscriptionPlan{
-			Name:     plan.Plan,
-			Price:    plan.FinalPhaseRecurringPrice[0].Value,
-			Period:   period,
-			Upload:   localPlan.Upload,
-			Download: localPlan.Download,
-			Storage:  localPlan.Storage,
+			Name:       planName,
+			Identifier: plan.Plan,
+			Price:      plan.FinalPhaseRecurringPrice[0].Value,
+			Period:     period,
+			Upload:     localPlan.Upload,
+			Download:   localPlan.Download,
+			Storage:    localPlan.Storage,
 		})
 	}
 
 	return result, nil
+}
+
+func (b *BillingServiceDefault) getPlanNameById(ctx context.Context, id string) (string, error) {
+	plans, err := b.api.Catalog.GetCatalogJSON(ctx, &catalog.GetCatalogJSONParams{})
+
+	if err != nil {
+		return "", err
+	}
+
+	for _, _catalog := range plans.Payload {
+		for _, product := range _catalog.Products {
+			for _, plan := range product.Plans {
+				if plan.Name == id {
+					return plan.PrettyName, nil
+				}
+			}
+		}
+	}
+
+	return "", nil
 }
 
 func findActiveSubscription(bundles []*kbmodel.Bundle) *kbmodel.Subscription {

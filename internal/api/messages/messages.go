@@ -12,11 +12,11 @@ type SubscriptionPlansResponse struct {
 }
 
 type SubscriptionPlan struct {
-	ID       uint                   `json:"id"`
-	Name     string                 `json:"name"`
-	Price    float64                `json:"price"`
-	Period   SubscriptionPlanPeriod `json:"period"`
-	Storage  uint64                 `json:"storage"`
-	Upload   uint64                 `json:"upload"`
-	Download uint64                 `json:"download"`
+	Name       string                 `json:"name"`
+	Identifier string                 `json:"identifier"`
+	Price      float64                `json:"price"`
+	Period     SubscriptionPlanPeriod `json:"period"`
+	Storage    uint64                 `json:"storage"`
+	Upload     uint64                 `json:"upload"`
+	Download   uint64                 `json:"download"`
 }
