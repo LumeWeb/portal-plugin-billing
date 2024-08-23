@@ -3,6 +3,7 @@ package api
 import (
 	"fmt"
 	"github.com/gorilla/mux"
+	"github.com/rs/cors"
 	"go.lumeweb.com/httputil"
 	"go.lumeweb.com/portal-plugin-billing/internal/api/messages"
 	"go.lumeweb.com/portal-plugin-billing/service"
@@ -43,8 +44,21 @@ func (a API) Configure(_ *mux.Router) error {
 	accountApi := core.GetAPI("dashboard")
 	router := core.GetService[core.HTTPService](a.ctx, core.HTTP_SERVICE).Router()
 
+	corsOpts := cors.Options{
+		AllowOriginFunc: func(origin string) bool {
+			return true
+		},
+		AllowedMethods:   []string{"GET", "POST", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Authorization", "Content-Type"},
+		AllowCredentials: true,
+	}
+
+	corsHandler := cors.New(corsOpts)
+
 	domain := fmt.Sprintf("%s.%s", accountApi.Subdomain(), a.ctx.Config().Config().Core.Domain)
 	accountRouter := router.Host(domain).Subrouter()
+
+	accountRouter.Use(corsHandler.Handler)
 
 	accountRouter.HandleFunc("/api/account/subscription/plans", a.getPlans).Methods("GET")
 
