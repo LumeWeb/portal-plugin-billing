@@ -10,6 +10,7 @@ import (
 	"github.com/killbill/kbcli/v3/kbclient"
 	"github.com/killbill/kbcli/v3/kbclient/account"
 	"github.com/killbill/kbcli/v3/kbclient/catalog"
+	"github.com/killbill/kbcli/v3/kbclient/nodes_info"
 	"github.com/killbill/kbcli/v3/kbmodel"
 	"go.lumeweb.com/portal-plugin-billing/internal/api/messages"
 	"go.lumeweb.com/portal-plugin-billing/internal/config"
@@ -74,6 +75,11 @@ func NewBillingService() (core.Service, []core.ContextBuilderOption, error) {
 				return nil
 			})
 			_service.api = kbclient.New(trp, strfmt.Default, authWriter, kbclient.KillbillDefaults{})
+
+			info, err := _service.api.NodesInfo.GetNodesInfo(ctx, &nodes_info.GetNodesInfoParams{})
+			if err != nil || info.Payload == nil || len(info.Payload) == 0 {
+				return fmt.Errorf("failed to connect to KillBill: %v", err)
+			}
 
 			event.Listen[*event.UserCreatedEvent](ctx, event.EVENT_USER_CREATED, func(evt *event.UserCreatedEvent) error {
 				return _service.CreateCustomer(ctx, evt.User())
