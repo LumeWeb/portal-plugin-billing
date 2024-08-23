@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"github.com/go-openapi/runtime"
@@ -66,6 +67,10 @@ func NewBillingService() (core.Service, []core.ContextBuilderOption, error) {
 			trp.Producers["text/xml"] = runtime.TextProducer()
 			trp.Debug = false
 			authWriter := runtime.ClientAuthInfoWriterFunc(func(r runtime.ClientRequest, _ strfmt.Registry) error {
+				encoded := base64.StdEncoding.EncodeToString([]byte("test" + ":" + "test"))
+				if err := r.SetHeaderParam("Authorization", "Basic "+encoded); err != nil {
+					return err
+				}
 				if err := r.SetHeaderParam("X-KillBill-ApiKey", _service.cfg.KillBill.APIKey); err != nil {
 					return err
 				}
