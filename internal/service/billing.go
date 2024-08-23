@@ -253,9 +253,21 @@ func (b *BillingServiceDefault) GetPlans(ctx context.Context) ([]*messages.Subsc
 			return nil, err
 		}
 
+		var period messages.SubscriptionPlanPeriod
+
+		switch plan.FinalPhaseBillingPeriod {
+		case kbmodel.PlanDetailFinalPhaseBillingPeriodMONTHLY:
+			period = messages.SubscriptionPlanPeriodMonth
+		case kbmodel.PlanDetailFinalPhaseBillingPeriodANNUAL:
+			period = messages.SubscriptionPlanPeriodYear
+		default:
+			continue
+		}
+
 		result = append(result, &messages.SubscriptionPlan{
 			Name:     plan.Plan,
 			Price:    plan.FinalPhaseRecurringPrice[0].Value,
+			Period:   period,
 			Upload:   localPlan.Upload,
 			Download: localPlan.Download,
 			Storage:  localPlan.Storage,
