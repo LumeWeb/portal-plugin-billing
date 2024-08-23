@@ -67,7 +67,7 @@ func NewBillingService() (core.Service, []core.ContextBuilderOption, error) {
 			trp.Producers["text/xml"] = runtime.TextProducer()
 			trp.Debug = false
 			authWriter := runtime.ClientAuthInfoWriterFunc(func(r runtime.ClientRequest, _ strfmt.Registry) error {
-				encoded := base64.StdEncoding.EncodeToString([]byte("test" + ":" + "test"))
+				encoded := base64.StdEncoding.EncodeToString([]byte(_service.cfg.KillBill.Username + ":" + _service.cfg.KillBill.Password))
 				if err := r.SetHeaderParam("Authorization", "Basic "+encoded); err != nil {
 					return err
 				}
