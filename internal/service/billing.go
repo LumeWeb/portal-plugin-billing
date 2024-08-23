@@ -254,7 +254,7 @@ func (b *BillingServiceDefault) GetPlans(ctx context.Context) ([]*messages.Subsc
 		}
 
 		result = append(result, &messages.SubscriptionPlan{
-			Name:     plan.Product,
+			Name:     plan.Plan,
 			Price:    plan.FinalPhaseRecurringPrice[0].Value,
 			Upload:   localPlan.Upload,
 			Download: localPlan.Download,
