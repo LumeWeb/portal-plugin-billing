@@ -12,6 +12,7 @@ import (
 	"github.com/killbill/kbcli/v3/kbclient/account"
 	"github.com/killbill/kbcli/v3/kbclient/catalog"
 	"github.com/killbill/kbcli/v3/kbclient/nodes_info"
+	"github.com/killbill/kbcli/v3/kbcommon"
 	"github.com/killbill/kbcli/v3/kbmodel"
 	"go.lumeweb.com/portal-plugin-billing/internal/api/messages"
 	"go.lumeweb.com/portal-plugin-billing/internal/config"
@@ -110,21 +111,23 @@ func (b *BillingServiceDefault) CreateCustomer(ctx context.Context, user *models
 		ExternalKey: externalKey,
 	})
 
-	if err != nil {
-		return err
+	if err != nil || result == nil {
+		if kbErr, ok := err.(*kbcommon.KillbillError); ok {
+			if kbErr.HTTPCode != 404 {
+				return nil
+			}
+		}
 	}
 
-	if result.Payload == nil {
-		_, err = b.api.Account.CreateAccount(ctx, &account.CreateAccountParams{
-			Body: &kbmodel.Account{
-				ExternalKey: externalKey,
-				Name:        fmt.Sprintf("%s %s", user.FirstName, user.LastName),
-			},
-		})
+	_, err = b.api.Account.CreateAccount(ctx, &account.CreateAccountParams{
+		Body: &kbmodel.Account{
+			ExternalKey: externalKey,
+			Name:        fmt.Sprintf("%s %s", user.FirstName, user.LastName),
+		},
+	})
 
-		if err != nil {
-			return err
-		}
+	if err != nil {
+		return err
 	}
 
 	return nil
