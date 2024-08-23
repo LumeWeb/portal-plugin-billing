@@ -14,7 +14,6 @@ import (
 	"go.lumeweb.com/portal-plugin-billing/internal/api/messages"
 	"go.lumeweb.com/portal-plugin-billing/internal/config"
 	pluginDb "go.lumeweb.com/portal-plugin-billing/internal/db"
-	"go.lumeweb.com/portal-plugin-billing/service"
 	"go.lumeweb.com/portal/core"
 	"go.lumeweb.com/portal/db"
 	"go.lumeweb.com/portal/db/models"
@@ -35,7 +34,6 @@ const (
 
 var _ core.Service = (*BillingServiceDefault)(nil)
 var _ core.Configurable = (*BillingServiceDefault)(nil)
-var _ service.BillingService = (*BillingServiceDefault)(nil)
 
 const BILLING_SERVICE = "billing"
 

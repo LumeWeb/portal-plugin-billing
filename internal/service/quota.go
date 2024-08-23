@@ -13,8 +13,6 @@ import (
 	"time"
 )
 
-var _ service.QuotaService = (*QuotaServiceDefault)(nil)
-
 const QUOTA_SERVICE = "quota"
 
 type QuotaServiceDefault struct {

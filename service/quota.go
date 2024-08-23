@@ -26,3 +26,5 @@ type QuotaService interface {
 	// Reconcile reconciles the quota usage for the previous day
 	Reconcile(ctx core.Context) error
 }
+
+var _ QuotaService = (*service.QuotaServiceDefault)(nil)
