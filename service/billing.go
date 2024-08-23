@@ -31,6 +31,9 @@ type BillingService interface {
 
 	// GetPlans returns all available subscription plans
 	GetPlans(ctx context.Context) ([]*messages.SubscriptionPlan, error)
+
+	// GetSubscription returns the subscription for a given user
+	GetSubscription(ctx context.Context, userID uint) (*messages.SubscriptionResponse, error)
 }
 
 var _ BillingService = (*service.BillingServiceDefault)(nil)

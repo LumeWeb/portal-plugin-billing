@@ -20,3 +20,7 @@ type SubscriptionPlan struct {
 	Upload     uint64                 `json:"upload"`
 	Download   uint64                 `json:"download"`
 }
+
+type SubscriptionResponse struct {
+	Plan *SubscriptionPlan `json:"plan"`
+}

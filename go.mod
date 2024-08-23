@@ -11,7 +11,7 @@ require (
 	github.com/killbill/kbcli/v3 v3.1.0
 	github.com/rs/cors v1.11.0
 	go.lumeweb.com/httputil v0.0.0-20240616192644-3d270a528d86
-	go.lumeweb.com/portal v0.1.2-0.20240821075010-1e44ab0f0814
+	go.lumeweb.com/portal v0.1.2-0.20240822234559-e0a213d8754a
 	go.uber.org/zap v1.27.0
 	gorm.io/gorm v1.25.11
 )
@@ -33,6 +33,8 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.59.0 // indirect
 	github.com/aws/smithy-go v1.20.4 // indirect
 	github.com/boombuler/barcode v1.0.1 // indirect
+	github.com/casbin/casbin/v2 v2.98.0 // indirect
+	github.com/casbin/govaluate v1.2.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/coreos/go-semver v0.3.1 // indirect
 	github.com/coreos/go-systemd/v22 v22.5.0 // indirect

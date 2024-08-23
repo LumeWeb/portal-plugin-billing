@@ -9,6 +9,7 @@ import (
 	"go.lumeweb.com/portal-plugin-billing/service"
 	"go.lumeweb.com/portal/config"
 	"go.lumeweb.com/portal/core"
+	"go.lumeweb.com/portal/middleware"
 	"net/http"
 )
 
@@ -55,11 +56,17 @@ func (a API) Configure(_ *mux.Router) error {
 
 	corsHandler := cors.New(corsOpts)
 
+	authMw := middleware.AuthMiddleware(middleware.AuthMiddlewareOptions{
+		Context: a.ctx,
+		Purpose: core.JWTPurposeNone,
+	})
+
 	domain := fmt.Sprintf("%s.%s", accountApi.Subdomain(), a.ctx.Config().Config().Core.Domain)
 	accountRouter := router.Host(domain).Subrouter()
 
 	accountRouter.Use(corsHandler.Handler)
 
+	router.HandleFunc("/api/account/subscription", a.getSubscription).Methods("POST", "OPTIONS").Use(authMw)
 	accountRouter.HandleFunc("/api/account/subscription/plans", a.getPlans).Methods("GET", "OPTIONS")
 
 	return nil
@@ -84,4 +91,24 @@ func (a API) getPlans(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx.Encode(&messages.SubscriptionPlansResponse{Plans: plans})
+}
+
+func (a API) getSubscription(w http.ResponseWriter, r *http.Request) {
+	ctx := httputil.Context(r, w)
+
+	user, err := middleware.GetUserFromContext(ctx)
+
+	if err != nil {
+		_ = ctx.Error(core.NewAccountError(core.ErrKeyInvalidLogin, nil), http.StatusUnauthorized)
+		return
+	}
+
+	subscription, err := a.billingService.GetSubscription(ctx, user)
+
+	if err != nil {
+		_ = ctx.Error(err, http.StatusInternalServerError)
+		return
+	}
+
+	ctx.Encode(subscription)
 }

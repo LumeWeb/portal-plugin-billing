@@ -14,6 +14,7 @@ import (
 	"github.com/killbill/kbcli/v3/kbclient/nodes_info"
 	"github.com/killbill/kbcli/v3/kbcommon"
 	"github.com/killbill/kbcli/v3/kbmodel"
+	"github.com/samber/lo"
 	"go.lumeweb.com/portal-plugin-billing/internal/api/messages"
 	"go.lumeweb.com/portal-plugin-billing/internal/config"
 	pluginDb "go.lumeweb.com/portal-plugin-billing/internal/db"
@@ -267,16 +268,7 @@ func (b *BillingServiceDefault) GetPlans(ctx context.Context) ([]*messages.Subsc
 			return nil, err
 		}
 
-		var period messages.SubscriptionPlanPeriod
-
-		switch basePlan.FinalPhaseBillingPeriod {
-		case kbmodel.PlanDetailFinalPhaseBillingPeriodMONTHLY:
-			period = messages.SubscriptionPlanPeriodMonth
-		case kbmodel.PlanDetailFinalPhaseBillingPeriodANNUAL:
-			period = messages.SubscriptionPlanPeriodYear
-		default:
-			continue
-		}
+		period := remoteBillingPeriodToLocal(basePlan.FinalPhaseBillingPeriod)
 
 		planName, err := b.getPlanNameById(ctx, basePlan.Plan)
 		if err != nil {
@@ -373,6 +365,63 @@ func (b *BillingServiceDefault) getSortedPlans(ctx context.Context, catalog *kbm
 	return plans, nil
 }
 
+func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint) (*messages.SubscriptionResponse, error) {
+	if !b.enabled() {
+		return nil, nil
+	}
+
+	acct, err := b.api.Account.GetAccountByKey(ctx, &account.GetAccountByKeyParams{
+		ExternalKey: strconv.FormatUint(uint64(userID), 10),
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	bundles, err := b.api.Account.GetAccountBundles(ctx, &account.GetAccountBundlesParams{
+		AccountID: acct.Payload.AccountID,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	subscription := findActiveSubscription(bundles.Payload)
+
+	if subscription == nil {
+		return nil, nil
+	}
+
+	plan, err := b.getPlanByIdentifier(ctx, *subscription.PlanName)
+	if err != nil {
+		return nil, err
+	}
+
+	planName, err := b.getPlanNameById(ctx, *subscription.PlanName)
+	if err != nil {
+		return nil, err
+	}
+
+	prices := lo.Filter(subscription.Prices, func(price *kbmodel.PhasePrice, _ int) bool {
+		return kbmodel.SubscriptionPhaseTypeEnum(price.PhaseType) == subscription.PhaseType
+	})
+
+	if len(prices) == 0 {
+		return nil, errors.New("failed to find price")
+	}
+
+	return &messages.SubscriptionResponse{
+		Plan: &messages.SubscriptionPlan{
+			Name:       planName,
+			Price:      prices[0].RecurringPrice,
+			Identifier: plan.Identifier,
+			Period:     remoteSubscriptionPhaseToLocal(kbmodel.SubscriptionPhaseTypeEnum(*subscription.BillingPeriod)),
+			Storage:    plan.Storage,
+			Upload:     plan.Upload,
+			Download:   plan.Download,
+		},
+	}, nil
+}
+
 /*
 func findPrimaryBaseProduct(catalog []*kbmodel.Catalog) *kbmodel.Product {
 	for _, _catalog := range catalog {
@@ -396,4 +445,37 @@ func findActiveSubscription(bundles []*kbmodel.Bundle) *kbmodel.Subscription {
 	}
 
 	return nil
+}
+
+func localBillingPeriodToRemote(period messages.SubscriptionPlanPeriod) kbmodel.PlanDetailFinalPhaseBillingPeriodEnum {
+	switch period {
+	case messages.SubscriptionPlanPeriodMonth:
+		return kbmodel.PlanDetailFinalPhaseBillingPeriodMONTHLY
+	case messages.SubscriptionPlanPeriodYear:
+		return kbmodel.PlanDetailFinalPhaseBillingPeriodANNUAL
+	default:
+		return kbmodel.PlanDetailFinalPhaseBillingPeriodMONTHLY
+	}
+}
+
+func remoteBillingPeriodToLocal(period kbmodel.PlanDetailFinalPhaseBillingPeriodEnum) messages.SubscriptionPlanPeriod {
+	switch period {
+	case kbmodel.PlanDetailFinalPhaseBillingPeriodMONTHLY:
+		return messages.SubscriptionPlanPeriodMonth
+	case kbmodel.PlanDetailFinalPhaseBillingPeriodANNUAL:
+		return messages.SubscriptionPlanPeriodYear
+	default:
+		return messages.SubscriptionPlanPeriodMonth
+	}
+}
+
+func remoteSubscriptionPhaseToLocal(phase kbmodel.SubscriptionPhaseTypeEnum) messages.SubscriptionPlanPeriod {
+	switch phase {
+	case kbmodel.SubscriptionPhaseTypeEVERGREEN:
+		return messages.SubscriptionPlanPeriodMonth
+	case kbmodel.SubscriptionPhaseTypeTRIAL:
+		return messages.SubscriptionPlanPeriodMonth
+	default:
+		return messages.SubscriptionPlanPeriodMonth
+	}
 }
