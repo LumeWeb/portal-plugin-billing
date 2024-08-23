@@ -248,7 +248,7 @@ func (b *BillingServiceDefault) GetPlans(ctx context.Context) ([]*messages.Subsc
 			continue
 		}
 
-		localPlan, err := b.getPlanByIdentifier(ctx, plan.Product)
+		localPlan, err := b.getPlanByIdentifier(ctx, plan.Plan)
 		if err != nil {
 			return nil, err
 		}
