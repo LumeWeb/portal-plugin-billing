@@ -235,7 +235,7 @@ func (b *BillingServiceDefault) GetPlans(ctx context.Context) ([]*messages.Subsc
 		return nil, nil
 	}
 
-	plans, err := b.api.Catalog.GetAvailableBasePlans(ctx, &catalog.GetAvailableBasePlansParams{})
+	plans, err := b.api.Catalog.GetCatalogJSON(ctx, &catalog.GetCatalogJSONParams{})
 	if err != nil {
 		return nil, err
 	}
@@ -246,19 +246,26 @@ func (b *BillingServiceDefault) GetPlans(ctx context.Context) ([]*messages.Subsc
 		return result, nil
 	}
 
-	for _, plan := range plans.Payload {
-		if plan.FinalPhaseRecurringPrice == nil {
+	sortedPlans := getSortedPlans(plans.Payload[0])
+
+	for _, plan := range sortedPlans {
+		basePlan, err := b.getBasePlanByID(ctx, plan.Name)
+		if err != nil {
+			return nil, err
+		}
+
+		if basePlan.FinalPhaseRecurringPrice == nil {
 			continue
 		}
 
-		localPlan, err := b.getPlanByIdentifier(ctx, plan.Plan)
+		localPlan, err := b.getPlanByIdentifier(ctx, basePlan.Plan)
 		if err != nil {
 			return nil, err
 		}
 
 		var period messages.SubscriptionPlanPeriod
 
-		switch plan.FinalPhaseBillingPeriod {
+		switch basePlan.FinalPhaseBillingPeriod {
 		case kbmodel.PlanDetailFinalPhaseBillingPeriodMONTHLY:
 			period = messages.SubscriptionPlanPeriodMonth
 		case kbmodel.PlanDetailFinalPhaseBillingPeriodANNUAL:
@@ -267,7 +274,7 @@ func (b *BillingServiceDefault) GetPlans(ctx context.Context) ([]*messages.Subsc
 			continue
 		}
 
-		planName, err := b.getPlanNameById(ctx, plan.Plan)
+		planName, err := b.getPlanNameById(ctx, basePlan.Plan)
 
 		if err != nil {
 			continue
@@ -275,8 +282,8 @@ func (b *BillingServiceDefault) GetPlans(ctx context.Context) ([]*messages.Subsc
 
 		result = append(result, &messages.SubscriptionPlan{
 			Name:       planName,
-			Identifier: plan.Plan,
-			Price:      plan.FinalPhaseRecurringPrice[0].Value,
+			Identifier: basePlan.Plan,
+			Price:      basePlan.FinalPhaseRecurringPrice[0].Value,
 			Period:     period,
 			Upload:     localPlan.Upload,
 			Download:   localPlan.Download,
@@ -307,6 +314,35 @@ func (b *BillingServiceDefault) getPlanNameById(ctx context.Context, id string) 
 	return "", nil
 }
 
+func (b *BillingServiceDefault) getBasePlanByID(ctx context.Context, planId string) (*kbmodel.PlanDetail, error) {
+	plans, err := b.api.Catalog.GetAvailableBasePlans(ctx, &catalog.GetAvailableBasePlansParams{})
+
+	if err != nil {
+		return nil, err
+	}
+
+	for _, plan := range plans.Payload {
+		if plan.Plan == planId {
+			return plan, nil
+		}
+	}
+
+	return nil, nil
+}
+
+/*
+func findPrimaryBaseProduct(catalog []*kbmodel.Catalog) *kbmodel.Product {
+	for _, _catalog := range catalog {
+		for _, product := range _catalog.Products {
+			if product.Type == "BASE" {
+				return product
+			}
+		}
+	}
+
+	return nil
+}*/
+
 func findActiveSubscription(bundles []*kbmodel.Bundle) *kbmodel.Subscription {
 	for _, bundle := range bundles {
 		for _, subscription := range bundle.Subscriptions {
@@ -317,4 +353,23 @@ func findActiveSubscription(bundles []*kbmodel.Bundle) *kbmodel.Subscription {
 	}
 
 	return nil
+}
+
+func getSortedPlans(catalog *kbmodel.Catalog) []*kbmodel.Plan {
+	var plans []*kbmodel.Plan
+
+	priceList := catalog.PriceLists[0]
+
+	for _, planName := range priceList.Plans {
+		for _, product := range catalog.Products {
+			for _, plan := range product.Plans {
+				if plan.Name == planName {
+					plans = append(plans, plan)
+				}
+			}
+
+		}
+	}
+
+	return plans
 }
