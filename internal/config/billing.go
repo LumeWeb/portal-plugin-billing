@@ -9,8 +9,8 @@ var _ config.Defaults = (*BillingConfig)(nil)
 var _ config.Validator = (*BillingConfig)(nil)
 
 type BillingConfig struct {
-	Enabled  bool           `json:"enabled"`
-	KillBill KillBillConfig `json:"kill_bill"`
+	Enabled  bool           `mapstructure:"enabled"`
+	KillBill KillBillConfig `mapstructure:"kill_bill"`
 }
 
 func (c BillingConfig) Defaults() map[string]any {

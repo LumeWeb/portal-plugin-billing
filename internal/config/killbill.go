@@ -1,7 +1,7 @@
 package config
 
 type KillBillConfig struct {
-	APIServer string `json:"api_server"`
-	APIKey    string `json:"api_key"`
-	APISecret string `json:"api_secret"`
+	APIServer string `mapstructure:"api_server"`
+	APIKey    string `mapstructure:"api_key"`
+	APISecret string `mapstructure:"api_secret"`
 }
