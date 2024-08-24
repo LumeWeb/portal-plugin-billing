@@ -67,7 +67,7 @@ func (a API) Configure(_ *mux.Router) error {
 	router.Use(corsHandler.Handler)
 	accountRouter.Use(corsHandler.Handler)
 
-	router.HandleFunc("/api/account/subscription", a.getSubscription).Methods("POST", "OPTIONS").Use(authMw)
+	router.HandleFunc("/api/account/subscription", a.getSubscription).Methods("GET", "OPTIONS").Use(authMw)
 	accountRouter.HandleFunc("/api/account/subscription/plans", a.getPlans).Methods("GET", "OPTIONS")
 
 	return nil
