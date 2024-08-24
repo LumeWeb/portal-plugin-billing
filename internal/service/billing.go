@@ -385,37 +385,35 @@ func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint
 		return nil, err
 	}
 
-	subscription := findActiveSubscription(bundles.Payload)
-
-	if subscription == nil {
-		return nil, nil
-	}
-
-	plan, err := b.getPlanByIdentifier(ctx, *subscription.PlanName)
-	if err != nil {
-		return nil, err
-	}
-
-	planName, err := b.getPlanNameById(ctx, *subscription.PlanName)
-	if err != nil {
-		return nil, err
-	}
-
-	prices := lo.Filter(subscription.Prices, func(price *kbmodel.PhasePrice, _ int) bool {
-		return kbmodel.SubscriptionPhaseTypeEnum(price.PhaseType) == subscription.PhaseType
-	})
-
 	var subPlan *messages.SubscriptionPlan
 
-	if len(prices) > 0 {
-		subPlan = &messages.SubscriptionPlan{
-			Name:       planName,
-			Price:      prices[0].RecurringPrice,
-			Identifier: plan.Identifier,
-			Period:     remoteSubscriptionPhaseToLocal(kbmodel.SubscriptionPhaseTypeEnum(*subscription.BillingPeriod)),
-			Storage:    plan.Storage,
-			Upload:     plan.Upload,
-			Download:   plan.Download,
+	subscription := findActiveSubscription(bundles.Payload)
+
+	if subscription != nil {
+		plan, err := b.getPlanByIdentifier(ctx, *subscription.PlanName)
+		if err != nil {
+			return nil, err
+		}
+
+		planName, err := b.getPlanNameById(ctx, *subscription.PlanName)
+		if err != nil {
+			return nil, err
+		}
+
+		prices := lo.Filter(subscription.Prices, func(price *kbmodel.PhasePrice, _ int) bool {
+			return kbmodel.SubscriptionPhaseTypeEnum(price.PhaseType) == subscription.PhaseType
+		})
+
+		if len(prices) > 0 {
+			subPlan = &messages.SubscriptionPlan{
+				Name:       planName,
+				Price:      prices[0].RecurringPrice,
+				Identifier: plan.Identifier,
+				Period:     remoteSubscriptionPhaseToLocal(kbmodel.SubscriptionPhaseTypeEnum(*subscription.BillingPeriod)),
+				Storage:    plan.Storage,
+				Upload:     plan.Upload,
+				Download:   plan.Download,
+			}
 		}
 	}
 
