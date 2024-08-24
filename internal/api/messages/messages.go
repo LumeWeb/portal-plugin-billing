@@ -22,5 +22,15 @@ type SubscriptionPlan struct {
 }
 
 type SubscriptionResponse struct {
-	Plan *SubscriptionPlan `json:"plan"`
+	Plan        *SubscriptionPlan `json:"plan"`
+	BillingInfo BillingInfo       `json:"billing_info"`
+}
+
+type BillingInfo struct {
+	Name    string `json:"name"`
+	Address string `json:"address"`
+	City    string `json:"city"`
+	State   string `json:"state"`
+	Zip     string `json:"zip"`
+	Country string `json:"country"`
 }

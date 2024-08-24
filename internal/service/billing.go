@@ -419,6 +419,14 @@ func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint
 			Upload:     plan.Upload,
 			Download:   plan.Download,
 		},
+		BillingInfo: messages.BillingInfo{
+			Name:    acct.Payload.Name,
+			Address: acct.Payload.Address1,
+			City:    acct.Payload.City,
+			State:   acct.Payload.State,
+			Zip:     acct.Payload.PostalCode,
+			Country: acct.Payload.Country,
+		},
 	}, nil
 }
 
