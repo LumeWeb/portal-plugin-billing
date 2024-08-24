@@ -64,6 +64,7 @@ func (a API) Configure(_ *mux.Router) error {
 	domain := fmt.Sprintf("%s.%s", accountApi.Subdomain(), a.ctx.Config().Config().Core.Domain)
 	accountRouter := router.Host(domain).Subrouter()
 
+	router.Use(corsHandler.Handler)
 	accountRouter.Use(corsHandler.Handler)
 
 	router.HandleFunc("/api/account/subscription", a.getSubscription).Methods("POST", "OPTIONS").Use(authMw)
