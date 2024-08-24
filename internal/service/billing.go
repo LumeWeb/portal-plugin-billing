@@ -405,12 +405,10 @@ func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint
 		return kbmodel.SubscriptionPhaseTypeEnum(price.PhaseType) == subscription.PhaseType
 	})
 
-	if len(prices) == 0 {
-		return nil, errors.New("failed to find price")
-	}
+	var subPlan *messages.SubscriptionPlan
 
-	return &messages.SubscriptionResponse{
-		Plan: &messages.SubscriptionPlan{
+	if len(prices) > 0 {
+		subPlan = &messages.SubscriptionPlan{
 			Name:       planName,
 			Price:      prices[0].RecurringPrice,
 			Identifier: plan.Identifier,
@@ -418,7 +416,11 @@ func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint
 			Storage:    plan.Storage,
 			Upload:     plan.Upload,
 			Download:   plan.Download,
-		},
+		}
+	}
+
+	return &messages.SubscriptionResponse{
+		Plan: subPlan,
 		BillingInfo: messages.BillingInfo{
 			Name:    acct.Payload.Name,
 			Address: acct.Payload.Address1,
