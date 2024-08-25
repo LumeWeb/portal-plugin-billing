@@ -9,8 +9,9 @@ var _ config.Defaults = (*BillingConfig)(nil)
 var _ config.Validator = (*BillingConfig)(nil)
 
 type BillingConfig struct {
-	Enabled  bool           `mapstructure:"enabled"`
-	KillBill KillBillConfig `mapstructure:"kill_bill"`
+	Enabled     bool              `mapstructure:"enabled"`
+	KillBill    KillBillConfig    `mapstructure:"kill_bill"`
+	Hyperswitch HyperswitchConfig `mapstructure:"hyperswitch"`
 }
 
 func (c BillingConfig) Defaults() map[string]any {
@@ -42,6 +43,14 @@ func (c BillingConfig) Validate() error {
 
 	if c.KillBill.APISecret == "" {
 		return errors.New("billing.kill_bill.api_secret is required")
+	}
+
+	if c.Hyperswitch.APIServer == "" {
+		return errors.New("billing.hyperswitch.api_server is required")
+	}
+
+	if c.Hyperswitch.APIKey == "" {
+		return errors.New("billing.hyperswitch.api_key is required")
 	}
 
 	return nil

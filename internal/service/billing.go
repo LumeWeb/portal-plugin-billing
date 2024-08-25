@@ -1,8 +1,10 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/go-openapi/runtime"
@@ -12,6 +14,7 @@ import (
 	"github.com/killbill/kbcli/v3/kbclient/account"
 	"github.com/killbill/kbcli/v3/kbclient/catalog"
 	"github.com/killbill/kbcli/v3/kbclient/nodes_info"
+	"github.com/killbill/kbcli/v3/kbclient/subscription"
 	"github.com/killbill/kbcli/v3/kbcommon"
 	"github.com/killbill/kbcli/v3/kbmodel"
 	"github.com/samber/lo"
@@ -24,7 +27,9 @@ import (
 	"go.lumeweb.com/portal/event"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
+	"io"
 	"math"
+	"net/http"
 	"sort"
 	"strconv"
 )
@@ -36,6 +41,8 @@ const (
 	UploadUsage   UsageType = "upload"
 	DownloadUsage UsageType = "download"
 )
+
+const paymentIdCustomField = "payment_id"
 
 var _ core.Service = (*BillingServiceDefault)(nil)
 var _ core.Configurable = (*BillingServiceDefault)(nil)
@@ -190,17 +197,17 @@ func (b *BillingServiceDefault) getUsageByUserID(ctx context.Context, userID uin
 		return 0, err
 	}
 
-	subscription := findActiveSubscription(bundles.Payload)
+	sub := findActiveSubscription(bundles.Payload)
 
-	if subscription == nil {
+	if sub == nil {
 		return 0, nil
 	}
 
-	if len(*subscription.PlanName) == 0 {
+	if len(*sub.PlanName) == 0 {
 		return 0, nil
 	}
 
-	plan, err := b.getPlanByIdentifier(ctx, *subscription.PlanName)
+	plan, err := b.getPlanByIdentifier(ctx, *sub.PlanName)
 	if err != nil {
 		return 0, err
 	}
@@ -387,21 +394,21 @@ func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint
 
 	var subPlan *messages.SubscriptionPlan
 
-	subscription := findActiveOrPendingSubscription(bundles.Payload)
+	sub := findActiveOrPendingSubscription(bundles.Payload)
 
-	if subscription != nil {
-		plan, err := b.getPlanByIdentifier(ctx, *subscription.PlanName)
+	if sub != nil {
+		plan, err := b.getPlanByIdentifier(ctx, *sub.PlanName)
 		if err != nil {
 			return nil, err
 		}
 
-		planName, err := b.getPlanNameById(ctx, *subscription.PlanName)
+		planName, err := b.getPlanNameById(ctx, *sub.PlanName)
 		if err != nil {
 			return nil, err
 		}
 
-		prices := lo.Filter(subscription.Prices, func(price *kbmodel.PhasePrice, _ int) bool {
-			return kbmodel.SubscriptionPhaseTypeEnum(price.PhaseType) == subscription.PhaseType
+		prices := lo.Filter(sub.Prices, func(price *kbmodel.PhasePrice, _ int) bool {
+			return kbmodel.SubscriptionPhaseTypeEnum(price.PhaseType) == sub.PhaseType
 		})
 
 		if len(prices) > 0 {
@@ -409,7 +416,7 @@ func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint
 				Name:       planName,
 				Price:      prices[0].RecurringPrice,
 				Identifier: plan.Identifier,
-				Period:     remoteSubscriptionPhaseToLocal(kbmodel.SubscriptionPhaseTypeEnum(*subscription.BillingPeriod)),
+				Period:     remoteSubscriptionPhaseToLocal(kbmodel.SubscriptionPhaseTypeEnum(*sub.BillingPeriod)),
 				Storage:    plan.Storage,
 				Upload:     plan.Upload,
 				Download:   plan.Download,
@@ -430,7 +437,7 @@ func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint
 	}, nil
 }
 
-/*func (b *BillingServiceDefault) ChangeSubscription(ctx context.Context, userID uint, planID string) error {
+func (b *BillingServiceDefault) ChangeSubscription(ctx context.Context, userID uint, planID string) error {
 	if !b.enabled() {
 		return nil
 	}
@@ -438,7 +445,6 @@ func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint
 	acct, err := b.api.Account.GetAccountByKey(ctx, &account.GetAccountByKeyParams{
 		ExternalKey: strconv.FormatUint(uint64(userID), 10),
 	})
-
 	if err != nil {
 		return err
 	}
@@ -450,28 +456,26 @@ func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint
 		return err
 	}
 
-	subscription := findActiveOrPendingSubscription(bundles.Payload)
-
-	if subscription == nil {
-		return errors.New("no active or pending subscription found")
+	sub := findActiveOrPendingSubscription(bundles.Payload)
+	if sub == nil {
+		return b.handleNewSubscription(ctx, acct.Payload.AccountID, planID)
 	}
 
-	plan, err := b.getPlanByIdentifier(ctx, planID)
-	if err != nil {
-		return err
-	}
+	/*	if sub.State == kbmodel.SubscriptionStatePENDING {
+			return b.handlePendingSubscription(ctx, acct.Payload.AccountID, sub.SubscriptionID, planID)
+		} else if sub.State == kbmodel.SubscriptionStateACTIVE {
+			return b.submitSubscriptionPlanChange(ctx, sub.SubscriptionID, planID)
+		}*/
 
-	_, err = b.api.Account.UpdateSubscription(ctx, &account.UpdateSubscriptionParams{
-		AccountID:      acct.Payload.AccountID,
-		SubscriptionID: subscription.SubscriptionID,
+	return fmt.Errorf("unexpected subscription state: %s", sub.State)
+}
+
+func (b *BillingServiceDefault) handleNewSubscription(ctx context.Context, accountID strfmt.UUID, planId string) error {
+	// Create a new subscription
+	sub, err := b.api.Subscription.CreateSubscription(ctx, &subscription.CreateSubscriptionParams{
 		Body: &kbmodel.Subscription{
-			PlanName:        &planID,
-			ProductName:     &plan.Name,
-			ProductCategory: &plan.ProductCategory,
-			ProductType:     &plan.ProductType,
-			PriceList:       &plan.PriceList,
-			PhaseType:       &kbmodel.SubscriptionPhaseTypeEnumEVERGREEN,
-			BillingPeriod:   &kbmodel.SubscriptionBillingPeriodEnumMONTHLY,
+			AccountID: accountID,
+			PlanName:  &planId,
 		},
 	})
 
@@ -479,8 +483,225 @@ func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint
 		return err
 	}
 
+	err = b.createNewPayment(ctx, accountID, sub.Payload)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+/*
+func (b *BillingServiceDefault) handlePendingSubscription(ctx context.Context, subscription *kbmodel.Subscription) error {
+	paymentID, err := b.getCustomField(ctx, accountID, subscriptionID, customFieldName)
+	if err != nil {
+		return err
+	}
+
+	if paymentID == "" {
+		return b.createNewPayment(ctx, accountID, subscriptionID, planID)
+	}
+
+	// TODO: Implement logic to check if the client secret has expired
+	// For now, we'll assume it has expired and recreate the payment
+	if err := b.cancelPayment(ctx, paymentID); err != nil {
+		return err
+	}
+
+	return b.createNewPayment(ctx, accountID, subscriptionID, planID)
+}*/
+
+func (b *BillingServiceDefault) getCustomField(ctx context.Context, subscriptionID strfmt.UUID, fieldName string) (*kbmodel.CustomField, error) {
+	fields, err := b.api.Subscription.GetSubscriptionCustomFields(ctx, &subscription.GetSubscriptionCustomFieldsParams{
+		SubscriptionID: subscriptionID,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	for _, field := range fields.Payload {
+		if *field.Name == fieldName {
+			return field, nil
+		}
+	}
+
+	return nil, nil
+}
+
+func (b *BillingServiceDefault) setCustomField(ctx context.Context, subscriptionID strfmt.UUID, fieldName, value string) error {
+
+	existingField, err := b.getCustomField(ctx, subscriptionID, fieldName)
+	if err != nil {
+		return err
+	}
+
+	if existingField == nil {
+		_, err = b.api.Subscription.CreateSubscriptionCustomFields(ctx, &subscription.CreateSubscriptionCustomFieldsParams{
+			SubscriptionID: subscriptionID,
+			Body: []*kbmodel.CustomField{
+				{
+					Name:  &fieldName,
+					Value: &value,
+				},
+			},
+		})
+		return err
+	}
+
+	existingField.Value = &value
+
+	_, err = b.api.Subscription.ModifySubscriptionCustomFields(ctx, &subscription.ModifySubscriptionCustomFieldsParams{
+		SubscriptionID: subscriptionID,
+		Body: []*kbmodel.CustomField{
+			existingField,
+		},
+	})
+
+	return err
+}
+
+func (b *BillingServiceDefault) createNewPayment(ctx context.Context, accountID strfmt.UUID, sub *kbmodel.Subscription) error {
+	url := fmt.Sprintf("%s/payments", b.cfg.Hyperswitch.APIServer)
+
+	planName, err := b.getPlanNameById(ctx, *sub.PlanName)
+	if err != nil {
+		return err
+	}
+
+	// Create the payment request payload
+	payload := map[string]interface{}{
+		"amount":   6540, // This should be dynamically set based on the plan
+		"currency": "USD",
+		"confirm":  false,
+		"customer": map[string]string{
+			"id": accountID.String(),
+		},
+		"description": fmt.Sprintf("Subscription change to plan: %s", planName),
+		"metadata": map[string]string{
+			"subscription_id": sub.SubscriptionID.String(),
+			"plan_id":         *sub.PlanName,
+		},
+	}
+
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("error marshaling payment payload: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(payloadBytes))
+	if err != nil {
+		return fmt.Errorf("error creating request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	req.Header.Add("Authorization", fmt.Sprintf("api-key %s", b.cfg.Hyperswitch.APIKey))
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("error making request: %w", err)
+	}
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+			b.logger.Error("error closing response body", zap.Error(err))
+		}
+	}(resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("error creating payment, status: %d, body: %s", resp.StatusCode, string(body))
+	}
+
+	var paymentResponse struct {
+		PaymentID string `json:"payment_id"`
+	}
+
+	if err = json.NewDecoder(resp.Body).Decode(&paymentResponse); err != nil {
+		return fmt.Errorf("error decoding response: %w", err)
+	}
+
+	// Store the payment ID in a custom field
+	if err = b.setCustomField(ctx, sub.SubscriptionID, paymentIdCustomField, paymentResponse.PaymentID); err != nil {
+		return fmt.Errorf("error setting custom field: %w", err)
+	}
+
+	return nil
+}
+
+/*func (b *BillingServiceDefault) cancelPayment(ctx context.Context, paymentID string) error {
+	url := fmt.Sprintf("%s/payments/%s/cancel", paymentAPIBaseURL, paymentID)
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, nil)
+	if err != nil {
+		return fmt.Errorf("error creating request: %w", err)
+	}
+
+	req.Header.Set("Accept", "application/json")
+	// TODO: Add API key authentication header
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("error making request: %w", err)
+	}
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+			b.logger.Error("error closing response body", zap.Error(err))
+		}
+	}(resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("error cancelling payment, status: %d, body: %s", resp.StatusCode, string(body))
+	}
+
 	return nil
 }*/
+
+func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context, subscriptionID, planID string) error {
+	// TODO: Implement API call to change the subscription plan
+	return nil
+}
+
+func (b *BillingServiceDefault) fetchClientSecret(ctx context.Context, paymentID string) (string, error) {
+	url := fmt.Sprintf("%s/payments/%s?force_sync=true&expand_captures=true&expand_attempts=true", b.cfg.Hyperswitch.APIServer, paymentID)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return "", err
+	}
+
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Authorization", fmt.Sprintf("api-key %s", b.cfg.Hyperswitch.APIKey))
+
+	// Use http.DefaultClient instead of b.httpClient
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+			b.logger.Error("error closing response body", zap.Error(err))
+		}
+	}(resp.Body)
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	var paymentResponse struct {
+		ClientSecret string `json:"client_secret"`
+	}
+
+	if err := json.Unmarshal(body, &paymentResponse); err != nil {
+		return "", err
+	}
+
+	return paymentResponse.ClientSecret, nil
+}
 
 /*
 func findPrimaryBaseProduct(catalog []*kbmodel.Catalog) *kbmodel.Product {
@@ -497,9 +718,9 @@ func findPrimaryBaseProduct(catalog []*kbmodel.Catalog) *kbmodel.Product {
 
 func findActiveOrPendingSubscription(bundles []*kbmodel.Bundle) *kbmodel.Subscription {
 	for _, bundle := range bundles {
-		for _, subscription := range bundle.Subscriptions {
-			if subscription.State == kbmodel.SubscriptionStateACTIVE || subscription.State == kbmodel.SubscriptionStatePENDING {
-				return subscription
+		for _, sub := range bundle.Subscriptions {
+			if sub.State == kbmodel.SubscriptionStateACTIVE || sub.State == kbmodel.SubscriptionStatePENDING {
+				return sub
 			}
 		}
 	}
@@ -509,9 +730,9 @@ func findActiveOrPendingSubscription(bundles []*kbmodel.Bundle) *kbmodel.Subscri
 
 func findActiveSubscription(bundles []*kbmodel.Bundle) *kbmodel.Subscription {
 	for _, bundle := range bundles {
-		for _, subscription := range bundle.Subscriptions {
-			if subscription.State == kbmodel.SubscriptionStateACTIVE {
-				return subscription
+		for _, sub := range bundle.Subscriptions {
+			if sub.State == kbmodel.SubscriptionStateACTIVE {
+				return sub
 			}
 		}
 	}

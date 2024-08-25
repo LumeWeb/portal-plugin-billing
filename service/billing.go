@@ -35,8 +35,8 @@ type BillingService interface {
 	// GetSubscription returns the subscription for a given user
 	GetSubscription(ctx context.Context, userID uint) (*messages.SubscriptionResponse, error)
 
-	/*	// ChangeSubscription changes the subscription for a given user
-		ChangeSubscription(ctx context.Context, userID uint, planID string) error*/
+	// ChangeSubscription changes the subscription for a given user
+	ChangeSubscription(ctx context.Context, userID uint, planID string) error
 }
 
 var _ BillingService = (*service.BillingServiceDefault)(nil)

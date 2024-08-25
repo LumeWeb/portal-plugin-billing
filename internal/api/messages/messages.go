@@ -43,11 +43,15 @@ type BillingInfo struct {
 	Country string `json:"country"`
 }
 
-/*type SubscriptionChangeRequest struct {
+type PaymentInfo struct {
+	PaymentID    string `json:"payment_id;omitempty"`
+	ClientSecret string `json:"client_secret;omitempty"`
+}
+
+type SubscriptionChangeRequest struct {
 	Plan string `json:"plan"`
 }
 
 type SubscriptionChangeResponse struct {
 	Plan *SubscriptionPlan `json:"plan"`
 }
-*/
