@@ -393,6 +393,8 @@ func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint
 	}
 
 	var subPlan *messages.SubscriptionPlan
+	var paymentID string
+	var clientSecret string
 
 	sub := findActiveOrPendingSubscription(bundles.Payload)
 
@@ -421,6 +423,24 @@ func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint
 				Upload:     plan.Upload,
 				Download:   plan.Download,
 			}
+
+			if sub.State == kbmodel.SubscriptionStatePENDING {
+				// Get the client secret
+				_paymentID, err := b.getCustomField(ctx, sub.SubscriptionID, paymentIdCustomField)
+				if err != nil {
+					return nil, err
+				}
+
+				if _paymentID != nil {
+					_clientSecret, err := b.fetchClientSecret(ctx, *_paymentID.Value)
+					if err != nil {
+						return nil, err
+					}
+
+					paymentID = *_paymentID.Value
+					clientSecret = _clientSecret
+				}
+			}
 		}
 	}
 
@@ -433,6 +453,10 @@ func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint
 			State:   acct.Payload.State,
 			Zip:     acct.Payload.PostalCode,
 			Country: acct.Payload.Country,
+		},
+		PaymentInfo: messages.PaymentInfo{
+			PaymentID:    paymentID,
+			ClientSecret: clientSecret,
 		},
 	}, nil
 }

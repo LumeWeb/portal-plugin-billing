@@ -32,6 +32,7 @@ type SubscriptionPlan struct {
 type SubscriptionResponse struct {
 	Plan        *SubscriptionPlan `json:"plan"`
 	BillingInfo BillingInfo       `json:"billing_info"`
+	PaymentInfo PaymentInfo       `json:"payment_info"`
 }
 
 type BillingInfo struct {
