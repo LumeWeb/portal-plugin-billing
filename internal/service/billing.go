@@ -387,7 +387,7 @@ func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint
 
 	var subPlan *messages.SubscriptionPlan
 
-	subscription := findActiveSubscription(bundles.Payload)
+	subscription := findActiveOrPendingSubscription(bundles.Payload)
 
 	if subscription != nil {
 		plan, err := b.getPlanByIdentifier(ctx, *subscription.PlanName)
@@ -430,6 +430,58 @@ func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint
 	}, nil
 }
 
+/*func (b *BillingServiceDefault) ChangeSubscription(ctx context.Context, userID uint, planID string) error {
+	if !b.enabled() {
+		return nil
+	}
+
+	acct, err := b.api.Account.GetAccountByKey(ctx, &account.GetAccountByKeyParams{
+		ExternalKey: strconv.FormatUint(uint64(userID), 10),
+	})
+
+	if err != nil {
+		return err
+	}
+
+	bundles, err := b.api.Account.GetAccountBundles(ctx, &account.GetAccountBundlesParams{
+		AccountID: acct.Payload.AccountID,
+	})
+	if err != nil {
+		return err
+	}
+
+	subscription := findActiveOrPendingSubscription(bundles.Payload)
+
+	if subscription == nil {
+		return errors.New("no active or pending subscription found")
+	}
+
+	plan, err := b.getPlanByIdentifier(ctx, planID)
+	if err != nil {
+		return err
+	}
+
+	_, err = b.api.Account.UpdateSubscription(ctx, &account.UpdateSubscriptionParams{
+		AccountID:      acct.Payload.AccountID,
+		SubscriptionID: subscription.SubscriptionID,
+		Body: &kbmodel.Subscription{
+			PlanName:        &planID,
+			ProductName:     &plan.Name,
+			ProductCategory: &plan.ProductCategory,
+			ProductType:     &plan.ProductType,
+			PriceList:       &plan.PriceList,
+			PhaseType:       &kbmodel.SubscriptionPhaseTypeEnumEVERGREEN,
+			BillingPeriod:   &kbmodel.SubscriptionBillingPeriodEnumMONTHLY,
+		},
+	})
+
+	if err != nil {
+		return err
+	}
+
+	return nil
+}*/
+
 /*
 func findPrimaryBaseProduct(catalog []*kbmodel.Catalog) *kbmodel.Product {
 	for _, _catalog := range catalog {
@@ -442,6 +494,18 @@ func findPrimaryBaseProduct(catalog []*kbmodel.Catalog) *kbmodel.Product {
 
 	return nil
 }*/
+
+func findActiveOrPendingSubscription(bundles []*kbmodel.Bundle) *kbmodel.Subscription {
+	for _, bundle := range bundles {
+		for _, subscription := range bundle.Subscriptions {
+			if subscription.State == kbmodel.SubscriptionStateACTIVE || subscription.State == kbmodel.SubscriptionStatePENDING {
+				return subscription
+			}
+		}
+	}
+
+	return nil
+}
 
 func findActiveSubscription(bundles []*kbmodel.Bundle) *kbmodel.Subscription {
 	for _, bundle := range bundles {
