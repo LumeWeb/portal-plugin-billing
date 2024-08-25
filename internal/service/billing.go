@@ -395,6 +395,7 @@ func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint
 	var subPlan *messages.SubscriptionPlan
 	var paymentID string
 	var clientSecret string
+	var publishableKey string
 
 	sub := findActiveOrPendingSubscription(bundles.Payload)
 
@@ -440,6 +441,7 @@ func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint
 
 					paymentID = *_paymentID.Value
 					clientSecret = _clientSecret
+					publishableKey = b.cfg.Hyperswitch.PublishableKey
 				}
 			}
 		}
@@ -456,8 +458,9 @@ func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint
 			Country: acct.Payload.Country,
 		},
 		PaymentInfo: messages.PaymentInfo{
-			PaymentID:    paymentID,
-			ClientSecret: clientSecret,
+			PaymentID:      paymentID,
+			ClientSecret:   clientSecret,
+			PublishableKey: publishableKey,
 		},
 	}, nil
 }

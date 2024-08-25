@@ -45,8 +45,9 @@ type BillingInfo struct {
 }
 
 type PaymentInfo struct {
-	PaymentID    string `json:"payment_id;omitempty"`
-	ClientSecret string `json:"client_secret;omitempty"`
+	PaymentID      string `json:"payment_id;omitempty"`
+	ClientSecret   string `json:"client_secret;omitempty"`
+	PublishableKey string `json:"publishable_key;omitempty"`
 }
 
 type SubscriptionChangeRequest struct {
