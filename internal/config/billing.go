@@ -53,5 +53,9 @@ func (c BillingConfig) Validate() error {
 		return errors.New("billing.hyperswitch.api_key is required")
 	}
 
+	if c.Hyperswitch.PublishableKey == "" {
+		return errors.New("billing.hyperswitch.publishable_key is required")
+	}
+
 	return nil
 }
