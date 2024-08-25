@@ -68,6 +68,8 @@ func (a API) Configure(_ *mux.Router) error {
 	accountRouter.Use(corsHandler.Handler)
 
 	router.HandleFunc("/api/account/subscription", a.getSubscription).Methods("GET", "OPTIONS").Use(authMw)
+	router.HandleFunc("/api/account/subscription/change", a.changeSubscription).Methods("POST", "OPTIONS").Use(authMw)
+
 	accountRouter.HandleFunc("/api/account/subscription/plans", a.getPlans).Methods("GET", "OPTIONS")
 
 	return nil
@@ -112,4 +114,26 @@ func (a API) getSubscription(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx.Encode(subscription)
+}
+
+func (a API) changeSubscription(w http.ResponseWriter, r *http.Request) {
+	ctx := httputil.Context(r, w)
+
+	user, err := middleware.GetUserFromContext(ctx)
+
+	if err != nil {
+		_ = ctx.Error(core.NewAccountError(core.ErrKeyInvalidLogin, nil), http.StatusUnauthorized)
+		return
+	}
+
+	var changeRequest messages.SubscriptionChangeRequest
+	if err := ctx.Decode(&changeRequest); err != nil {
+		_ = ctx.Error(err, http.StatusInternalServerError)
+		return
+	}
+
+	if err := a.billingService.ChangeSubscription(ctx, user, changeRequest.Plan); err != nil {
+		_ = ctx.Error(err, http.StatusInternalServerError)
+		return
+	}
 }
