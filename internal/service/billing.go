@@ -417,6 +417,7 @@ func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint
 			subPlan = &messages.SubscriptionPlan{
 				Name:       planName,
 				Price:      prices[0].RecurringPrice,
+				Status:     remoteSubscriptionStatusToLocal(sub.State),
 				Identifier: plan.Identifier,
 				Period:     remoteSubscriptionPhaseToLocal(kbmodel.SubscriptionPhaseTypeEnum(*sub.BillingPeriod)),
 				Storage:    plan.Storage,
@@ -794,5 +795,16 @@ func remoteSubscriptionPhaseToLocal(phase kbmodel.SubscriptionPhaseTypeEnum) mes
 		return messages.SubscriptionPlanPeriodMonth
 	default:
 		return messages.SubscriptionPlanPeriodMonth
+	}
+}
+
+func remoteSubscriptionStatusToLocal(status kbmodel.SubscriptionStateEnum) messages.SubscriptionPlanStatus {
+	switch status {
+	case kbmodel.SubscriptionStateACTIVE:
+		return messages.SubscriptionPlanStatusActive
+	case kbmodel.SubscriptionStatePENDING:
+		return messages.SubscriptionPlanStatusPending
+	default:
+		return messages.SubscriptionPlanStatusPending
 	}
 }

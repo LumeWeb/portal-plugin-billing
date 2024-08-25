@@ -11,8 +11,8 @@ const (
 )
 
 const (
-	SubscriptionPlanStatusActive   SubscriptionPlanStatus = "ACTIVE"
-	SubscriptionPlanStatusInactive SubscriptionPlanStatus = "PENDING"
+	SubscriptionPlanStatusActive  SubscriptionPlanStatus = "ACTIVE"
+	SubscriptionPlanStatusPending SubscriptionPlanStatus = "PENDING"
 )
 
 type SubscriptionPlansResponse struct {
