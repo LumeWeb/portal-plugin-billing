@@ -737,6 +737,7 @@ func (b *BillingServiceDefault) cancelPayment(ctx context.Context, paymentID str
 		return fmt.Errorf("error creating request: %w", err)
 	}
 
+	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("api-key", b.cfg.Hyperswitch.APIKey)
 
