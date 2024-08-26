@@ -32,6 +32,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 )
 
 type UsageType string
@@ -500,7 +501,7 @@ func (b *BillingServiceDefault) ChangeSubscription(ctx context.Context, userID u
 
 func (b *BillingServiceDefault) handleNewSubscription(ctx context.Context, accountID strfmt.UUID, planId string) error {
 	// Create a new subscription
-	sub, err := b.api.Subscription.CreateSubscription(ctx, &subscription.CreateSubscriptionParams{
+	resp, err := b.api.Subscription.CreateSubscription(ctx, &subscription.CreateSubscriptionParams{
 		Body: &kbmodel.Subscription{
 			AccountID: accountID,
 			PlanName:  &planId,
@@ -511,9 +512,25 @@ func (b *BillingServiceDefault) handleNewSubscription(ctx context.Context, accou
 		return err
 	}
 
+	// Parse subscription ID from the Location header
+	locationHeader := resp.HttpResponse.GetHeader("Location")
+	subID, err := parseSubscriptionIDFromLocation(locationHeader)
+	if err != nil {
+		return fmt.Errorf("failed to parse subscription ID: %w", err)
+	}
+
+	// Fetch the subscription details
+	sub, err := b.api.Subscription.GetSubscription(ctx, &subscription.GetSubscriptionParams{
+		SubscriptionID: strfmt.UUID(subID),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to fetch subscription details: %w", err)
+	}
+
+	// Create new payment
 	err = b.createNewPayment(ctx, accountID, sub.Payload)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create new payment: %w", err)
 	}
 
 	return nil
@@ -810,4 +827,11 @@ func remoteSubscriptionStatusToLocal(status kbmodel.SubscriptionStateEnum) messa
 	default:
 		return messages.SubscriptionPlanStatusPending
 	}
+}
+func parseSubscriptionIDFromLocation(location string) (string, error) {
+	parts := strings.Split(location, "/")
+	if len(parts) == 0 {
+		return "", fmt.Errorf("invalid Location header format")
+	}
+	return parts[len(parts)-1], nil
 }
