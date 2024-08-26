@@ -132,6 +132,11 @@ func (a API) changeSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if changeRequest.Plan == "" {
+		_ = ctx.Error(fmt.Errorf("plan is required"), http.StatusBadRequest)
+		return
+	}
+
 	if err := a.billingService.ChangeSubscription(ctx, user, changeRequest.Plan); err != nil {
 		_ = ctx.Error(err, http.StatusInternalServerError)
 		return
