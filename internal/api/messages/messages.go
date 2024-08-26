@@ -1,5 +1,7 @@
 package messages
 
+import "time"
+
 type (
 	SubscriptionPlanPeriod string
 	SubscriptionPlanStatus string
@@ -45,9 +47,10 @@ type BillingInfo struct {
 }
 
 type PaymentInfo struct {
-	PaymentID      string `json:"payment_id,omitempty"`
-	ClientSecret   string `json:"client_secret,omitempty"`
-	PublishableKey string `json:"publishable_key,omitempty"`
+	PaymentID      string    `json:"payment_id,omitempty"`
+	PaymentExpires time.Time `json:"payment_expires,omitempty"`
+	ClientSecret   string    `json:"client_secret,omitempty"`
+	PublishableKey string    `json:"publishable_key,omitempty"`
 }
 
 type SubscriptionChangeRequest struct {

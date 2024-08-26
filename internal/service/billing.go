@@ -33,6 +33,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type UsageType string
@@ -425,6 +426,7 @@ func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint
 	var paymentID string
 	var clientSecret string
 	var publishableKey string
+	var paymentExpires time.Time
 
 	sub := findActiveOrPendingSubscription(bundles.Payload)
 
@@ -468,12 +470,13 @@ func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint
 				}
 
 				if _paymentID != nil {
-					_clientSecret, err := b.fetchClientSecret(ctx, *_paymentID.Value)
+					_clientSecret, created, err := b.fetchClientSecret(ctx, *_paymentID.Value)
 					if err != nil {
 						return nil, err
 					}
 
 					paymentID = *_paymentID.Value
+					paymentExpires = created.Add(15 * time.Minute)
 					clientSecret = _clientSecret
 					publishableKey = b.cfg.Hyperswitch.PublishableKey
 					subPlan.Status = messages.SubscriptionPlanStatusPending
@@ -494,6 +497,7 @@ func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint
 		},
 		PaymentInfo: messages.PaymentInfo{
 			PaymentID:      paymentID,
+			PaymentExpires: paymentExpires,
 			ClientSecret:   clientSecret,
 			PublishableKey: publishableKey,
 		},
@@ -758,12 +762,12 @@ func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context
 	return nil
 }
 
-func (b *BillingServiceDefault) fetchClientSecret(ctx context.Context, paymentID string) (string, error) {
+func (b *BillingServiceDefault) fetchClientSecret(ctx context.Context, paymentID string) (string, time.Time, error) {
 	url := fmt.Sprintf("%s/payments/%s?force_sync=true&expand_captures=true&expand_attempts=true", b.cfg.Hyperswitch.APIServer, paymentID)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
-		return "", err
+		return "", time.Time{}, err
 	}
 
 	req.Header.Set("Accept", "application/json")
@@ -772,7 +776,7 @@ func (b *BillingServiceDefault) fetchClientSecret(ctx context.Context, paymentID
 	// Use http.DefaultClient instead of b.httpClient
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", err
+		return "", time.Time{}, err
 	}
 	defer func(Body io.ReadCloser) {
 		err := Body.Close()
@@ -783,18 +787,19 @@ func (b *BillingServiceDefault) fetchClientSecret(ctx context.Context, paymentID
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", err
+		return "", time.Time{}, err
 	}
 
 	var paymentResponse struct {
-		ClientSecret string `json:"client_secret"`
+		ClientSecret string    `json:"client_secret"`
+		Created      time.Time `json:"created"`
 	}
 
 	if err := json.Unmarshal(body, &paymentResponse); err != nil {
-		return "", err
+		return "", time.Time{}, err
 	}
 
-	return paymentResponse.ClientSecret, nil
+	return paymentResponse.ClientSecret, paymentResponse.Created, nil
 }
 
 /*
