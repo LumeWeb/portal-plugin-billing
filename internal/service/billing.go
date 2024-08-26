@@ -613,18 +613,22 @@ func (b *BillingServiceDefault) createNewPayment(ctx context.Context, accountID 
 		return err
 	}
 
+	prices := lo.Filter(sub.Prices, func(price *kbmodel.PhasePrice, _ int) bool {
+		return kbmodel.SubscriptionPhaseTypeEnum(price.PhaseType) == sub.PhaseType
+	})
+
 	// Create the payment request payload
-	payload := map[string]interface{}{
-		"amount":   6540, // This should be dynamically set based on the plan
-		"currency": "USD",
-		"confirm":  false,
-		"customer": map[string]string{
-			"id": accountID.String(),
+	payload := PaymentRequest{
+		Amount:   prices[0].RecurringPrice,
+		Currency: "USD",
+		Confirm:  false,
+		Customer: Customer{
+			ID: accountID.String(),
 		},
-		"description": fmt.Sprintf("Subscription change to plan: %s", planName),
-		"metadata": map[string]string{
-			"subscription_id": sub.SubscriptionID.String(),
-			"plan_id":         *sub.PlanName,
+		Description: fmt.Sprintf("Subscription change to plan: %s", planName),
+		Metadata: PaymentMetadata{
+			SubscriptionID: sub.SubscriptionID.String(),
+			PlanID:         *sub.PlanName,
 		},
 	}
 
@@ -658,10 +662,7 @@ func (b *BillingServiceDefault) createNewPayment(ctx context.Context, accountID 
 		return fmt.Errorf("error creating payment, status: %d, body: %s", resp.StatusCode, string(body))
 	}
 
-	var paymentResponse struct {
-		PaymentID string `json:"payment_id"`
-	}
-
+	var paymentResponse PaymentResponse
 	if err = json.NewDecoder(resp.Body).Decode(&paymentResponse); err != nil {
 		return fmt.Errorf("error decoding response: %w", err)
 	}
@@ -834,4 +835,36 @@ func parseSubscriptionIDFromLocation(location string) (string, error) {
 		return "", fmt.Errorf("invalid Location header format")
 	}
 	return parts[len(parts)-1], nil
+}
+
+type Subscription struct {
+	SubscriptionID strfmt.UUID
+	PlanName       *string
+	// Add other fields as needed
+}
+
+// PaymentRequest represents the payment request payload
+type PaymentRequest struct {
+	Amount      float64         `json:"amount"`
+	Currency    string          `json:"currency"`
+	Confirm     bool            `json:"confirm"`
+	Customer    Customer        `json:"customer"`
+	Description string          `json:"description"`
+	Metadata    PaymentMetadata `json:"metadata"`
+}
+
+// Customer represents the customer information in the payment request
+type Customer struct {
+	ID string `json:"id"`
+}
+
+// PaymentMetadata represents the metadata for a payment
+type PaymentMetadata struct {
+	SubscriptionID string `json:"subscription_id"`
+	PlanID         string `json:"plan_id"`
+}
+
+// PaymentResponse represents the response from the payment creation API
+type PaymentResponse struct {
+	PaymentID string `json:"payment_id"`
 }
