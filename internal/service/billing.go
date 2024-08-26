@@ -44,6 +44,7 @@ const (
 )
 
 const paymentIdCustomField = "payment_id"
+const pendingCustomField = "pending"
 
 var _ core.Service = (*BillingServiceDefault)(nil)
 var _ core.Configurable = (*BillingServiceDefault)(nil)
@@ -454,7 +455,12 @@ func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint
 				Download:   plan.Download,
 			}
 
-			if sub.State == kbmodel.SubscriptionStatePENDING {
+			cfState, err := b.getCustomField(ctx, sub.SubscriptionID, pendingCustomField)
+			if err != nil {
+				return nil, err
+			}
+
+			if sub.State == kbmodel.SubscriptionStatePENDING || (cfState != nil && *cfState.Value == "1") {
 				// Get the client secret
 				_paymentID, err := b.getCustomField(ctx, sub.SubscriptionID, paymentIdCustomField)
 				if err != nil {
@@ -532,7 +538,6 @@ func (b *BillingServiceDefault) handleNewSubscription(ctx context.Context, accou
 		Body: &kbmodel.Subscription{
 			AccountID: accountID,
 			PlanName:  &planId,
-			State:     kbmodel.SubscriptionStatePENDING,
 		},
 	})
 
@@ -545,6 +550,11 @@ func (b *BillingServiceDefault) handleNewSubscription(ctx context.Context, accou
 	subID, err := parseSubscriptionIDFromLocation(locationHeader)
 	if err != nil {
 		return fmt.Errorf("failed to parse subscription ID: %w", err)
+	}
+
+	err = b.setCustomField(ctx, strfmt.UUID(subID), pendingCustomField, "1")
+	if err != nil {
+		return err
 	}
 
 	// Fetch the subscription details
