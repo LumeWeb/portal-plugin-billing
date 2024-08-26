@@ -594,8 +594,6 @@ func (b *BillingServiceDefault) handlePendingSubscription(ctx context.Context, s
 		return b.createNewPayment(ctx, sub.AccountID, sub)
 	}
 
-	// TODO: Implement logic to check if the client secret has expired
-	// For now, we'll assume it has expired and recreate the payment
 	if err := b.cancelPayment(ctx, *paymentID.Value); err != nil {
 		return err
 	}
@@ -740,7 +738,7 @@ func (b *BillingServiceDefault) cancelPayment(ctx context.Context, paymentID str
 	}
 
 	req.Header.Set("Accept", "application/json")
-	// TODO: Add API key authentication header
+	req.Header.Set("api-key", b.cfg.Hyperswitch.APIKey)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
