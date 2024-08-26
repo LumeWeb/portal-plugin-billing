@@ -515,20 +515,35 @@ func (b *BillingServiceDefault) handleNewSubscription(ctx context.Context, accou
 	// Parse subscription ID from the Location header
 	locationHeader := resp.HttpResponse.GetHeader("Location")
 	subID, err := parseSubscriptionIDFromLocation(locationHeader)
+	_ = subID
 	if err != nil {
 		return fmt.Errorf("failed to parse subscription ID: %w", err)
 	}
 
-	// Fetch the subscription details
-	sub, err := b.api.Subscription.GetSubscription(ctx, &subscription.GetSubscriptionParams{
-		SubscriptionID: strfmt.UUID(subID),
+	/*	// Fetch the subscription details
+		sub, err := b.api.Subscription.GetSubscription(ctx, &subscription.GetSubscriptionParams{
+			SubscriptionID: strfmt.UUID(subID),
+		})
+		if err != nil {
+			return fmt.Errorf("failed to fetch subscription details: %w", err)
+		}
+	*/
+
+	bundles, err := b.api.Account.GetAccountBundles(ctx, &account.GetAccountBundlesParams{
+		AccountID: accountID,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to fetch subscription details: %w", err)
+		return err
+	}
+
+	sub := findActiveOrPendingSubscription(bundles.Payload)
+
+	if sub == nil {
+		return fmt.Errorf("failed to find the new subscription")
 	}
 
 	// Create new payment
-	err = b.createNewPayment(ctx, accountID, sub.Payload)
+	err = b.createNewPayment(ctx, accountID, sub)
 	if err != nil {
 		return fmt.Errorf("failed to create new payment: %w", err)
 	}
