@@ -732,7 +732,17 @@ func (b *BillingServiceDefault) createNewPayment(ctx context.Context, accountID 
 func (b *BillingServiceDefault) cancelPayment(ctx context.Context, paymentID string) error {
 	url := fmt.Sprintf("%s/payments/%s/cancel", b.cfg.Hyperswitch.APIServer, paymentID)
 
-	req, err := http.NewRequestWithContext(ctx, "POST", url, nil)
+	// Create the payment request payload
+	payload := PaymentCancelRequest{
+		CancellationReason: "payment_expired",
+	}
+
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("error marshaling payment payload: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(payloadBytes))
 	if err != nil {
 		return fmt.Errorf("error creating request: %w", err)
 	}
@@ -923,4 +933,8 @@ type PaymentMetadata struct {
 // PaymentResponse represents the response from the payment creation API
 type PaymentResponse struct {
 	PaymentID string `json:"payment_id"`
+}
+
+type PaymentCancelRequest struct {
+	CancellationReason string `json:"cancellation_reason"`
 }
