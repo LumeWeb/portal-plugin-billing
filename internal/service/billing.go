@@ -528,11 +528,16 @@ func (b *BillingServiceDefault) ChangeSubscription(ctx context.Context, userID u
 		return b.handleNewSubscription(ctx, acct.Payload.AccountID, planID)
 	}
 
-	/*	if sub.State == kbmodel.SubscriptionStatePENDING {
-			return b.handlePendingSubscription(ctx, acct.Payload.AccountID, sub.SubscriptionID, planID)
-		} else if sub.State == kbmodel.SubscriptionStateACTIVE {
-			return b.submitSubscriptionPlanChange(ctx, sub.SubscriptionID, planID)
-		}*/
+	cfPending, err := b.getCustomField(ctx, sub.SubscriptionID, pendingCustomField)
+	if err != nil {
+		return err
+	}
+
+	if sub.State == kbmodel.SubscriptionStatePENDING || (cfPending != nil && *cfPending.Value == "1") {
+		return b.handlePendingSubscription(ctx, sub)
+	} else if sub.State == kbmodel.SubscriptionStateACTIVE {
+		return b.submitSubscriptionPlanChange(ctx, sub.SubscriptionID, planID)
+	}
 
 	return fmt.Errorf("unexpected subscription state: %s", sub.State)
 }
@@ -579,25 +584,24 @@ func (b *BillingServiceDefault) handleNewSubscription(ctx context.Context, accou
 	return nil
 }
 
-/*
-func (b *BillingServiceDefault) handlePendingSubscription(ctx context.Context, subscription *kbmodel.Subscription) error {
-	paymentID, err := b.getCustomField(ctx, accountID, subscriptionID, customFieldName)
+func (b *BillingServiceDefault) handlePendingSubscription(ctx context.Context, sub *kbmodel.Subscription) error {
+	paymentID, err := b.getCustomField(ctx, sub.SubscriptionID, paymentIdCustomField)
 	if err != nil {
 		return err
 	}
 
-	if paymentID == "" {
-		return b.createNewPayment(ctx, accountID, subscriptionID, planID)
+	if paymentID == nil {
+		return b.createNewPayment(ctx, sub.AccountID, sub)
 	}
 
 	// TODO: Implement logic to check if the client secret has expired
 	// For now, we'll assume it has expired and recreate the payment
-	if err := b.cancelPayment(ctx, paymentID); err != nil {
+	if err := b.cancelPayment(ctx, *paymentID.Value); err != nil {
 		return err
 	}
 
-	return b.createNewPayment(ctx, accountID, subscriptionID, planID)
-}*/
+	return b.createNewPayment(ctx, sub.AccountID, sub)
+}
 
 func (b *BillingServiceDefault) getCustomField(ctx context.Context, subscriptionID strfmt.UUID, fieldName string) (*kbmodel.CustomField, error) {
 	fields, err := b.api.Subscription.GetSubscriptionCustomFields(ctx, &subscription.GetSubscriptionCustomFieldsParams{
@@ -727,8 +731,8 @@ func (b *BillingServiceDefault) createNewPayment(ctx context.Context, accountID 
 	return nil
 }
 
-/*func (b *BillingServiceDefault) cancelPayment(ctx context.Context, paymentID string) error {
-	url := fmt.Sprintf("%s/payments/%s/cancel", paymentAPIBaseURL, paymentID)
+func (b *BillingServiceDefault) cancelPayment(ctx context.Context, paymentID string) error {
+	url := fmt.Sprintf("%s/payments/%s/cancel", b.cfg.Hyperswitch.APIServer, paymentID)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, nil)
 	if err != nil {
@@ -755,9 +759,9 @@ func (b *BillingServiceDefault) createNewPayment(ctx context.Context, accountID 
 	}
 
 	return nil
-}*/
+}
 
-func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context, subscriptionID, planID string) error {
+func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context, subscriptionID strfmt.UUID, planID string) error {
 	// TODO: Implement API call to change the subscription plan
 	return nil
 }
