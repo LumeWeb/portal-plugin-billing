@@ -673,9 +673,10 @@ func (b *BillingServiceDefault) createNewPayment(ctx context.Context, accountID 
 
 	// Create the payment request payload
 	payload := PaymentRequest{
-		Amount:   planPrice,
-		Currency: "USD",
-		Confirm:  false,
+		Amount:           planPrice,
+		SetupFutureUsage: "off_session",
+		Currency:         "USD",
+		Confirm:          false,
 		Customer: Customer{
 			ID: accountID.String(),
 		},
@@ -911,12 +912,13 @@ type Subscription struct {
 
 // PaymentRequest represents the payment request payload
 type PaymentRequest struct {
-	Amount      float64         `json:"amount"`
-	Currency    string          `json:"currency"`
-	Confirm     bool            `json:"confirm"`
-	Customer    Customer        `json:"customer"`
-	Description string          `json:"description"`
-	Metadata    PaymentMetadata `json:"metadata"`
+	Amount           float64         `json:"amount"`
+	Currency         string          `json:"currency"`
+	Confirm          bool            `json:"confirm"`
+	Customer         Customer        `json:"customer"`
+	Description      string          `json:"description"`
+	Metadata         PaymentMetadata `json:"metadata"`
+	SetupFutureUsage string          `json:"setup_future_usage"`
 }
 
 // Customer represents the customer information in the payment request
