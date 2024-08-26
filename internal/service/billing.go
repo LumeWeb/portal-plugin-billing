@@ -640,7 +640,7 @@ func (b *BillingServiceDefault) createNewPayment(ctx context.Context, accountID 
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	req.Header.Add("Authorization", fmt.Sprintf("api-key %s", b.cfg.Hyperswitch.APIKey))
+	req.Header.Add("api-key", b.cfg.Hyperswitch.APIKey)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -718,7 +718,7 @@ func (b *BillingServiceDefault) fetchClientSecret(ctx context.Context, paymentID
 	}
 
 	req.Header.Add("Accept", "application/json")
-	req.Header.Add("Authorization", fmt.Sprintf("api-key %s", b.cfg.Hyperswitch.APIKey))
+	req.Header.Add("api-key", b.cfg.Hyperswitch.APIKey)
 
 	// Use http.DefaultClient instead of b.httpClient
 	resp, err := http.DefaultClient.Do(req)
