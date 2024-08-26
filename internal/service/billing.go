@@ -476,6 +476,7 @@ func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint
 					paymentID = *_paymentID.Value
 					clientSecret = _clientSecret
 					publishableKey = b.cfg.Hyperswitch.PublishableKey
+					subPlan.Status = messages.SubscriptionPlanStatusPending
 				}
 			}
 		}
