@@ -317,6 +317,33 @@ func (b *BillingServiceDefault) getPlanNameById(ctx context.Context, id string) 
 	return "", nil
 }
 
+func (b *BillingServiceDefault) getPlanPriceById(ctx context.Context, id string, kind string, currency string) (float64, error) {
+	plans, err := b.api.Catalog.GetCatalogJSON(ctx, &catalog.GetCatalogJSONParams{})
+
+	if err != nil {
+		return 0, err
+	}
+
+	for _, _catalog := range plans.Payload {
+		for _, product := range _catalog.Products {
+			for _, plan := range product.Plans {
+				if plan.Name == id {
+					for _, price := range plan.Phases {
+						if price.Type == kind {
+							for _, priceValue := range price.Prices {
+								if priceValue.Currency == kbmodel.PriceCurrencyEnum(currency) {
+									return priceValue.Value, nil
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	return 0, nil
+}
+
 func (b *BillingServiceDefault) getBasePlanByID(ctx context.Context, planId string) (*kbmodel.PlanDetail, error) {
 	plans, err := b.api.Catalog.GetAvailableBasePlans(ctx, &catalog.GetAvailableBasePlansParams{})
 
@@ -515,35 +542,20 @@ func (b *BillingServiceDefault) handleNewSubscription(ctx context.Context, accou
 	// Parse subscription ID from the Location header
 	locationHeader := resp.HttpResponse.GetHeader("Location")
 	subID, err := parseSubscriptionIDFromLocation(locationHeader)
-	_ = subID
 	if err != nil {
 		return fmt.Errorf("failed to parse subscription ID: %w", err)
 	}
 
-	/*	// Fetch the subscription details
-		sub, err := b.api.Subscription.GetSubscription(ctx, &subscription.GetSubscriptionParams{
-			SubscriptionID: strfmt.UUID(subID),
-		})
-		if err != nil {
-			return fmt.Errorf("failed to fetch subscription details: %w", err)
-		}
-	*/
-
-	bundles, err := b.api.Account.GetAccountBundles(ctx, &account.GetAccountBundlesParams{
-		AccountID: accountID,
+	// Fetch the subscription details
+	sub, err := b.api.Subscription.GetSubscription(ctx, &subscription.GetSubscriptionParams{
+		SubscriptionID: strfmt.UUID(subID),
 	})
 	if err != nil {
-		return err
-	}
-
-	sub := findActiveOrPendingSubscription(bundles.Payload)
-
-	if sub == nil {
-		return fmt.Errorf("failed to find the new subscription")
+		return fmt.Errorf("failed to fetch subscription details: %w", err)
 	}
 
 	// Create new payment
-	err = b.createNewPayment(ctx, accountID, sub)
+	err = b.createNewPayment(ctx, accountID, sub.Payload)
 	if err != nil {
 		return fmt.Errorf("failed to create new payment: %w", err)
 	}
@@ -628,13 +640,22 @@ func (b *BillingServiceDefault) createNewPayment(ctx context.Context, accountID 
 		return err
 	}
 
-	prices := lo.Filter(sub.Prices, func(price *kbmodel.PhasePrice, _ int) bool {
-		return kbmodel.SubscriptionPhaseTypeEnum(price.PhaseType) == sub.PhaseType
+	acct, err := b.api.Account.GetAccount(ctx, &account.GetAccountParams{
+		AccountID: accountID,
 	})
+
+	if err != nil {
+		return err
+	}
+
+	planPrice, err := b.getPlanPriceById(ctx, *sub.PlanName, string(sub.PhaseType), string(acct.Payload.Currency))
+	if err != nil {
+		return err
+	}
 
 	// Create the payment request payload
 	payload := PaymentRequest{
-		Amount:   prices[0].RecurringPrice,
+		Amount:   planPrice,
 		Currency: "USD",
 		Confirm:  false,
 		Customer: Customer{
