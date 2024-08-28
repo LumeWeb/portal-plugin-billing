@@ -548,6 +548,11 @@ func (b *BillingServiceDefault) ConnectSubscription(ctx context.Context, userID 
 		return nil
 	}
 
+	// Verify the payment method ID
+	if err := b.verifyPaymentMethod(ctx, paymentMethodID); err != nil {
+		return fmt.Errorf("invalid payment method: %w", err)
+	}
+
 	acct, err := b.api.Account.GetAccountByKey(ctx, &account.GetAccountByKeyParams{
 		ExternalKey: strconv.FormatUint(uint64(userID), 10),
 	})
@@ -605,6 +610,55 @@ func (b *BillingServiceDefault) ConnectSubscription(ctx context.Context, userID 
 	}
 
 	return fmt.Errorf("unexpected subscription state: %s", sub.State)
+}
+
+func (b *BillingServiceDefault) verifyPaymentMethod(ctx context.Context, paymentMethodID string) error {
+	url := fmt.Sprintf("%s/payment_methods/%s", b.cfg.Hyperswitch.APIServer, paymentMethodID)
+
+	resp, err := b.makeRequest(ctx, "GET", url, nil)
+	if err != nil {
+		return err
+	}
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+			b.logger.Error("error closing response body", zap.Error(err))
+		}
+	}(resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to verify payment method, status: %d, body: %s", resp.StatusCode, string(body))
+	}
+
+	return nil
+}
+
+func (b *BillingServiceDefault) makeRequest(ctx context.Context, method, url string, payload interface{}) (*http.Response, error) {
+	var body io.Reader
+	if payload != nil {
+		payloadBytes, err := json.Marshal(payload)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling payload: %w", err)
+		}
+		body = bytes.NewBuffer(payloadBytes)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, url, body)
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("api-key", b.cfg.Hyperswitch.APIKey)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("error making request: %w", err)
+	}
+
+	return resp, nil
 }
 
 func (b *BillingServiceDefault) handleNewSubscription(ctx context.Context, accountID strfmt.UUID, planId string) error {
@@ -743,7 +797,6 @@ func (b *BillingServiceDefault) createNewPayment(ctx context.Context, accountID 
 	acct, err := b.api.Account.GetAccount(ctx, &account.GetAccountParams{
 		AccountID: accountID,
 	})
-
 	if err != nil {
 		return err
 	}
@@ -753,7 +806,6 @@ func (b *BillingServiceDefault) createNewPayment(ctx context.Context, accountID 
 		return err
 	}
 
-	// Create the payment request payload
 	payload := PaymentRequest{
 		Amount:           planPrice * 100,
 		SetupFutureUsage: "off_session",
@@ -769,23 +821,9 @@ func (b *BillingServiceDefault) createNewPayment(ctx context.Context, accountID 
 		},
 	}
 
-	payloadBytes, err := json.Marshal(payload)
+	resp, err := b.makeRequest(ctx, "POST", url, payload)
 	if err != nil {
-		return fmt.Errorf("error marshaling payment payload: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(payloadBytes))
-	if err != nil {
-		return fmt.Errorf("error creating request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("api-key", b.cfg.Hyperswitch.APIKey)
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("error making request: %w", err)
+		return fmt.Errorf("error creating payment: %w", err)
 	}
 	defer func(Body io.ReadCloser) {
 		err := Body.Close()
@@ -815,28 +853,13 @@ func (b *BillingServiceDefault) createNewPayment(ctx context.Context, accountID 
 func (b *BillingServiceDefault) cancelPayment(ctx context.Context, paymentID string) error {
 	url := fmt.Sprintf("%s/payments/%s/cancel", b.cfg.Hyperswitch.APIServer, paymentID)
 
-	// Create the payment request payload
 	payload := PaymentCancelRequest{
 		CancellationReason: "payment_expired",
 	}
 
-	payloadBytes, err := json.Marshal(payload)
+	resp, err := b.makeRequest(ctx, "POST", url, payload)
 	if err != nil {
-		return fmt.Errorf("error marshaling payment payload: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(payloadBytes))
-	if err != nil {
-		return fmt.Errorf("error creating request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("api-key", b.cfg.Hyperswitch.APIKey)
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("error making request: %w", err)
+		return fmt.Errorf("error cancelling payment: %w", err)
 	}
 	defer func(Body io.ReadCloser) {
 		err := Body.Close()
@@ -861,16 +884,7 @@ func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context
 func (b *BillingServiceDefault) fetchClientSecret(ctx context.Context, paymentID string) (string, time.Time, error) {
 	url := fmt.Sprintf("%s/payments/%s?force_sync=true&expand_captures=true&expand_attempts=true", b.cfg.Hyperswitch.APIServer, paymentID)
 
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		return "", time.Time{}, err
-	}
-
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("api-key", b.cfg.Hyperswitch.APIKey)
-
-	// Use http.DefaultClient instead of b.httpClient
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := b.makeRequest(ctx, "GET", url, nil)
 	if err != nil {
 		return "", time.Time{}, err
 	}
