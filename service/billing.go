@@ -37,6 +37,9 @@ type BillingService interface {
 
 	// ChangeSubscription changes the subscription for a given user
 	ChangeSubscription(ctx context.Context, userID uint, planID string) error
+
+	// ConnectSubscription connects a payment method to a user's subscription
+	ConnectSubscription(ctx context.Context, userID uint, paymentMethodID string) error
 }
 
 var _ BillingService = (*service.BillingServiceDefault)(nil)

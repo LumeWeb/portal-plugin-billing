@@ -60,3 +60,7 @@ type SubscriptionChangeRequest struct {
 type SubscriptionChangeResponse struct {
 	Plan *SubscriptionPlan `json:"plan"`
 }
+
+type SubscriptionConnectRequest struct {
+	PaymentMethodID string `json:"payment_method_id"`
+}

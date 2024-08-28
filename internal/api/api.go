@@ -69,6 +69,7 @@ func (a API) Configure(_ *mux.Router) error {
 
 	router.HandleFunc("/api/account/subscription", a.getSubscription).Methods("GET", "OPTIONS").Use(authMw)
 	router.HandleFunc("/api/account/subscription/change", a.changeSubscription).Methods("POST", "OPTIONS").Use(authMw)
+	router.HandleFunc("/api/account/subscription/connect", a.connectSubscription).Methods("POST", "OPTIONS").Use(authMw)
 
 	accountRouter.HandleFunc("/api/account/subscription/plans", a.getPlans).Methods("GET", "OPTIONS")
 
@@ -138,6 +139,33 @@ func (a API) changeSubscription(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := a.billingService.ChangeSubscription(ctx, user, changeRequest.Plan); err != nil {
+		_ = ctx.Error(err, http.StatusInternalServerError)
+		return
+	}
+}
+
+func (a API) connectSubscription(w http.ResponseWriter, r *http.Request) {
+	ctx := httputil.Context(r, w)
+
+	user, err := middleware.GetUserFromContext(ctx)
+
+	if err != nil {
+		_ = ctx.Error(core.NewAccountError(core.ErrKeyInvalidLogin, nil), http.StatusUnauthorized)
+		return
+	}
+
+	var connectRequest messages.SubscriptionConnectRequest
+	if err := ctx.Decode(&connectRequest); err != nil {
+		_ = ctx.Error(err, http.StatusInternalServerError)
+		return
+	}
+
+	if connectRequest.PaymentMethodID == "" {
+		_ = ctx.Error(fmt.Errorf("payment_method_id is required"), http.StatusBadRequest)
+		return
+	}
+
+	if err := a.billingService.ConnectSubscription(ctx, user, connectRequest.PaymentMethodID); err != nil {
 		_ = ctx.Error(err, http.StatusInternalServerError)
 		return
 	}

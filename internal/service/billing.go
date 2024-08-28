@@ -46,6 +46,7 @@ const (
 
 const paymentIdCustomField = "payment_id"
 const pendingCustomField = "pending"
+const paymentMethodPluginName = "hyperswitch-plugin"
 
 var _ core.Service = (*BillingServiceDefault)(nil)
 var _ core.Configurable = (*BillingServiceDefault)(nil)
@@ -542,6 +543,67 @@ func (b *BillingServiceDefault) ChangeSubscription(ctx context.Context, userID u
 	return fmt.Errorf("unexpected subscription state: %s", sub.State)
 }
 
+func (b *BillingServiceDefault) ConnectSubscription(ctx context.Context, userID uint, paymentMethodID string) error {
+	if !b.enabled() {
+		return nil
+	}
+
+	acct, err := b.api.Account.GetAccountByKey(ctx, &account.GetAccountByKeyParams{
+		ExternalKey: strconv.FormatUint(uint64(userID), 10),
+	})
+	if err != nil {
+		return err
+	}
+
+	bundles, err := b.api.Account.GetAccountBundles(ctx, &account.GetAccountBundlesParams{
+		AccountID: acct.Payload.AccountID,
+	})
+	if err != nil {
+		return err
+	}
+
+	sub := findActiveOrPendingSubscription(bundles.Payload)
+	if sub == nil {
+		return fmt.Errorf("no active or pending subscription found")
+	}
+
+	cfPending, err := b.getCustomField(ctx, sub.SubscriptionID, pendingCustomField)
+	if err != nil {
+		return err
+	}
+
+	if sub.State == kbmodel.SubscriptionStatePENDING || (cfPending != nil && *cfPending.Value == "1") {
+		_, err = b.api.Account.CreatePaymentMethod(ctx, &account.CreatePaymentMethodParams{
+			AccountID: acct.Payload.AccountID,
+			Body: &kbmodel.PaymentMethod{
+				PluginName: paymentMethodPluginName,
+				PluginInfo: &kbmodel.PaymentMethodPluginDetail{
+					IsDefaultPaymentMethod: true,
+					Properties: []*kbmodel.PluginProperty{
+						{
+							Key:         "mandateId",
+							Value:       paymentMethodID,
+							IsUpdatable: false,
+						},
+					},
+				},
+			},
+		})
+		if err != nil {
+			return err
+		}
+
+		err = b.deleteCustomField(ctx, sub.SubscriptionID, pendingCustomField)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	}
+
+	return fmt.Errorf("unexpected subscription state: %s", sub.State)
+}
+
 func (b *BillingServiceDefault) handleNewSubscription(ctx context.Context, accountID strfmt.UUID, planId string) error {
 	// Create a new subscription
 	resp, err := b.api.Subscription.CreateSubscription(ctx, &subscription.CreateSubscriptionParams{
@@ -619,7 +681,6 @@ func (b *BillingServiceDefault) getCustomField(ctx context.Context, subscription
 }
 
 func (b *BillingServiceDefault) setCustomField(ctx context.Context, subscriptionID strfmt.UUID, fieldName, value string) error {
-
 	existingField, err := b.getCustomField(ctx, subscriptionID, fieldName)
 	if err != nil {
 		return err
@@ -645,6 +706,24 @@ func (b *BillingServiceDefault) setCustomField(ctx context.Context, subscription
 		Body: []*kbmodel.CustomField{
 			existingField,
 		},
+	})
+
+	return err
+}
+
+func (b *BillingServiceDefault) deleteCustomField(ctx context.Context, subscriptionID strfmt.UUID, fieldName string) error {
+	field, err := b.getCustomField(ctx, subscriptionID, fieldName)
+	if err != nil {
+		return err
+	}
+
+	if field == nil {
+		return nil
+	}
+
+	_, err = b.api.Subscription.DeleteSubscriptionCustomFields(ctx, &subscription.DeleteSubscriptionCustomFieldsParams{
+		SubscriptionID: subscriptionID,
+		CustomField:    []strfmt.UUID{field.CustomFieldID},
 	})
 
 	return err
