@@ -573,6 +573,7 @@ func (b *BillingServiceDefault) ConnectSubscription(ctx context.Context, userID 
 	}
 
 	if sub.State == kbmodel.SubscriptionStatePENDING || (cfPending != nil && *cfPending.Value == "1") {
+		def := true
 		_, err = b.api.Account.CreatePaymentMethod(ctx, &account.CreatePaymentMethodParams{
 			AccountID: acct.Payload.AccountID,
 			Body: &kbmodel.PaymentMethod{
@@ -587,7 +588,9 @@ func (b *BillingServiceDefault) ConnectSubscription(ctx context.Context, userID 
 						},
 					},
 				},
+				IsDefault: true,
 			},
+			IsDefault: &def,
 		})
 		if err != nil {
 			return err
