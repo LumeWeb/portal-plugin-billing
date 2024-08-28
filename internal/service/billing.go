@@ -633,6 +633,7 @@ func (b *BillingServiceDefault) ConnectSubscription(ctx context.Context, userID 
 					{
 						AccountID:   &acct.Payload.AccountID,
 						InvoiceID:   invoice.InvoiceID,
+						Amount:      invoice.Amount,
 						Currency:    kbmodel.InvoiceItemCurrencyEnum(invoice.Currency),
 						ItemType:    kbmodel.InvoiceItemItemTypeEXTERNALCHARGE,
 						ItemDetails: "Initial outside subscription payment",
