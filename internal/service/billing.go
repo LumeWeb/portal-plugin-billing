@@ -635,30 +635,13 @@ func (b *BillingServiceDefault) ConnectSubscription(ctx context.Context, userID 
 					InvoiceItemID: inv.Items[0].InvoiceItemID,
 					Amount:        inv.Amount,
 					Currency:      kbmodel.InvoiceItemCurrencyEnum(inv.Currency),
-					ItemDetails:   "Initial outside subscription payment",
+					Description:   "Initial outside subscription payment",
 				},
 			})
 
 			if err != nil {
 				return err
 			}
-
-			/*			_, err := b.api.Credit.CreateCredits(ctx, &credit2.CreateCreditsParams{
-							Body: []*kbmodel.InvoiceItem{
-								{
-									AccountID:   &acct.Payload.AccountID,
-									InvoiceID:   invoice.InvoiceID,
-									Amount:      invoice.Amount,
-									Currency:    kbmodel.InvoiceItemCurrencyEnum(invoice.Currency),
-									ItemType:    kbmodel.InvoiceItemItemTypeEXTERNALCHARGE,
-									ItemDetails: "Initial outside subscription payment",
-								},
-							},
-						})
-
-						if err != nil {
-							return err
-						}*/
 		}
 
 		err = b.setCustomField(ctx, sub.SubscriptionID, subscriptionSetupCustomField, "1")
