@@ -138,6 +138,7 @@ func (b *BillingServiceDefault) CreateCustomer(ctx context.Context, user *models
 		Body: &kbmodel.Account{
 			ExternalKey: externalKey,
 			Name:        fmt.Sprintf("%s %s", user.FirstName, user.LastName),
+			Email:       user.Email,
 		},
 	})
 
