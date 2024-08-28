@@ -162,6 +162,37 @@ func (b *BillingServiceDefault) CreateCustomerById(ctx context.Context, userID u
 	return b.CreateCustomer(ctx, user)
 }
 
+func (b *BillingServiceDefault) UpdateBillingInfo(ctx context.Context, userID uint, billingInfo *messages.BillingInfo) error {
+	if !b.enabled() {
+		return nil
+	}
+
+	acct, err := b.api.Account.GetAccountByKey(ctx, &account.GetAccountByKeyParams{
+		ExternalKey: strconv.FormatUint(uint64(userID), 10),
+	})
+
+	if err != nil {
+		return err
+	}
+
+	_, err = b.api.Account.UpdateAccount(ctx, &account.UpdateAccountParams{
+		AccountID: acct.Payload.AccountID,
+		Body: &kbmodel.Account{
+			Address1:   billingInfo.Address,
+			City:       billingInfo.City,
+			State:      billingInfo.State,
+			PostalCode: billingInfo.Zip,
+			Country:    billingInfo.Country,
+		},
+	})
+
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (b *BillingServiceDefault) GetUserMaxStorage(ctx context.Context, userID uint) (uint64, error) {
 	return b.getUsageByUserID(ctx, userID, StorageUsage)
 }

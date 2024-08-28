@@ -20,6 +20,9 @@ type BillingService interface {
 	// CreateCustomerById creates a new customer by user id
 	CreateCustomerById(ctx context.Context, userID uint) error
 
+	// UpdateBillingInfo updates the billing info for a given user
+	UpdateBillingInfo(ctx context.Context, userID uint, billingInfo *messages.BillingInfo) error
+
 	// GetUserQuota returns the quota for a given user
 	GetUserMaxStorage(ctx context.Context, userID uint) (uint64, error)
 
