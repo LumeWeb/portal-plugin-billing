@@ -673,9 +673,9 @@ func (b *BillingServiceDefault) createNewPayment(ctx context.Context, accountID 
 
 	// Create the payment request payload
 	payload := PaymentRequest{
-		Amount:           planPrice,
+		Amount:           planPrice * 100,
 		SetupFutureUsage: "off_session",
-		Currency:         "USD",
+		Currency:         string(acct.Payload.Currency),
 		Confirm:          false,
 		Customer: Customer{
 			ID: accountID.String(),
