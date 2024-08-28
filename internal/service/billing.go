@@ -631,6 +631,7 @@ func (b *BillingServiceDefault) ConnectSubscription(ctx context.Context, userID 
 			_, err := b.api.Credit.CreateCredits(ctx, &credit2.CreateCreditsParams{
 				Body: []*kbmodel.InvoiceItem{
 					{
+						AccountID:   &acct.Payload.AccountID,
 						InvoiceID:   invoice.InvoiceID,
 						Currency:    kbmodel.InvoiceItemCurrencyEnum(invoice.Currency),
 						ItemType:    kbmodel.InvoiceItemItemTypeEXTERNALCHARGE,
