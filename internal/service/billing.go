@@ -175,6 +175,36 @@ func (b *BillingServiceDefault) UpdateBillingInfo(ctx context.Context, userID ui
 		return err
 	}
 
+	acctChanges := &kbmodel.Account{}
+
+	if acct.Payload.Name != billingInfo.Name && len(billingInfo.Name) > 0 {
+		acctChanges.Name = billingInfo.Name
+	}
+
+	if acct.Payload.Address1 != billingInfo.Address && len(billingInfo.Address) > 0 {
+		acctChanges.Address1 = billingInfo.Address
+	}
+
+	if acct.Payload.City != billingInfo.City && len(billingInfo.City) > 0 {
+		acctChanges.City = billingInfo.City
+	}
+
+	if acct.Payload.State != billingInfo.State && len(billingInfo.State) > 0 {
+		acctChanges.State = billingInfo.State
+	}
+
+	if acct.Payload.PostalCode != billingInfo.Zip && len(billingInfo.Zip) > 0 {
+		acctChanges.PostalCode = billingInfo.Zip
+	}
+
+	if acct.Payload.Country != billingInfo.Country && len(billingInfo.Country) > 0 {
+		acctChanges.Country = billingInfo.Country
+	}
+
+	if len(acctChanges.Name) == 0 && len(acctChanges.Address1) == 0 && len(acctChanges.City) == 0 && len(acctChanges.State) == 0 && len(acctChanges.PostalCode) == 0 && len(acctChanges.Country) == 0 {
+		return nil
+	}
+
 	_, err = b.api.Account.UpdateAccount(ctx, &account.UpdateAccountParams{
 		AccountID: acct.Payload.AccountID,
 		Body: &kbmodel.Account{
