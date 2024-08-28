@@ -13,7 +13,7 @@ import (
 	"github.com/killbill/kbcli/v3/kbclient"
 	"github.com/killbill/kbcli/v3/kbclient/account"
 	"github.com/killbill/kbcli/v3/kbclient/catalog"
-	credit2 "github.com/killbill/kbcli/v3/kbclient/credit"
+	"github.com/killbill/kbcli/v3/kbclient/invoice"
 	"github.com/killbill/kbcli/v3/kbclient/nodes_info"
 	"github.com/killbill/kbcli/v3/kbclient/subscription"
 	"github.com/killbill/kbcli/v3/kbcommon"
@@ -627,23 +627,38 @@ func (b *BillingServiceDefault) ConnectSubscription(ctx context.Context, userID 
 			return err
 		}
 
-		for _, invoice := range invoices.Payload {
-			_, err := b.api.Credit.CreateCredits(ctx, &credit2.CreateCreditsParams{
-				Body: []*kbmodel.InvoiceItem{
-					{
-						AccountID:   &acct.Payload.AccountID,
-						InvoiceID:   invoice.InvoiceID,
-						Amount:      invoice.Amount,
-						Currency:    kbmodel.InvoiceItemCurrencyEnum(invoice.Currency),
-						ItemType:    kbmodel.InvoiceItemItemTypeEXTERNALCHARGE,
-						ItemDetails: "Initial outside subscription payment",
-					},
+		for _, inv := range invoices.Payload {
+			_, err = b.api.Invoice.AdjustInvoiceItem(ctx, &invoice.AdjustInvoiceItemParams{
+				InvoiceID: inv.InvoiceID,
+				Body: &kbmodel.InvoiceItem{
+					AccountID:     &acct.Payload.AccountID,
+					InvoiceItemID: &inv.InvoiceID,
+					Amount:        inv.Amount,
+					Currency:      kbmodel.InvoiceItemCurrencyEnum(inv.Currency),
+					ItemDetails:   "Initial outside subscription payment",
 				},
 			})
 
 			if err != nil {
 				return err
 			}
+
+			/*			_, err := b.api.Credit.CreateCredits(ctx, &credit2.CreateCreditsParams{
+							Body: []*kbmodel.InvoiceItem{
+								{
+									AccountID:   &acct.Payload.AccountID,
+									InvoiceID:   invoice.InvoiceID,
+									Amount:      invoice.Amount,
+									Currency:    kbmodel.InvoiceItemCurrencyEnum(invoice.Currency),
+									ItemType:    kbmodel.InvoiceItemItemTypeEXTERNALCHARGE,
+									ItemDetails: "Initial outside subscription payment",
+								},
+							},
+						})
+
+						if err != nil {
+							return err
+						}*/
 		}
 
 		err = b.setCustomField(ctx, sub.SubscriptionID, subscriptionSetupCustomField, "1")
