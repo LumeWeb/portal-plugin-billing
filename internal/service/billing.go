@@ -13,6 +13,7 @@ import (
 	"github.com/killbill/kbcli/v3/kbclient"
 	"github.com/killbill/kbcli/v3/kbclient/account"
 	"github.com/killbill/kbcli/v3/kbclient/catalog"
+	credit2 "github.com/killbill/kbcli/v3/kbclient/credit"
 	"github.com/killbill/kbcli/v3/kbclient/nodes_info"
 	"github.com/killbill/kbcli/v3/kbclient/subscription"
 	"github.com/killbill/kbcli/v3/kbcommon"
@@ -47,6 +48,7 @@ const (
 const paymentIdCustomField = "payment_id"
 const pendingCustomField = "pending"
 const paymentMethodPluginName = "hyperswitch-plugin"
+const subscriptionSetupCustomField = "setup"
 
 var _ core.Service = (*BillingServiceDefault)(nil)
 var _ core.Configurable = (*BillingServiceDefault)(nil)
@@ -602,6 +604,47 @@ func (b *BillingServiceDefault) ConnectSubscription(ctx context.Context, userID 
 		}
 
 		err = b.deleteCustomField(ctx, sub.SubscriptionID, pendingCustomField)
+		if err != nil {
+			return err
+		}
+
+		subSetup, err := b.getCustomField(ctx, sub.SubscriptionID, subscriptionSetupCustomField)
+		if err != nil {
+			return err
+		}
+
+		if subSetup != nil {
+			return nil
+		}
+
+		unpaid := true
+
+		invoices, err := b.api.Account.GetInvoicesForAccount(ctx, &account.GetInvoicesForAccountParams{
+			AccountID:          acct.Payload.AccountID,
+			UnpaidInvoicesOnly: &unpaid,
+		})
+		if err != nil {
+			return err
+		}
+
+		for _, invoice := range invoices.Payload {
+			_, err := b.api.Credit.CreateCredits(ctx, &credit2.CreateCreditsParams{
+				Body: []*kbmodel.InvoiceItem{
+					{
+						InvoiceID:   invoice.InvoiceID,
+						Currency:    kbmodel.InvoiceItemCurrencyEnum(invoice.Currency),
+						ItemType:    kbmodel.InvoiceItemItemTypeEXTERNALCHARGE,
+						ItemDetails: "Initial outside subscription payment",
+					},
+				},
+			})
+
+			if err != nil {
+				return err
+			}
+		}
+
+		err = b.setCustomField(ctx, sub.SubscriptionID, subscriptionSetupCustomField, "1")
 		if err != nil {
 			return err
 		}
