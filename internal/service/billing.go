@@ -1239,5 +1239,5 @@ type EphemeralKeyRequest struct {
 }
 
 type EphemeralKeyResponse struct {
-	Secret string `json:"key"`
+	Secret string `json:"secret"`
 }
