@@ -911,6 +911,15 @@ func (b *BillingServiceDefault) createNewPayment(ctx context.Context, accountID 
 		return err
 	}
 
+	exists, userAcct, err := b.user.EmailExists(acct.Payload.Email)
+	if err != nil || !exists {
+		if !exists {
+			return fmt.Errorf("user does not exist")
+		}
+
+		return err
+	}
+
 	payload := PaymentRequest{
 		Amount:           planPrice * 100,
 		PaymentType:      "new_mandate",
@@ -918,7 +927,21 @@ func (b *BillingServiceDefault) createNewPayment(ctx context.Context, accountID 
 		Currency:         string(acct.Payload.Currency),
 		Confirm:          false,
 		Customer: Customer{
-			ID: accountID.String(),
+			ID:    accountID.String(),
+			Name:  acct.Payload.Name,
+			Email: acct.Payload.Email,
+		},
+		Billing: CustomerBilling{
+			Address: CustomerBillingAddress{
+				FirstName: userAcct.FirstName,
+				LastName:  userAcct.LastName,
+				City:      acct.Payload.City,
+				Country:   acct.Payload.Country,
+				Line1:     acct.Payload.Address1,
+				Zip:       acct.Payload.PostalCode,
+				State:     acct.Payload.State,
+			},
+			Email: acct.Payload.Email,
 		},
 		Description: fmt.Sprintf("Subscription change to plan: %s", planName),
 		Metadata: PaymentMetadata{
@@ -1128,6 +1151,7 @@ type PaymentRequest struct {
 	Currency         string          `json:"currency"`
 	Confirm          bool            `json:"confirm"`
 	Customer         Customer        `json:"customer"`
+	Billing          CustomerBilling `json:"billing;omitempty"`
 	Description      string          `json:"description"`
 	Metadata         PaymentMetadata `json:"metadata"`
 	SetupFutureUsage string          `json:"setup_future_usage"`
@@ -1136,7 +1160,24 @@ type PaymentRequest struct {
 
 // Customer represents the customer information in the payment request
 type Customer struct {
-	ID string `json:"id"`
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Email string `json:"email"`
+}
+
+type CustomerBilling struct {
+	Address CustomerBillingAddress `json:"address"`
+	Email   string                 `json:"email"`
+}
+
+type CustomerBillingAddress struct {
+	FirstName string `json:"first_name"`
+	LastName  string `json:"last_name"`
+	City      string `json:"city"`
+	Country   string `json:"country"`
+	Line1     string `json:"line1"`
+	Zip       string `json:"zip"`
+	State     string `json:"state"`
 }
 
 // PaymentMetadata represents the metadata for a payment
