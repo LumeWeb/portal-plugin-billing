@@ -64,3 +64,7 @@ type SubscriptionChangeResponse struct {
 type SubscriptionConnectRequest struct {
 	PaymentMethodID string `json:"payment_method_id"`
 }
+
+type EphemeralKeyResponse struct {
+	Key string `json:"key"`
+}

@@ -716,6 +716,46 @@ func (b *BillingServiceDefault) ConnectSubscription(ctx context.Context, userID 
 	return fmt.Errorf("unexpected subscription state: %s", sub.State)
 }
 
+func (b *BillingServiceDefault) GenerateEphemeralKey(ctx context.Context, userID uint) (*messages.EphemeralKeyResponse, error) {
+	acct, err := b.api.Account.GetAccountByKey(ctx, &account.GetAccountByKeyParams{
+		ExternalKey: strconv.FormatUint(uint64(userID), 10),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	data := &EphemeralKeyRequest{
+		CustomerID: acct.Payload.AccountID.String(),
+	}
+	url := fmt.Sprintf("%s/ephemeral_keys", b.cfg.Hyperswitch.APIServer)
+
+	resp, err := b.makeRequest(ctx, "POST", url, data)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+			b.logger.Error("error closing response body", zap.Error(err))
+		}
+	}(resp.Body)
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var key EphemeralKeyResponse
+	if err = json.Unmarshal(body, &key); err != nil {
+		return nil, err
+	}
+
+	return &messages.EphemeralKeyResponse{
+		Key: key.Secret,
+	}, nil
+}
+
 func (b *BillingServiceDefault) verifyPaymentMethod(ctx context.Context, paymentMethodID string) error {
 	url := fmt.Sprintf("%s/payment_methods/%s", b.cfg.Hyperswitch.APIServer, paymentMethodID)
 
@@ -1192,4 +1232,12 @@ type PaymentResponse struct {
 
 type PaymentCancelRequest struct {
 	CancellationReason string `json:"cancellation_reason"`
+}
+
+type EphemeralKeyRequest struct {
+	CustomerID string `json:"customer_id"`
+}
+
+type EphemeralKeyResponse struct {
+	Secret string `json:"key"`
 }
