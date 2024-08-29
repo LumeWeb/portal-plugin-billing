@@ -982,7 +982,17 @@ func (b *BillingServiceDefault) cancelPayment(ctx context.Context, paymentID str
 }
 
 func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context, subscriptionID strfmt.UUID, planID string) error {
-	// TODO: Implement API call to change the subscription plan
+	_, err := b.api.Subscription.ChangeSubscriptionPlan(ctx, &subscription.ChangeSubscriptionPlanParams{
+		SubscriptionID: subscriptionID,
+		Body: &kbmodel.Subscription{
+			PlanName: &planID,
+		},
+	})
+
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
