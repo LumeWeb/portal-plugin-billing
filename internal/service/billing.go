@@ -993,14 +993,17 @@ func (b *BillingServiceDefault) createNewPayment(ctx context.Context, accountID 
 
 	amount := planPrice * 100
 	description := fmt.Sprintf("Subscription change to plan: %s", planName)
+	paymentType := "new_mandate"
 
 	if zeroAuth {
 		amount = 0
 		description = "Authorization for new payment method"
+		paymentType = "setup_mandate"
 	}
 
 	payload := PaymentRequest{
 		Amount:           amount,
+		PaymentType:      paymentType,
 		SetupFutureUsage: "off_session",
 		Currency:         string(acct.Payload.Currency),
 		Confirm:          false,
