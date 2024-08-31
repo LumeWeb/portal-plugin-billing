@@ -756,6 +756,36 @@ func (b *BillingServiceDefault) GenerateEphemeralKey(ctx context.Context, userID
 	}, nil
 }
 
+func (b *BillingServiceDefault) RequestPaymentMethodChange(ctx context.Context, userID uint) (*messages.RequestPaymentMethodChangeResponse, error) {
+	acct, err := b.api.Account.GetAccountByKey(ctx, &account.GetAccountByKeyParams{
+		ExternalKey: strconv.FormatUint(uint64(userID), 10),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	bundles, err := b.api.Account.GetAccountBundles(ctx, &account.GetAccountBundlesParams{
+		AccountID: acct.Payload.AccountID,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	sub := findActiveSubscription(bundles.Payload)
+	if sub == nil {
+		return nil, fmt.Errorf("no active subscription found")
+	}
+
+	clientSecret, err := b.createNewPayment(ctx, acct.Payload.AccountID, sub, true)
+	if err != nil {
+		return nil, err
+	}
+
+	return &messages.RequestPaymentMethodChangeResponse{
+		ClientSecret: clientSecret,
+	}, nil
+}
+
 func (b *BillingServiceDefault) verifyPaymentMethod(ctx context.Context, paymentMethodID string) error {
 	url := fmt.Sprintf("%s/payment_methods/%s", b.cfg.Hyperswitch.APIServer, paymentMethodID)
 
@@ -839,7 +869,7 @@ func (b *BillingServiceDefault) handleNewSubscription(ctx context.Context, accou
 	}
 
 	// Create new payment
-	err = b.createNewPayment(ctx, accountID, sub.Payload)
+	_, err = b.createNewPayment(ctx, accountID, sub.Payload, false)
 	if err != nil {
 		return fmt.Errorf("failed to create new payment: %w", err)
 	}
@@ -854,14 +884,16 @@ func (b *BillingServiceDefault) handlePendingSubscription(ctx context.Context, s
 	}
 
 	if paymentID == nil {
-		return b.createNewPayment(ctx, sub.AccountID, sub)
-	}
-
-	if err := b.cancelPayment(ctx, *paymentID.Value); err != nil {
+		_, err = b.createNewPayment(ctx, sub.AccountID, sub, false)
 		return err
 	}
 
-	return b.createNewPayment(ctx, sub.AccountID, sub)
+	if err = b.cancelPayment(ctx, *paymentID.Value); err != nil {
+		return err
+	}
+
+	_, err = b.createNewPayment(ctx, sub.AccountID, sub, false)
+	return err
 }
 
 func (b *BillingServiceDefault) getCustomField(ctx context.Context, subscriptionID strfmt.UUID, fieldName string) (*kbmodel.CustomField, error) {
@@ -930,38 +962,45 @@ func (b *BillingServiceDefault) deleteCustomField(ctx context.Context, subscript
 	return err
 }
 
-func (b *BillingServiceDefault) createNewPayment(ctx context.Context, accountID strfmt.UUID, sub *kbmodel.Subscription) error {
+func (b *BillingServiceDefault) createNewPayment(ctx context.Context, accountID strfmt.UUID, sub *kbmodel.Subscription, zeroAuth bool) (string, error) {
 	url := fmt.Sprintf("%s/payments", b.cfg.Hyperswitch.APIServer)
 
 	planName, err := b.getPlanNameById(ctx, *sub.PlanName)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	acct, err := b.api.Account.GetAccount(ctx, &account.GetAccountParams{
 		AccountID: accountID,
 	})
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	planPrice, err := b.getPlanPriceById(ctx, *sub.PlanName, string(sub.PhaseType), string(acct.Payload.Currency))
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	exists, userAcct, err := b.user.EmailExists(acct.Payload.Email)
 	if err != nil || !exists {
 		if !exists {
-			return fmt.Errorf("user does not exist")
+			return "", fmt.Errorf("user does not exist")
 		}
 
-		return err
+		return "", err
+	}
+
+	amount := planPrice * 100
+	description := fmt.Sprintf("Subscription change to plan: %s", planName)
+
+	if zeroAuth {
+		amount = 0
+		description = "Authorization for new payment method"
 	}
 
 	payload := PaymentRequest{
-		Amount:           planPrice * 100,
-		PaymentType:      "new_mandate",
+		Amount:           amount,
 		SetupFutureUsage: "off_session",
 		Currency:         string(acct.Payload.Currency),
 		Confirm:          false,
@@ -982,7 +1021,7 @@ func (b *BillingServiceDefault) createNewPayment(ctx context.Context, accountID 
 			},
 			Email: acct.Payload.Email,
 		},
-		Description: fmt.Sprintf("Subscription change to plan: %s", planName),
+		Description: description,
 		Metadata: PaymentMetadata{
 			SubscriptionID: sub.SubscriptionID.String(),
 			PlanID:         *sub.PlanName,
@@ -991,7 +1030,7 @@ func (b *BillingServiceDefault) createNewPayment(ctx context.Context, accountID 
 
 	resp, err := b.makeRequest(ctx, "POST", url, payload)
 	if err != nil {
-		return fmt.Errorf("error creating payment: %w", err)
+		return "", fmt.Errorf("error creating payment: %w", err)
 	}
 	defer func(Body io.ReadCloser) {
 		err := Body.Close()
@@ -1002,20 +1041,22 @@ func (b *BillingServiceDefault) createNewPayment(ctx context.Context, accountID 
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("error creating payment, status: %d, body: %s", resp.StatusCode, string(body))
+		return "", fmt.Errorf("error creating payment, status: %d, body: %s", resp.StatusCode, string(body))
 	}
 
 	var paymentResponse PaymentResponse
 	if err = json.NewDecoder(resp.Body).Decode(&paymentResponse); err != nil {
-		return fmt.Errorf("error decoding response: %w", err)
+		return "", fmt.Errorf("error decoding response: %w", err)
 	}
 
-	// Store the payment ID in a custom field
-	if err = b.setCustomField(ctx, sub.SubscriptionID, paymentIdCustomField, paymentResponse.PaymentID); err != nil {
-		return fmt.Errorf("error setting custom field: %w", err)
+	if !zeroAuth {
+		// Store the payment ID in a custom field
+		if err = b.setCustomField(ctx, sub.SubscriptionID, paymentIdCustomField, paymentResponse.PaymentID); err != nil {
+			return "", fmt.Errorf("error setting custom field: %w", err)
+		}
 	}
 
-	return nil
+	return paymentResponse.ClientSecret, nil
 }
 
 func (b *BillingServiceDefault) cancelPayment(ctx context.Context, paymentID string) error {
@@ -1227,7 +1268,8 @@ type PaymentMetadata struct {
 
 // PaymentResponse represents the response from the payment creation API
 type PaymentResponse struct {
-	PaymentID string `json:"payment_id"`
+	PaymentID    string `json:"payment_id"`
+	ClientSecret string `json:"client_secret"`
 }
 
 type PaymentCancelRequest struct {

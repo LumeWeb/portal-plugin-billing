@@ -68,3 +68,7 @@ type SubscriptionConnectRequest struct {
 type EphemeralKeyResponse struct {
 	Key string `json:"key"`
 }
+
+type RequestPaymentMethodChangeResponse struct {
+	ClientSecret string `json:"client_secret"`
+}
