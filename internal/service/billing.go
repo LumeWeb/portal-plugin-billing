@@ -1231,7 +1231,7 @@ type PaymentRequest struct {
 	Currency         string          `json:"currency"`
 	Confirm          bool            `json:"confirm"`
 	Customer         Customer        `json:"customer"`
-	Billing          CustomerBilling `json:"billing;omitempty"`
+	Billing          CustomerBilling `json:"billing,omitempty"`
 	Description      string          `json:"description"`
 	Metadata         PaymentMetadata `json:"metadata"`
 	SetupFutureUsage string          `json:"setup_future_usage"`
