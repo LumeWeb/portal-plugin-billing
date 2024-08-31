@@ -72,7 +72,7 @@ func (a API) Configure(_ *mux.Router) error {
 	router.HandleFunc("/api/account/subscription/change", a.changeSubscription).Methods("POST", "OPTIONS").Use(authMw)
 	router.HandleFunc("/api/account/subscription/connect", a.connectSubscription).Methods("POST", "OPTIONS").Use(authMw)
 	router.HandleFunc("/api/account/subscription/ephemeral-key", a.generateEphemeralKey).Methods("POST", "OPTIONS").Use(authMw)
-	router.HandleFunc("/api/account/subscription/request-payment-method-change", a.requestPaymentMethodChange).Methods("GET", "OPTIONS").Use(authMw)
+	router.HandleFunc("/api/account/subscription/request-payment-method-change", a.requestPaymentMethodChange).Methods("POST", "OPTIONS").Use(authMw)
 
 	accountRouter.HandleFunc("/api/account/subscription/plans", a.getPlans).Methods("GET", "OPTIONS")
 
