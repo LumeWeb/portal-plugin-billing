@@ -15,6 +15,7 @@ import (
 	"github.com/killbill/kbcli/v3/kbclient/catalog"
 	"github.com/killbill/kbcli/v3/kbclient/invoice"
 	"github.com/killbill/kbcli/v3/kbclient/nodes_info"
+	"github.com/killbill/kbcli/v3/kbclient/payment_method"
 	"github.com/killbill/kbcli/v3/kbclient/subscription"
 	"github.com/killbill/kbcli/v3/kbcommon"
 	"github.com/killbill/kbcli/v3/kbmodel"
@@ -641,25 +642,7 @@ func (b *BillingServiceDefault) ConnectSubscription(ctx context.Context, userID 
 	}
 
 	if sub.State == kbmodel.SubscriptionStatePENDING || (cfPending != nil && *cfPending.Value == "1") {
-		def := true
-		_, err = b.api.Account.CreatePaymentMethod(ctx, &account.CreatePaymentMethodParams{
-			AccountID: acct.Payload.AccountID,
-			Body: &kbmodel.PaymentMethod{
-				PluginName: paymentMethodPluginName,
-				PluginInfo: &kbmodel.PaymentMethodPluginDetail{
-					IsDefaultPaymentMethod: true,
-					Properties: []*kbmodel.PluginProperty{
-						{
-							Key:         "mandateId",
-							Value:       paymentMethodID,
-							IsUpdatable: false,
-						},
-					},
-				},
-				IsDefault: true,
-			},
-			IsDefault: &def,
-		})
+		err = b.setUserPaymentMethod(ctx, acct.Payload.AccountID, paymentMethodID)
 		if err != nil {
 			return err
 		}
@@ -711,9 +694,65 @@ func (b *BillingServiceDefault) ConnectSubscription(ctx context.Context, userID 
 		}
 
 		return nil
+	} else if sub.State == kbmodel.SubscriptionStateACTIVE {
+		return b.setUserPaymentMethod(ctx, acct.Payload.AccountID, paymentMethodID)
 	}
 
 	return fmt.Errorf("unexpected subscription state: %s", sub.State)
+}
+
+func (b *BillingServiceDefault) pruneAllPaymentMethods(ctx context.Context, acctID strfmt.UUID) error {
+	paymentMethods, err := b.api.Account.GetPaymentMethodsForAccount(ctx, &account.GetPaymentMethodsForAccountParams{
+		AccountID: acctID,
+	})
+	if err != nil {
+		return err
+	}
+
+	for _, method := range paymentMethods.Payload {
+		if method.PluginName == paymentMethodPluginName {
+			_, err = b.api.PaymentMethod.DeletePaymentMethod(ctx, &payment_method.DeletePaymentMethodParams{
+				PaymentMethodID: method.PaymentMethodID,
+			})
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func (b *BillingServiceDefault) setUserPaymentMethod(ctx context.Context, acctID strfmt.UUID, paymentMethodID string) error {
+	err := b.pruneAllPaymentMethods(ctx, acctID)
+	if err != nil {
+		return err
+	}
+
+	def := true
+	_, err = b.api.Account.CreatePaymentMethod(ctx, &account.CreatePaymentMethodParams{
+		AccountID: acctID,
+		Body: &kbmodel.PaymentMethod{
+			PluginName: paymentMethodPluginName,
+			PluginInfo: &kbmodel.PaymentMethodPluginDetail{
+				IsDefaultPaymentMethod: true,
+				Properties: []*kbmodel.PluginProperty{
+					{
+						Key:         "mandateId",
+						Value:       paymentMethodID,
+						IsUpdatable: false,
+					},
+				},
+			},
+			IsDefault: true,
+		},
+		IsDefault: &def,
+	})
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (b *BillingServiceDefault) GenerateEphemeralKey(ctx context.Context, userID uint) (*messages.EphemeralKeyResponse, error) {
