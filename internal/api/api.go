@@ -73,6 +73,7 @@ func (a API) Configure(_ *mux.Router) error {
 	router.HandleFunc("/api/account/subscription/connect", a.connectSubscription).Methods("POST", "OPTIONS").Use(authMw)
 	router.HandleFunc("/api/account/subscription/ephemeral-key", a.generateEphemeralKey).Methods("POST", "OPTIONS").Use(authMw)
 	router.HandleFunc("/api/account/subscription/request-payment-method-change", a.requestPaymentMethodChange).Methods("POST", "OPTIONS").Use(authMw)
+	router.HandleFunc("/api/account/subscription/cancel", a.cancelSubscription).Methods("POST", "OPTIONS").Use(authMw)
 
 	accountRouter.HandleFunc("/api/account/subscription/plans", a.getPlans).Methods("GET", "OPTIONS")
 
@@ -234,4 +235,20 @@ func (a API) requestPaymentMethodChange(w http.ResponseWriter, r *http.Request) 
 	}
 
 	ctx.Encode(response)
+}
+
+func (a API) cancelSubscription(w http.ResponseWriter, r *http.Request) {
+	ctx := httputil.Context(r, w)
+
+	user, err := middleware.GetUserFromContext(ctx)
+
+	if err != nil {
+		_ = ctx.Error(core.NewAccountError(core.ErrKeyInvalidLogin, nil), http.StatusUnauthorized)
+		return
+	}
+
+	if err := a.billingService.CancelSubscription(ctx, user); err != nil {
+		_ = ctx.Error(err, http.StatusInternalServerError)
+		return
+	}
 }

@@ -828,6 +828,10 @@ func (b *BillingServiceDefault) RequestPaymentMethodChange(ctx context.Context, 
 	}, nil
 }
 
+func (b *BillingServiceDefault) CancelSubscription(ctx context.Context, userID uint) error {
+	return b.ChangeSubscription(ctx, userID, b.cfg.FreePlan)
+}
+
 func (b *BillingServiceDefault) verifyPaymentMethod(ctx context.Context, paymentMethodID string) error {
 	url := fmt.Sprintf("%s/payment_methods/%s", b.cfg.Hyperswitch.APIServer, paymentMethodID)
 

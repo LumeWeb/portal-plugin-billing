@@ -12,6 +12,7 @@ type BillingConfig struct {
 	Enabled     bool              `mapstructure:"enabled"`
 	KillBill    KillBillConfig    `mapstructure:"kill_bill"`
 	Hyperswitch HyperswitchConfig `mapstructure:"hyperswitch"`
+	FreePlan    string            `mapstructure:"free_plan"`
 }
 
 func (c BillingConfig) Defaults() map[string]any {
@@ -55,6 +56,10 @@ func (c BillingConfig) Validate() error {
 
 	if c.Hyperswitch.PublishableKey == "" {
 		return errors.New("billing.hyperswitch.publishable_key is required")
+	}
+
+	if c.FreePlan == "" {
+		return errors.New("billing.free_plan is required")
 	}
 
 	return nil

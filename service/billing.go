@@ -47,6 +47,9 @@ type BillingService interface {
 	GenerateEphemeralKey(ctx context.Context, userID uint) (*messages.EphemeralKeyResponse, error)
 
 	RequestPaymentMethodChange(ctx context.Context, userID uint) (*messages.RequestPaymentMethodChangeResponse, error)
+
+	// CancelSubscription cancels a user's subscription
+	CancelSubscription(ctx context.Context, userID uint) error
 }
 
 var _ BillingService = (*service.BillingServiceDefault)(nil)
