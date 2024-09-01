@@ -701,7 +701,7 @@ func (b *BillingServiceDefault) ConnectSubscription(ctx context.Context, userID 
 	return fmt.Errorf("unexpected subscription state: %s", sub.State)
 }
 
-func (b *BillingServiceDefault) pruneAllPaymentMethods(ctx context.Context, acctID strfmt.UUID) error {
+func (b *BillingServiceDefault) prunePaymentMethods(ctx context.Context, acctID strfmt.UUID) error {
 	paymentMethods, err := b.api.Account.GetPaymentMethodsForAccount(ctx, &account.GetPaymentMethodsForAccountParams{
 		AccountID: acctID,
 	})
@@ -711,6 +711,9 @@ func (b *BillingServiceDefault) pruneAllPaymentMethods(ctx context.Context, acct
 
 	for _, method := range paymentMethods.Payload {
 		if method.PluginName == paymentMethodPluginName {
+			if method.IsDefault {
+				continue
+			}
 			_, err = b.api.PaymentMethod.DeletePaymentMethod(ctx, &payment_method.DeletePaymentMethodParams{
 				PaymentMethodID: method.PaymentMethodID,
 			})
@@ -724,13 +727,8 @@ func (b *BillingServiceDefault) pruneAllPaymentMethods(ctx context.Context, acct
 }
 
 func (b *BillingServiceDefault) setUserPaymentMethod(ctx context.Context, acctID strfmt.UUID, paymentMethodID string) error {
-	err := b.pruneAllPaymentMethods(ctx, acctID)
-	if err != nil {
-		return err
-	}
-
 	def := true
-	_, err = b.api.Account.CreatePaymentMethod(ctx, &account.CreatePaymentMethodParams{
+	_, err := b.api.Account.CreatePaymentMethod(ctx, &account.CreatePaymentMethodParams{
 		AccountID: acctID,
 		Body: &kbmodel.PaymentMethod{
 			PluginName: paymentMethodPluginName,
@@ -748,6 +746,11 @@ func (b *BillingServiceDefault) setUserPaymentMethod(ctx context.Context, acctID
 		},
 		IsDefault: &def,
 	})
+	if err != nil {
+		return err
+	}
+
+	err = b.prunePaymentMethods(ctx, acctID)
 	if err != nil {
 		return err
 	}
