@@ -24,13 +24,13 @@ type BillingService interface {
 	UpdateBillingInfo(ctx context.Context, userID uint, billingInfo *messages.BillingInfo) error
 
 	// GetUserQuota returns the quota for a given user
-	GetUserMaxStorage(ctx context.Context, userID uint) (uint64, error)
+	GetUserMaxStorage(userID uint) (uint64, error)
 
 	// GetUserMaxUpload returns the max upload for a given user
-	GetUserMaxUpload(ctx context.Context, userID uint) (uint64, error)
+	GetUserMaxUpload(userID uint) (uint64, error)
 
 	// GetUserMaxDownload returns the max download for a given user
-	GetUserMaxDownload(ctx context.Context, userID uint) (uint64, error)
+	GetUserMaxDownload(userID uint) (uint64, error)
 
 	// GetPlans returns all available subscription plans
 	GetPlans(ctx context.Context) ([]*messages.SubscriptionPlan, error)

@@ -9,5 +9,5 @@ import (
 func CronTaskUserQuotaReconcile(_ *define.CronTaskUserQuotaReconcileArgs, ctx core.Context) error {
 	quotaService := ctx.Service(service.QUOTA_SERVICE).(*service.QuotaServiceDefault)
 
-	return quotaService.Reconcile(ctx)
+	return quotaService.Reconcile()
 }

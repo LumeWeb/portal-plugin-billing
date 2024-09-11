@@ -224,16 +224,16 @@ func (b *BillingServiceDefault) UpdateBillingInfo(ctx context.Context, userID ui
 	return nil
 }
 
-func (b *BillingServiceDefault) GetUserMaxStorage(ctx context.Context, userID uint) (uint64, error) {
-	return b.getUsageByUserID(ctx, userID, StorageUsage)
+func (b *BillingServiceDefault) GetUserMaxStorage(userID uint) (uint64, error) {
+	return b.getUsageByUserID(b.ctx, userID, StorageUsage)
 }
 
-func (b *BillingServiceDefault) GetUserMaxUpload(ctx context.Context, userID uint) (uint64, error) {
-	return b.getUsageByUserID(ctx, userID, UploadUsage)
+func (b *BillingServiceDefault) GetUserMaxUpload(userID uint) (uint64, error) {
+	return b.getUsageByUserID(b.ctx, userID, UploadUsage)
 }
 
-func (b *BillingServiceDefault) GetUserMaxDownload(ctx context.Context, userID uint) (uint64, error) {
-	return b.getUsageByUserID(ctx, userID, DownloadUsage)
+func (b *BillingServiceDefault) GetUserMaxDownload(userID uint) (uint64, error) {
+	return b.getUsageByUserID(b.ctx, userID, DownloadUsage)
 }
 
 func (b *BillingServiceDefault) enabled() bool {
