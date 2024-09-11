@@ -70,6 +70,24 @@ func NewQuotaService() (core.Service, []core.ContextBuilderOption, error) {
 					return nil
 				})
 			})
+
+			event.Listen(ctx, event.EVENT_STORAGE_OBJECT_UPLOADED, func(evt *event.StorageObjectUploadedEvent) error {
+				pin := evt.Pin()
+
+				meta, err := _service.metadata.GetUploadByID(ctx, pin.UploadID)
+				if err != nil {
+					return err
+				}
+
+				return db.RetryableTransaction(ctx, _service.db, func(tx *gorm.DB) *gorm.DB {
+					err = _service.RecordUpload(pin.UploadID, pin.UserID, meta.Size, evt.IP())
+					if err != nil {
+						_ = tx.AddError(err)
+					}
+
+					return tx
+				})
+			})
 			return nil
 		}),
 	), nil
@@ -117,6 +135,46 @@ func (q *QuotaServiceDefault) RecordDownload(uploadID, userID uint, bytes uint64
 		return nil
 	})
 }
+
+func (q *QuotaServiceDefault) RecordUpload(uploadID, userID uint, bytes uint64, ip string) error {
+	if !q.enabled() {
+		return nil
+	}
+	return q.db.Transaction(func(tx *gorm.DB) error {
+		// Record detailed upload
+		if err := db.RetryableTransaction(q.ctx, q.db, func(tx *gorm.DB) *gorm.DB {
+			return tx.Create(&pluginDb.Upload{
+				UploadID: uploadID,
+				UserID:   userID,
+				Bytes:    bytes,
+				IP:       ip,
+			})
+		}); err != nil {
+			return err
+		}
+
+		// Update aggregated UserQuota
+		today := time.Now().UTC().Truncate(24 * time.Hour)
+		var userQuota pluginDb.UserQuota
+
+		if err := db.RetryableTransaction(q.ctx, q.db, func(tx *gorm.DB) *gorm.DB {
+			return tx.Model(&pluginDb.UserQuota{}).Where(&pluginDb.UserQuota{UserID: userID, Date: today}).FirstOrCreate(&userQuota)
+		}); err != nil {
+			return err
+		}
+
+		userQuota.BytesUploaded += bytes
+
+		if err := db.RetryableTransaction(q.ctx, q.db, func(tx *gorm.DB) *gorm.DB {
+			return tx.Model(&pluginDb.UserQuota{}).Where(&pluginDb.UserQuota{UserID: userID, Date: today}).First(&userQuota)
+		}); err != nil {
+			return err
+		}
+
+		return nil
+	})
+}
+
 func (q *QuotaServiceDefault) CheckDownloadQuota(userID uint, requestedBytes uint64) (bool, error) {
 	if !q.enabled() {
 		return true, nil
