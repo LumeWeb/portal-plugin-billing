@@ -1,6 +1,9 @@
 package messages
 
-import "time"
+import (
+	"github.com/go-openapi/strfmt"
+	"time"
+)
 
 type (
 	SubscriptionPlanPeriod string
@@ -30,6 +33,7 @@ type SubscriptionPlan struct {
 	Upload     uint64                 `json:"upload"`
 	Download   uint64                 `json:"download"`
 	Status     SubscriptionPlanStatus `json:"status"`
+	StartDate  *strfmt.DateTime       `json:"start_date;omitempty"`
 }
 type SubscriptionResponse struct {
 	Plan        *SubscriptionPlan `json:"plan"`
@@ -71,4 +75,15 @@ type EphemeralKeyResponse struct {
 
 type RequestPaymentMethodChangeResponse struct {
 	ClientSecret string `json:"client_secret"`
+}
+
+type UsageData struct {
+	Date  time.Time `json:"date"`
+	Usage uint64    `json:"usage"`
+}
+
+type CurrentUsageResponse struct {
+	Upload   uint64 `json:"upload"`
+	Download uint64 `json:"download"`
+	Storage  uint64 `json:"storage"`
 }

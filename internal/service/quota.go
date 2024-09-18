@@ -1,6 +1,8 @@
 package service
 
 import (
+	"fmt"
+	"go.lumeweb.com/portal-plugin-billing/internal/api/messages"
 	"go.lumeweb.com/portal-plugin-billing/internal/config"
 	pluginDb "go.lumeweb.com/portal-plugin-billing/internal/db"
 	"go.lumeweb.com/portal/core"
@@ -13,6 +15,12 @@ import (
 )
 
 const QUOTA_SERVICE = "quota"
+
+var noUsage = &messages.CurrentUsageResponse{
+	Upload:   0,
+	Download: 0,
+	Storage:  0,
+}
 
 type QuotaServiceDefault struct {
 	ctx      core.Context
@@ -275,6 +283,82 @@ func (q *QuotaServiceDefault) Reconcile() error {
 	})
 }
 
+// Public methods that use the internal method
+
+func (q *QuotaServiceDefault) GetUploadUsageHistory(userID uint, period int) ([]*messages.UsageData, error) {
+	return q.getUsageHistory(userID, period, "upload")
+}
+
+func (q *QuotaServiceDefault) GetDownloadUsageHistory(userID uint, period int) ([]*messages.UsageData, error) {
+	return q.getUsageHistory(userID, period, "download")
+}
+
+func (q *QuotaServiceDefault) GetStorageUsageHistory(userID uint, period int) ([]*messages.UsageData, error) {
+	return q.getUsageHistory(userID, period, "storage")
+}
+
+func (q *QuotaServiceDefault) GetCurrentUsage(userID uint) (*messages.CurrentUsageResponse, error) {
+	if !q.enabled() {
+		return noUsage, nil
+	}
+
+	sub, err := q.billing.GetSubscription(q.ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	var usageData messages.CurrentUsageResponse
+	now := time.Now().UTC()
+
+	var innerErr error
+
+	err = db.RetryableTransaction(q.ctx, q.db, func(tx *gorm.DB) *gorm.DB {
+		if sub == nil || sub.Plan == nil {
+			// If no subscription, get lifetime usage
+			return tx.Model(&pluginDb.UserQuota{}).
+				Select("COALESCE(SUM(bytes_uploaded), 0) as upload, COALESCE(SUM(bytes_downloaded), 0) as download, COALESCE(MAX(bytes_stored), 0) as storage").
+				Where("user_id = ?", userID).
+				Scan(&usageData)
+		} else {
+			// If subscription exists, calculate usage for the current period
+			startDate := time.Time(*sub.Plan.StartDate)
+			var endDate time.Time
+
+			switch sub.Plan.Period {
+			case messages.SubscriptionPlanPeriodMonth:
+				endDate = startDate.AddDate(0, 1, 0)
+			case messages.SubscriptionPlanPeriodYear:
+				endDate = startDate.AddDate(1, 0, 0)
+			default:
+				innerErr = fmt.Errorf("invalid subscription period: %s", sub.Plan.Period)
+				return tx
+			}
+
+			// Find the current period
+			for endDate.Before(now) {
+				startDate = endDate
+				endDate = endDate.Add(endDate.Sub(startDate))
+			}
+
+			// Get usage for the current period
+			return tx.Model(&pluginDb.UserQuota{}).
+				Select("COALESCE(SUM(bytes_uploaded), 0) as upload, COALESCE(SUM(bytes_downloaded), 0) as download, COALESCE(MAX(bytes_stored), 0) as storage").
+				Where("user_id = ? AND date >= ? AND date < ?", userID, startDate, endDate).
+				Scan(&usageData)
+		}
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	if innerErr != nil {
+		return nil, innerErr
+	}
+
+	return &usageData, nil
+}
+
 func (q *QuotaServiceDefault) reconcileDownloads(tx *gorm.DB, date time.Time) error {
 	var userBytes []userByte
 
@@ -353,6 +437,42 @@ func (q *QuotaServiceDefault) updateQuotas(tx *gorm.DB, userBytes []userByte, da
 	}
 
 	return nil
+}
+
+func (q *QuotaServiceDefault) getUsageHistory(userID uint, period int, usageType string) ([]*messages.UsageData, error) {
+	if !q.enabled() {
+		return nil, nil
+	}
+
+	var usageData []*messages.UsageData
+	endDate := time.Now().UTC().Truncate(24 * time.Hour)
+	startDate := endDate.AddDate(0, 0, -period)
+
+	var column string
+	switch usageType {
+	case "upload":
+		column = "bytes_uploaded"
+	case "download":
+		column = "bytes_downloaded"
+	case "storage":
+		column = "bytes_stored"
+	default:
+		return nil, fmt.Errorf("invalid usage type: %s", usageType)
+	}
+
+	err := db.RetryableTransaction(q.ctx, q.db, func(tx *gorm.DB) *gorm.DB {
+		return tx.Model(&pluginDb.UserQuota{}).
+			Select(fmt.Sprintf("date, %s as `usage`", column)).
+			Where("user_id = ? AND date >= ? AND date <= ?", userID, startDate, endDate).
+			Order("date ASC").
+			Scan(&usageData)
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return usageData, nil
 }
 
 func (b *QuotaServiceDefault) Config() (any, error) {

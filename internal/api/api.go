@@ -15,10 +15,13 @@ import (
 
 var _ core.API = (*API)(nil)
 
+const defaultUsageHistoryPeriod = 30
+
 type API struct {
 	ctx            core.Context
 	logger         *core.Logger
 	billingService service.BillingService
+	quotaService   service.QuotaService
 }
 
 func NewAPI() (core.API, []core.ContextBuilderOption, error) {
@@ -28,6 +31,7 @@ func NewAPI() (core.API, []core.ContextBuilderOption, error) {
 			api.ctx = ctx
 			api.logger = ctx.APILogger(api)
 			api.billingService = core.GetService[service.BillingService](ctx, service.BILLING_SERVICE).(service.BillingService)
+			api.quotaService = core.GetService[service.QuotaService](ctx, service.QUOTA_SERVICE).(service.QuotaService)
 			return nil
 		}),
 	), nil
@@ -76,6 +80,10 @@ func (a API) Configure(_ *mux.Router) error {
 	router.HandleFunc("/api/account/subscription/cancel", a.cancelSubscription).Methods("POST", "OPTIONS").Use(authMw)
 
 	accountRouter.HandleFunc("/api/account/subscription/plans", a.getPlans).Methods("GET", "OPTIONS")
+	accountRouter.HandleFunc("/api/account/usage/current", a.getCurrentUsage).Methods("GET", "OPTIONS").Use(authMw)
+	accountRouter.HandleFunc("/api/account/usage/history/upload", a.getUploadUsageHistory).Methods("GET", "OPTIONS").Use(authMw)
+	accountRouter.HandleFunc("/api/account/usage/history/download", a.getDownloadUsageHistory).Methods("GET", "OPTIONS").Use(authMw)
+	accountRouter.HandleFunc("/api/account/usage/history/storage", a.getStorageUsageHistory).Methods("GET", "OPTIONS").Use(authMw)
 
 	return nil
 }
@@ -251,4 +259,61 @@ func (a API) cancelSubscription(w http.ResponseWriter, r *http.Request) {
 		_ = ctx.Error(err, http.StatusInternalServerError)
 		return
 	}
+}
+func (a API) getUploadUsageHistory(w http.ResponseWriter, r *http.Request) {
+	a.getUsageHistory(w, r, a.quotaService.GetUploadUsageHistory)
+}
+
+func (a API) getDownloadUsageHistory(w http.ResponseWriter, r *http.Request) {
+	a.getUsageHistory(w, r, a.quotaService.GetDownloadUsageHistory)
+}
+
+func (a API) getStorageUsageHistory(w http.ResponseWriter, r *http.Request) {
+	a.getUsageHistory(w, r, a.quotaService.GetStorageUsageHistory)
+}
+
+func (a API) getUsageHistory(w http.ResponseWriter, r *http.Request, getHistoryFunc func(uint, int) ([]*messages.UsageData, error)) {
+	ctx := httputil.Context(r, w)
+
+	user, err := middleware.GetUserFromContext(ctx)
+	if err != nil {
+		acctErr := core.NewAccountError(core.ErrKeyInvalidLogin, nil)
+		_ = ctx.Error(acctErr, acctErr.HttpStatus())
+		return
+	}
+
+	period := defaultUsageHistoryPeriod
+
+	err = ctx.DecodeForm("period", &period)
+	if err != nil {
+		_ = ctx.Error(err, http.StatusBadRequest)
+		return
+	}
+
+	usageHistory, err := getHistoryFunc(user, period)
+	if err != nil {
+		_ = ctx.Error(err, http.StatusInternalServerError)
+		return
+	}
+
+	ctx.Encode(usageHistory)
+}
+
+func (a API) getCurrentUsage(w http.ResponseWriter, r *http.Request) {
+	ctx := httputil.Context(r, w)
+
+	user, err := middleware.GetUserFromContext(ctx)
+	if err != nil {
+		acctErr := core.NewAccountError(core.ErrKeyInvalidLogin, nil)
+		_ = ctx.Error(acctErr, acctErr.HttpStatus())
+		return
+	}
+
+	usage, err := a.quotaService.GetCurrentUsage(user)
+	if err != nil {
+		_ = ctx.Error(err, http.StatusInternalServerError)
+		return
+	}
+
+	ctx.Encode(usage)
 }
