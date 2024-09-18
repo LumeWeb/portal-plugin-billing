@@ -71,7 +71,7 @@ func NewQuotaService() (core.Service, []core.ContextBuilderOption, error) {
 				})
 			})
 
-			event.Listen(ctx, event.EVENT_STORAGE_OBJECT_UPLOADED, func(evt *event.StorageObjectUploadedEvent) error {
+			event.Listen(ctx, event.EVENT_STORAGE_OBJECT_PINNED, func(evt *event.StorageObjectPinnedEvent) error {
 				pin := evt.Pin()
 
 				meta, err := _service.metadata.GetUploadByID(ctx, pin.UploadID)
