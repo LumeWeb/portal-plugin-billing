@@ -521,6 +521,7 @@ func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint
 				Storage:    plan.Storage,
 				Upload:     plan.Upload,
 				Download:   plan.Download,
+				StartDate:  &sub.StartDate,
 			}
 
 			cfState, err := b.getCustomField(ctx, sub.SubscriptionID, pendingCustomField)

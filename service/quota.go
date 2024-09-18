@@ -1,6 +1,7 @@
 package service
 
 import (
+	"go.lumeweb.com/portal-plugin-billing/internal/api/messages"
 	"go.lumeweb.com/portal-plugin-billing/internal/service"
 	"go.lumeweb.com/portal/core"
 )
@@ -28,6 +29,18 @@ type QuotaService interface {
 
 	// Reconcile reconciles the quota usage for the previous day
 	Reconcile() error
+
+	// GetCurrentUsage retrieves the current usage for a user
+	GetCurrentUsage(userID uint) (*messages.CurrentUsageResponse, error)
+
+	// GetUploadUsageHistory retrieves the upload usage history for a user for the specified number of days
+	GetUploadUsageHistory(userID uint, days int) ([]*messages.UsageData, error)
+
+	// GetDownloadUsageHistory retrieves the download usage history for a user for the specified number of days
+	GetDownloadUsageHistory(userID uint, days int) ([]*messages.UsageData, error)
+
+	// GetStorageUsageHistory retrieves the storage usage history for a user for the specified number of days
+	GetStorageUsageHistory(userID uint, days int) ([]*messages.UsageData, error)
 }
 
 var _ QuotaService = (*service.QuotaServiceDefault)(nil)
