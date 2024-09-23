@@ -23,12 +23,12 @@ var noUsage = &messages.CurrentUsageResponse{
 }
 
 type QuotaServiceDefault struct {
-	ctx      core.Context
-	db       *gorm.DB
-	logger   *core.Logger
-	pins     core.PinService
-	metadata core.MetadataService
-	billing  *BillingServiceDefault
+	ctx     core.Context
+	db      *gorm.DB
+	logger  *core.Logger
+	pins    core.PinService
+	upload  core.UploadService
+	billing *BillingServiceDefault
 }
 
 type userByte struct {
@@ -44,7 +44,7 @@ func NewQuotaService() (core.Service, []core.ContextBuilderOption, error) {
 			_service.ctx = ctx
 			_service.db = ctx.DB()
 			_service.pins = core.GetService[core.PinService](ctx, core.PIN_SERVICE)
-			_service.metadata = core.GetService[core.MetadataService](ctx, core.METADATA_SERVICE)
+			_service.upload = core.GetService[core.UploadService](ctx, core.UPLOAD_SERVICE)
 			_service.logger = ctx.ServiceLogger(_service)
 			_service.billing = core.GetService[*BillingServiceDefault](ctx, BILLING_SERVICE)
 			return nil
@@ -61,7 +61,7 @@ func NewQuotaService() (core.Service, []core.ContextBuilderOption, error) {
 					return err
 				}
 
-				upload, err := _service.metadata.GetUploadByID(ctx, evt.UploadID())
+				upload, err := _service.upload.GetUploadByID(ctx, evt.UploadID())
 				if err != nil {
 					return err
 				}
@@ -82,7 +82,7 @@ func NewQuotaService() (core.Service, []core.ContextBuilderOption, error) {
 			event.Listen(ctx, event.EVENT_STORAGE_OBJECT_PINNED, func(evt *event.StorageObjectPinnedEvent) error {
 				pin := evt.Pin()
 
-				meta, err := _service.metadata.GetUploadByID(ctx, pin.UploadID)
+				meta, err := _service.upload.GetUploadByID(ctx, pin.UploadID)
 				if err != nil {
 					return err
 				}
