@@ -1283,7 +1283,7 @@ type PaymentRequest struct {
 	Customer         Customer        `json:"customer"`
 	Billing          CustomerBilling `json:"billing,omitempty"`
 	Description      string          `json:"description"`
-	Metadata         PaymentMetadata `json:"metadata"`
+	Metadata         PaymentMetadata `json:"upload"`
 	SetupFutureUsage string          `json:"setup_future_usage"`
 	PaymentType      string          `json:"payment_type"`
 }
@@ -1310,7 +1310,7 @@ type CustomerBillingAddress struct {
 	State     string `json:"state"`
 }
 
-// PaymentMetadata represents the metadata for a payment
+// PaymentMetadata represents the upload for a payment
 type PaymentMetadata struct {
 	SubscriptionID string `json:"subscription_id"`
 	PlanID         string `json:"plan_id"`

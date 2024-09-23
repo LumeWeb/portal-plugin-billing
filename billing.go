@@ -44,7 +44,7 @@ func init() {
 				{
 					ID:      service.QUOTA_SERVICE,
 					Factory: service.NewQuotaService,
-					Depends: []string{core.PIN_SERVICE, core.METADATA_SERVICE, service.BILLING_SERVICE},
+					Depends: []string{core.PIN_SERVICE, core.UPLOAD_SERVICE, service.BILLING_SERVICE},
 				},
 			}, nil
 		},
