@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"fmt"
 	"go.lumeweb.com/portal-plugin-billing/internal/api/messages"
 	"go.lumeweb.com/portal-plugin-billing/internal/config"
@@ -214,8 +215,17 @@ func (q *QuotaServiceDefault) checkQuota(userID uint, requestedBytes uint64, quo
 
 	today := time.Now().UTC().Truncate(24 * time.Hour)
 
+	maxQuota, err := q.billing.GetUserMaxStorage(userID)
+	if err != nil {
+		return false, err
+	}
+
 	record, err := q.getUserQuotaRecord(userID, today)
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			// No quota record exists for the user
+			return requestedBytes <= maxQuota, nil
+		}
 		return false, err
 	}
 
@@ -229,11 +239,6 @@ func (q *QuotaServiceDefault) checkQuota(userID uint, requestedBytes uint64, quo
 		totalBytes = record.BytesStored + requestedBytes
 	default:
 		return false, fmt.Errorf("invalid quota type: %s", quotaType)
-	}
-
-	maxQuota, err := q.billing.GetUserMaxStorage(userID)
-	if err != nil {
-		return false, err
 	}
 
 	return totalBytes <= maxQuota, nil
