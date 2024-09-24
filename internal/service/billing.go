@@ -32,6 +32,8 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -117,7 +119,7 @@ func (b *BillingServiceDefault) ID() string {
 }
 
 func (b *BillingServiceDefault) CreateCustomer(ctx context.Context, user *models.User) error {
-	if !b.enabled() {
+	if !b.enabled() || !b.paidEnabled() {
 		return nil
 	}
 
@@ -164,7 +166,7 @@ func (b *BillingServiceDefault) CreateCustomerById(ctx context.Context, userID u
 }
 
 func (b *BillingServiceDefault) UpdateBillingInfo(ctx context.Context, userID uint, billingInfo *messages.BillingInfo) error {
-	if !b.enabled() {
+	if !b.enabled() || !b.paidEnabled() {
 		return nil
 	}
 
@@ -237,9 +239,11 @@ func (b *BillingServiceDefault) GetUserMaxDownload(userID uint) (uint64, error) 
 }
 
 func (b *BillingServiceDefault) enabled() bool {
-	svcConfig := b.ctx.Config().GetService(BILLING_SERVICE).(*config.BillingConfig)
+	return b.cfg.Enabled
+}
 
-	return svcConfig.Enabled
+func (b *BillingServiceDefault) paidEnabled() bool {
+	return b.cfg.PaidPlansEnabled
 }
 
 func (b *BillingServiceDefault) Config() (any, error) {
@@ -251,10 +255,13 @@ func (b *BillingServiceDefault) getUsageByUserID(ctx context.Context, userID uin
 		return math.MaxUint64, nil
 	}
 
+	if !b.paidEnabled() {
+		return b.getFreeUsage(usageType), nil
+	}
+
 	acct, err := b.api.Account.GetAccountByKey(ctx, &account.GetAccountByKeyParams{
 		ExternalKey: strconv.FormatUint(uint64(userID), 10),
 	})
-
 	if err != nil {
 		return 0, err
 	}
@@ -268,12 +275,8 @@ func (b *BillingServiceDefault) getUsageByUserID(ctx context.Context, userID uin
 
 	sub := findActiveSubscription(bundles.Payload)
 
-	if sub == nil {
-		return 0, nil
-	}
-
-	if len(*sub.PlanName) == 0 {
-		return 0, nil
+	if sub == nil || len(*sub.PlanName) == 0 {
+		return b.getFreeUsage(usageType), nil
 	}
 
 	plan, err := b.getPlanByIdentifier(ctx, *sub.PlanName)
@@ -281,16 +284,33 @@ func (b *BillingServiceDefault) getUsageByUserID(ctx context.Context, userID uin
 		return 0, err
 	}
 
+	return b.getPlanUsage(plan, usageType), nil
+}
+
+func (b *BillingServiceDefault) getFreeUsage(usageType UsageType) uint64 {
 	switch usageType {
 	case StorageUsage:
-		return plan.Storage, nil
+		return b.cfg.FreeStorage
 	case UploadUsage:
-		return plan.Upload, nil
+		return b.cfg.FreeUpload
 	case DownloadUsage:
-		return plan.Download, nil
+		return b.cfg.FreeDownload
+	default:
+		return 0
 	}
+}
 
-	return 0, nil
+func (b *BillingServiceDefault) getPlanUsage(plan *pluginDb.Plan, usageType UsageType) uint64 {
+	switch usageType {
+	case StorageUsage:
+		return plan.Storage
+	case UploadUsage:
+		return plan.Upload
+	case DownloadUsage:
+		return plan.Download
+	default:
+		return 0
+	}
 }
 
 func (b *BillingServiceDefault) getPlanByIdentifier(ctx context.Context, identifier string) (*pluginDb.Plan, error) {
@@ -311,6 +331,10 @@ func (b *BillingServiceDefault) getPlanByIdentifier(ctx context.Context, identif
 func (b *BillingServiceDefault) GetPlans(ctx context.Context) ([]*messages.SubscriptionPlan, error) {
 	if !b.enabled() {
 		return nil, nil
+	}
+
+	if !b.paidEnabled() {
+		return []*messages.SubscriptionPlan{b.getFreePlan()}, nil
 	}
 
 	plans, err := b.api.Catalog.GetCatalogJSON(ctx, &catalog.GetCatalogJSONParams{})
@@ -362,7 +386,23 @@ func (b *BillingServiceDefault) GetPlans(ctx context.Context) ([]*messages.Subsc
 		})
 	}
 
+	result = slices.Insert(result, 0, b.getFreePlan())
+
 	return result, nil
+}
+
+func (b *BillingServiceDefault) getFreePlan() *messages.SubscriptionPlan {
+	return &messages.SubscriptionPlan{
+		Name:       b.cfg.FreePlanName,
+		Identifier: slugify(b.cfg.FreePlanName),
+		Period:     messages.SubscriptionPlanPeriodMonth,
+		Price:      0,
+		Storage:    b.cfg.FreeStorage,
+		Upload:     b.cfg.FreeUpload,
+		Download:   b.cfg.FreeDownload,
+		Status:     messages.SubscriptionPlanStatusActive,
+		IsFree:     true,
+	}
 }
 
 func (b *BillingServiceDefault) getPlanNameById(ctx context.Context, id string) (string, error) {
@@ -473,6 +513,15 @@ func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint
 		return nil, nil
 	}
 
+	if !b.paidEnabled() {
+		freePlan := b.getFreePlan()
+		return &messages.SubscriptionResponse{
+			Plan:        freePlan,
+			BillingInfo: messages.BillingInfo{},
+			PaymentInfo: messages.PaymentInfo{},
+		}, nil
+	}
+
 	acct, err := b.api.Account.GetAccountByKey(ctx, &account.GetAccountByKeyParams{
 		ExternalKey: strconv.FormatUint(uint64(userID), 10),
 	})
@@ -549,6 +598,10 @@ func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint
 				}
 			}
 		}
+	}
+
+	if subPlan == nil {
+		subPlan = b.getFreePlan()
 	}
 
 	return &messages.SubscriptionResponse{
@@ -830,7 +883,35 @@ func (b *BillingServiceDefault) RequestPaymentMethodChange(ctx context.Context, 
 }
 
 func (b *BillingServiceDefault) CancelSubscription(ctx context.Context, userID uint) error {
-	return b.ChangeSubscription(ctx, userID, b.cfg.FreePlan)
+	if !b.enabled() || !b.paidEnabled() {
+		return nil
+	}
+
+	acct, err := b.api.Account.GetAccountByKey(ctx, &account.GetAccountByKeyParams{
+		ExternalKey: strconv.FormatUint(uint64(userID), 10),
+	})
+	if err != nil {
+		return err
+	}
+
+	bundles, err := b.api.Account.GetAccountBundles(ctx, &account.GetAccountBundlesParams{
+		AccountID: acct.Payload.AccountID,
+	})
+	if err != nil {
+		return err
+	}
+
+	sub := findActiveOrPendingSubscription(bundles.Payload)
+	if sub == nil {
+		return nil
+	}
+
+	_, err = b.api.Subscription.CancelSubscriptionPlan(ctx, &subscription.CancelSubscriptionPlanParams{SubscriptionID: sub.SubscriptionID})
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (b *BillingServiceDefault) verifyPaymentMethod(ctx context.Context, paymentMethodID string) error {
@@ -1332,4 +1413,25 @@ type EphemeralKeyRequest struct {
 
 type EphemeralKeyResponse struct {
 	Secret string `json:"secret"`
+}
+
+func slugify(name string) string {
+	// Convert to lowercase
+	name = strings.ToLower(name)
+
+	// Replace spaces with hyphens
+	name = strings.ReplaceAll(name, " ", "-")
+
+	// Remove any character that is not a letter, number, or hyphen
+	reg := regexp.MustCompile("[^a-z0-9-]")
+	name = reg.ReplaceAllString(name, "")
+
+	// Remove leading and trailing hyphens
+	name = strings.Trim(name, "-")
+
+	// Collapse multiple consecutive hyphens into a single hyphen
+	reg = regexp.MustCompile("-+")
+	name = reg.ReplaceAllString(name, "-")
+
+	return name
 }

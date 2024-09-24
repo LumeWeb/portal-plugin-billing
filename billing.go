@@ -25,7 +25,11 @@ func init() {
 			if billingConfig.Enabled {
 				builder.AddFeatureFlag("billing", true)
 
-				if billingConfig.FreePlan != "" {
+				if billingConfig.PaidPlansEnabled {
+					builder.AddFeatureFlag("paid_billing", true)
+				}
+
+				if billingConfig.FreeStorage > 0 || billingConfig.FreeDownload > 0 || billingConfig.FreeUpload > 0 {
 					builder.AddFeatureFlag("free_plan", true)
 				}
 			}

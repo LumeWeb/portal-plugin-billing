@@ -34,6 +34,7 @@ type SubscriptionPlan struct {
 	Download   uint64                 `json:"download"`
 	Status     SubscriptionPlanStatus `json:"status"`
 	StartDate  *strfmt.DateTime       `json:"start_date;omitempty"`
+	IsFree     bool                   `json:"is_free,omitempty"`
 }
 type SubscriptionResponse struct {
 	Plan        *SubscriptionPlan `json:"plan"`
