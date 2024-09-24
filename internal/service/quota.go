@@ -184,70 +184,15 @@ func (q *QuotaServiceDefault) RecordUpload(uploadID, userID uint, bytes uint64, 
 }
 
 func (q *QuotaServiceDefault) CheckDownloadQuota(userID uint, requestedBytes uint64) (bool, error) {
-	if !q.enabled() {
-		return true, nil
-	}
-
-	today := time.Now().UTC().Truncate(24 * time.Hour)
-
-	record, err := q.getUserQuotaRecord(userID, today)
-	if err != nil {
-		return false, err
-	}
-
-	requestedBytes = record.BytesDownloaded + requestedBytes
-
-	maxQuota, err := q.billing.GetUserMaxStorage(userID)
-	if err != nil {
-		return false, err
-	}
-
-	return requestedBytes <= maxQuota, nil
-}
-
-func (q *QuotaServiceDefault) CheckStorageQuota(userID uint, requestedBytes uint64) (bool, error) {
-	if !q.enabled() {
-		return true, nil
-	}
-	today := time.Now().UTC().Truncate(24 * time.Hour)
-
-	record, err := q.getUserQuotaRecord(userID, today)
-	if err != nil {
-		return false, err
-	}
-
-	requestedBytes = record.BytesDownloaded + requestedBytes
-
-	maxQuota, err := q.billing.GetUserMaxStorage(userID)
-
-	if err != nil {
-		return false, err
-	}
-
-	return requestedBytes <= maxQuota, nil
+	return q.checkQuota(userID, requestedBytes, "download")
 }
 
 func (q *QuotaServiceDefault) CheckUploadQuota(userID uint, requestedBytes uint64) (bool, error) {
-	if !q.enabled() {
-		return true, nil
-	}
+	return q.checkQuota(userID, requestedBytes, "upload")
+}
 
-	today := time.Now().UTC().Truncate(24 * time.Hour)
-
-	record, err := q.getUserQuotaRecord(userID, today)
-	if err != nil {
-		return false, err
-	}
-
-	requestedBytes = record.BytesDownloaded + requestedBytes
-
-	maxQuota, err := q.billing.GetUserMaxStorage(userID)
-
-	if err != nil {
-		return false, err
-	}
-
-	return requestedBytes <= maxQuota, nil
+func (q *QuotaServiceDefault) CheckStorageQuota(userID uint, requestedBytes uint64) (bool, error) {
+	return q.checkQuota(userID, requestedBytes, "storage")
 }
 
 func (q *QuotaServiceDefault) getUserQuotaRecord(userID uint, date time.Time) (*pluginDb.UserQuota, error) {
@@ -260,6 +205,38 @@ func (q *QuotaServiceDefault) getUserQuotaRecord(userID uint, date time.Time) (*
 	}
 
 	return &userQuota, nil
+}
+
+func (q *QuotaServiceDefault) checkQuota(userID uint, requestedBytes uint64, quotaType string) (bool, error) {
+	if !q.enabled() {
+		return true, nil
+	}
+
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+
+	record, err := q.getUserQuotaRecord(userID, today)
+	if err != nil {
+		return false, err
+	}
+
+	var totalBytes uint64
+	switch quotaType {
+	case "download":
+		totalBytes = record.BytesDownloaded + requestedBytes
+	case "upload":
+		totalBytes = record.BytesUploaded + requestedBytes
+	case "storage":
+		totalBytes = record.BytesStored + requestedBytes
+	default:
+		return false, fmt.Errorf("invalid quota type: %s", quotaType)
+	}
+
+	maxQuota, err := q.billing.GetUserMaxStorage(userID)
+	if err != nil {
+		return false, err
+	}
+
+	return totalBytes <= maxQuota, nil
 }
 
 func (q *QuotaServiceDefault) Reconcile() error {
