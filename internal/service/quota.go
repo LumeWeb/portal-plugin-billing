@@ -213,14 +213,12 @@ func (q *QuotaServiceDefault) checkQuota(userID uint, requestedBytes uint64, quo
 		return true, nil
 	}
 
-	today := time.Now().UTC().Truncate(24 * time.Hour)
-
 	maxQuota, err := q.billing.GetUserMaxStorage(userID)
 	if err != nil {
 		return false, err
 	}
 
-	record, err := q.getUserQuotaRecord(userID, today)
+	usage, err := q.GetCurrentUsage(userID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			// No quota record exists for the user
@@ -232,11 +230,11 @@ func (q *QuotaServiceDefault) checkQuota(userID uint, requestedBytes uint64, quo
 	var totalBytes uint64
 	switch quotaType {
 	case "download":
-		totalBytes = record.BytesDownloaded + requestedBytes
+		totalBytes = usage.Download + requestedBytes
 	case "upload":
-		totalBytes = record.BytesUploaded + requestedBytes
+		totalBytes = usage.Upload + requestedBytes
 	case "storage":
-		totalBytes = record.BytesStored + requestedBytes
+		totalBytes = usage.Storage + requestedBytes
 	default:
 		return false, fmt.Errorf("invalid quota type: %s", quotaType)
 	}
@@ -302,8 +300,15 @@ func (q *QuotaServiceDefault) GetCurrentUsage(userID uint) (*messages.CurrentUsa
 				Where("user_id = ?", userID).
 				Scan(&usageData)
 		} else {
+
+			var startDate time.Time
+
 			// If subscription exists, calculate usage for the current period
-			startDate := time.Time(*sub.Plan.StartDate)
+			if sub.Plan.IsFree {
+				startDate = time.Now()
+			} else {
+				startDate = time.Time(*sub.Plan.StartDate)
+			}
 			var endDate time.Time
 
 			switch sub.Plan.Period {
