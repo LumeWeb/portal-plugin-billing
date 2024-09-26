@@ -6,12 +6,11 @@ import (
 	"time"
 )
 
-type UserQuota struct {
+type UserBandwidthQuota struct {
 	gorm.Model
-	UserID          uint `gorm:"index"`
+	UserID          uint `gorm:"uniqueIndex"`
 	User            models.User
 	Date            time.Time `gorm:"index"`
-	BytesStored     uint64
 	BytesUploaded   uint64
 	BytesDownloaded uint64
 }
