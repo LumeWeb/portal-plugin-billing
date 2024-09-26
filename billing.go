@@ -53,9 +53,11 @@ func init() {
 			}, nil
 		},
 		Models: []any{
-			&pluginDb.Download{},
-			&pluginDb.Upload{},
-			&pluginDb.UserQuota{},
+			&pluginDb.UserDownload{},
+			&pluginDb.UserUpload{},
+			&pluginDb.UserStorage{},
+			&pluginDb.UserBandwidthQuota{},
+			&pluginDb.UserStorageQuota{},
 			&pluginDb.Plan{},
 		},
 		Cron: func() core.CronFactory {

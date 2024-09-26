@@ -94,6 +94,11 @@ func NewQuotaService() (core.Service, []core.ContextBuilderOption, error) {
 						_ = tx.AddError(err)
 					}
 
+					err = _service.RecordStorage(pin.UploadID, pin.UserID, int64(meta.Size), evt.IP())
+					if err != nil {
+						_ = tx.AddError(err)
+					}
+
 					return tx
 				})
 			})
@@ -105,82 +110,100 @@ func NewQuotaService() (core.Service, []core.ContextBuilderOption, error) {
 func (q *QuotaServiceDefault) ID() string {
 	return QUOTA_SERVICE
 }
+func (q *QuotaServiceDefault) RecordUpload(uploadID, userID uint, bytes uint64, ip string) error {
+	if !q.enabled() {
+		return nil
+	}
+
+	return q.db.Transaction(func(tx *gorm.DB) error {
+		// Record detailed upload
+		upload := &pluginDb.UserUpload{
+			UploadID: uploadID,
+			UserID:   userID,
+			Bytes:    bytes,
+			IP:       ip,
+		}
+		if err := tx.Create(upload).Error; err != nil {
+			return err
+		}
+
+		// Update aggregated UserBandwidthQuota
+		today := time.Now().UTC().Truncate(24 * time.Hour)
+		return tx.Clauses(clause.OnConflict{
+			Columns: []clause.Column{{Name: "user_id"}, {Name: "date"}},
+			DoUpdates: clause.Assignments(map[string]interface{}{
+				"bytes_uploaded": gorm.Expr("bytes_uploaded + ?", bytes),
+			}),
+		}).Create(&pluginDb.UserBandwidthQuota{
+			UserID:        userID,
+			Date:          today,
+			BytesUploaded: bytes,
+		}).Error
+	})
+}
 
 func (q *QuotaServiceDefault) RecordDownload(uploadID, userID uint, bytes uint64, ip string) error {
 	if !q.enabled() {
 		return nil
 	}
+
 	return q.db.Transaction(func(tx *gorm.DB) error {
 		// Record detailed download
-		if err := db.RetryableTransaction(q.ctx, q.db, func(tx *gorm.DB) *gorm.DB {
-			return tx.Create(&pluginDb.Download{
-				UploadID: uploadID,
-				UserID:   userID,
-				Bytes:    bytes,
-				IP:       ip,
-			})
-		}); err != nil {
+		download := &pluginDb.UserDownload{
+			UploadID: uploadID,
+			UserID:   userID,
+			Bytes:    bytes,
+			IP:       ip,
+		}
+		if err := tx.Create(download).Error; err != nil {
 			return err
 		}
 
-		// Update aggregated UserQuota
+		// Update aggregated UserBandwidthQuota
 		today := time.Now().UTC().Truncate(24 * time.Hour)
-		var userQuota pluginDb.UserQuota
-
-		if err := db.RetryableTransaction(q.ctx, q.db, func(tx *gorm.DB) *gorm.DB {
-			return tx.Model(&pluginDb.UserQuota{}).Where(&pluginDb.UserQuota{UserID: userID, Date: today}).FirstOrCreate(&userQuota)
-		}); err != nil {
-			return err
-		}
-
-		userQuota.BytesDownloaded += bytes
-
-		if err := db.RetryableTransaction(q.ctx, q.db, func(tx *gorm.DB) *gorm.DB {
-			return tx.Model(&pluginDb.UserQuota{}).Where(&pluginDb.UserQuota{UserID: userID, Date: today}).First(&userQuota)
-		}); err != nil {
-			return err
-		}
-
-		return nil
+		return tx.Clauses(clause.OnConflict{
+			Columns: []clause.Column{{Name: "user_id"}, {Name: "date"}},
+			DoUpdates: clause.Assignments(map[string]interface{}{
+				"bytes_downloaded": gorm.Expr("bytes_downloaded + ?", bytes),
+			}),
+		}).Create(&pluginDb.UserBandwidthQuota{
+			UserID:          userID,
+			Date:            today,
+			BytesDownloaded: bytes,
+		}).Error
 	})
 }
 
-func (q *QuotaServiceDefault) RecordUpload(uploadID, userID uint, bytes uint64, ip string) error {
+func (q *QuotaServiceDefault) RecordStorage(uploadID, userID uint, bytes int64, ip string) error {
 	if !q.enabled() {
 		return nil
 	}
+
+	isAdd := bytes >= 0
+
 	return q.db.Transaction(func(tx *gorm.DB) error {
-		// Record detailed upload
-		if err := db.RetryableTransaction(q.ctx, q.db, func(tx *gorm.DB) *gorm.DB {
-			return tx.Create(&pluginDb.Upload{
-				UploadID: uploadID,
-				UserID:   userID,
-				Bytes:    bytes,
-				IP:       ip,
-			})
-		}); err != nil {
+		// Record detailed storage change
+		storage := &pluginDb.UserStorage{
+			UploadID: uploadID,
+			UserID:   userID,
+			Bytes:    uint64(math.Abs(float64(bytes))),
+			IsAdd:    isAdd,
+			IP:       ip,
+		}
+		if err := tx.Create(storage).Error; err != nil {
 			return err
 		}
 
-		// Update aggregated UserQuota
-		today := time.Now().UTC().Truncate(24 * time.Hour)
-		var userQuota pluginDb.UserQuota
-
-		if err := db.RetryableTransaction(q.ctx, q.db, func(tx *gorm.DB) *gorm.DB {
-			return tx.Model(&pluginDb.UserQuota{}).Where(&pluginDb.UserQuota{UserID: userID, Date: today}).FirstOrCreate(&userQuota)
-		}); err != nil {
-			return err
-		}
-
-		userQuota.BytesUploaded += bytes
-
-		if err := db.RetryableTransaction(q.ctx, q.db, func(tx *gorm.DB) *gorm.DB {
-			return tx.Model(&pluginDb.UserQuota{}).Where(&pluginDb.UserQuota{UserID: userID, Date: today}).First(&userQuota)
-		}); err != nil {
-			return err
-		}
-
-		return nil
+		// Update aggregated UserBandwidthQuota
+		return tx.Clauses(clause.OnConflict{
+			Columns: []clause.Column{{Name: "user_id"}, {Name: "date"}},
+			DoUpdates: clause.Assignments(map[string]interface{}{
+				"bytes_stored": gorm.Expr("GREATEST(0, bytes_stored + ?)", bytes),
+			}),
+		}).Create(&pluginDb.UserStorageQuota{
+			UserID:      userID,
+			BytesStored: uint64(max(0, bytes)), // For new records
+		}).Error
 	})
 }
 
@@ -196,11 +219,11 @@ func (q *QuotaServiceDefault) CheckStorageQuota(userID uint, requestedBytes uint
 	return q.checkQuota(userID, requestedBytes, "storage")
 }
 
-func (q *QuotaServiceDefault) getUserQuotaRecord(userID uint, date time.Time) (*pluginDb.UserQuota, error) {
-	var userQuota pluginDb.UserQuota
+func (q *QuotaServiceDefault) getUserQuotaRecord(userID uint, date time.Time) (*pluginDb.UserBandwidthQuota, error) {
+	var userQuota pluginDb.UserBandwidthQuota
 
 	if err := db.RetryableTransaction(q.ctx, q.db, func(tx *gorm.DB) *gorm.DB {
-		return tx.Model(&pluginDb.UserQuota{}).Where(&pluginDb.UserQuota{UserID: userID, Date: date}).First(&userQuota)
+		return tx.Model(&pluginDb.UserBandwidthQuota{}).Where(&pluginDb.UserBandwidthQuota{UserID: userID, Date: date}).First(&userQuota)
 	}); err != nil {
 		return nil, err
 	}
@@ -246,24 +269,113 @@ func (q *QuotaServiceDefault) Reconcile() error {
 	yesterday := time.Now().UTC().Add(-24 * time.Hour).Truncate(24 * time.Hour)
 
 	return db.RetryableTransaction(q.ctx, q.db, func(tx *gorm.DB) *gorm.DB {
-		if err := q.reconcileDownloads(tx, yesterday); err != nil {
+		if err := q.reconcileBandwidth(tx, yesterday); err != nil {
 			_ = tx.AddError(err)
-			return tx
-		}
-		if err := q.reconcileUploads(tx, yesterday); err != nil {
-			_ = tx.AddError(err)
-			return tx
+			return nil
 		}
 		if err := q.reconcileStorage(tx, yesterday); err != nil {
 			_ = tx.AddError(err)
-			return tx
+			return nil
 		}
-
-		return tx
+		return nil
 	})
 }
 
-// Public methods that use the internal method
+func (q *QuotaServiceDefault) reconcileBandwidth(tx *gorm.DB, date time.Time) error {
+	var query string
+	var args []interface{}
+
+	if q.isSQLite() {
+		query = `
+            INSERT INTO user_bandwidth_quotas (user_id, date, bytes_uploaded, bytes_downloaded)
+            SELECT 
+                user_id,
+                ? as date,
+                SUM(CASE WHEN type = 'upload' THEN bytes ELSE 0 END) as bytes_uploaded,
+                SUM(CASE WHEN type = 'download' THEN bytes ELSE 0 END) as bytes_downloaded
+            FROM (
+                SELECT user_id, 'upload' as type, bytes
+                FROM uploads
+                WHERE created_at >= ? AND created_at < ?
+                UNION ALL
+                SELECT user_id, 'download' as type, bytes
+                FROM downloads
+                WHERE created_at >= ? AND created_at < ?
+            ) combined
+            GROUP BY user_id
+            ON CONFLICT(user_id, date) DO UPDATE SET
+                bytes_uploaded = user_quotas.bytes_uploaded + excluded.bytes_uploaded,
+                bytes_downloaded = user_quotas.bytes_downloaded + excluded.bytes_downloaded
+        `
+	} else {
+		// Assuming MySQL
+		query = `
+            INSERT INTO user_bandwidth_quotas (user_id, date, bytes_uploaded, bytes_downloaded)
+            SELECT 
+                user_id,
+                ? as date,
+                SUM(CASE WHEN type = 'upload' THEN bytes ELSE 0 END) as bytes_uploaded,
+                SUM(CASE WHEN type = 'download' THEN bytes ELSE 0 END) as bytes_downloaded
+            FROM (
+                SELECT user_id, 'upload' as type, bytes
+                FROM uploads
+                WHERE created_at >= ? AND created_at < ?
+                UNION ALL
+                SELECT user_id, 'download' as type, bytes
+                FROM downloads
+                WHERE created_at >= ? AND created_at < ?
+            ) combined
+            GROUP BY user_id
+            ON DUPLICATE KEY UPDATE
+                bytes_uploaded = user_quotas.bytes_uploaded + VALUES(bytes_uploaded),
+                bytes_downloaded = user_quotas.bytes_downloaded + VALUES(bytes_downloaded)
+        `
+	}
+
+	args = []interface{}{date, date, date.Add(24 * time.Hour), date, date.Add(24 * time.Hour)}
+	return tx.Exec(query, args...).Error
+}
+
+func (q *QuotaServiceDefault) reconcileStorage(tx *gorm.DB, date time.Time) error {
+	var query string
+	var args []interface{}
+
+	if q.isSQLite() {
+		query = `
+            INSERT INTO user_storage_quotas (user_id, date, bytes_stored)
+            SELECT 
+                user_id,
+                ? as date,
+                MAX(0, SUM(CASE WHEN is_add THEN bytes ELSE -bytes END)) as bytes_stored
+            FROM storage
+            WHERE created_at < ?
+            GROUP BY user_id
+            ON CONFLICT(user_id, date) DO UPDATE SET
+                bytes_stored = MAX(0, user_quotas.bytes_stored + excluded.bytes_stored)
+        `
+	} else {
+		// Assuming MySQL
+		query = `
+            INSERT INTO user_bandwidth_quotas (user_id, date, bytes_stored)
+            SELECT 
+                user_id,
+                ? as date,
+                GREATEST(0, SUM(CASE WHEN is_add THEN bytes ELSE -bytes END)) as bytes_stored
+            FROM storage
+            WHERE created_at < ?
+            GROUP BY user_id
+            ON DUPLICATE KEY UPDATE
+                bytes_stored = GREATEST(0, user_quotas.bytes_stored + VALUES(bytes_stored))
+        `
+	}
+
+	args = []interface{}{date, date.Add(24 * time.Hour)}
+	return tx.Exec(query, args...).Error
+}
+
+func (q *QuotaServiceDefault) isSQLite() bool {
+	return q.db.Dialector.Name() == "sqlite"
+}
 
 func (q *QuotaServiceDefault) GetUploadUsageHistory(userID uint, period int) ([]*messages.UsageData, error) {
 	return q.getUsageHistory(userID, period, "upload")
@@ -291,25 +403,25 @@ func (q *QuotaServiceDefault) GetCurrentUsage(userID uint) (*messages.CurrentUsa
 	now := time.Now().UTC()
 
 	var innerErr error
-
 	err = db.RetryableTransaction(q.ctx, q.db, func(tx *gorm.DB) *gorm.DB {
+		var startDate, endDate time.Time
+
 		if sub == nil || sub.Plan == nil {
 			// If no subscription, get lifetime usage
-			return tx.Model(&pluginDb.UserQuota{}).
-				Select("COALESCE(SUM(bytes_uploaded), 0) as upload, COALESCE(SUM(bytes_downloaded), 0) as download, COALESCE(MAX(bytes_stored), 0) as storage").
+			if err := tx.Model(&pluginDb.UserBandwidthQuota{}).
+				Select("COALESCE(SUM(bytes_uploaded), 0) as upload, COALESCE(SUM(bytes_downloaded), 0) as download").
 				Where("user_id = ?", userID).
-				Scan(&usageData)
+				Scan(&usageData).Error; err != nil {
+				_ = tx.AddError(err)
+				return tx
+			}
 		} else {
-
-			var startDate time.Time
-
 			// If subscription exists, calculate usage for the current period
 			if sub.Plan.IsFree {
-				startDate = time.Now()
+				startDate = now.Truncate(24 * time.Hour) // Start of today
 			} else {
 				startDate = time.Time(*sub.Plan.StartDate)
 			}
-			var endDate time.Time
 
 			switch sub.Plan.Period {
 			case messages.SubscriptionPlanPeriodMonth:
@@ -327,12 +439,31 @@ func (q *QuotaServiceDefault) GetCurrentUsage(userID uint) (*messages.CurrentUsa
 				endDate = endDate.Add(endDate.Sub(startDate))
 			}
 
-			// Get usage for the current period
-			return tx.Model(&pluginDb.UserQuota{}).
-				Select("COALESCE(SUM(bytes_uploaded), 0) as upload, COALESCE(SUM(bytes_downloaded), 0) as download, COALESCE(MAX(bytes_stored), 0) as storage").
+			// Get bandwidth usage for the current period
+			if err := tx.Model(&pluginDb.UserBandwidthQuota{}).
+				Select("COALESCE(SUM(bytes_uploaded), 0) as upload, COALESCE(SUM(bytes_downloaded), 0) as download").
 				Where("user_id = ? AND date >= ? AND date < ?", userID, startDate, endDate).
-				Scan(&usageData)
+				Scan(&usageData).Error; err != nil {
+				_ = tx.AddError(err)
+				return tx
+			}
 		}
+
+		// Calculate storage usage
+		var storageUsage struct {
+			Added   uint64
+			Removed uint64
+		}
+		if err := tx.Model(&pluginDb.UserStorage{}).
+			Select("COALESCE(SUM(CASE WHEN is_add THEN bytes ELSE 0 END), 0) as added, COALESCE(SUM(CASE WHEN NOT is_add THEN bytes ELSE 0 END), 0) as removed").
+			Where("user_id = ?", userID).
+			Scan(&storageUsage).Error; err != nil {
+			_ = tx.AddError(err)
+			return tx
+		}
+		usageData.Storage = storageUsage.Added - storageUsage.Removed
+
+		return tx
 	})
 
 	if err != nil {
@@ -346,114 +477,22 @@ func (q *QuotaServiceDefault) GetCurrentUsage(userID uint) (*messages.CurrentUsa
 	return &usageData, nil
 }
 
-func (q *QuotaServiceDefault) reconcileDownloads(tx *gorm.DB, date time.Time) error {
-	var userBytes []userByte
-
-	err := db.RetryableTransaction(q.ctx, tx, func(tx *gorm.DB) *gorm.DB {
-		return tx.Table("downloads").
-			Select("user_id, COALESCE(SUM(bytes), 0) as bytes_used").
-			Where("created_at >= ? AND created_at < ?", date, date.Add(24*time.Hour)).
-			Group("user_id").
-			Scan(&userBytes)
-	})
-	if err != nil {
-		return err
-	}
-
-	return q.updateQuotas(tx, userBytes, date, "bytes_downloaded")
-}
-
-func (q *QuotaServiceDefault) reconcileUploads(tx *gorm.DB, date time.Time) error {
-	var userBytes []userByte
-
-	err := db.RetryableTransaction(q.ctx, tx, func(tx *gorm.DB) *gorm.DB {
-		return tx.Table("uploads").
-			Select("user_id, COALESCE(SUM(bytes), 0) as bytes_used").
-			Where("created_at >= ? AND created_at < ?", date, date.Add(24*time.Hour)).
-			Group("user_id").
-			Scan(&userBytes)
-	})
-	if err != nil {
-		return err
-	}
-
-	return q.updateQuotas(tx, userBytes, date, "bytes_uploaded")
-}
-
-func (q *QuotaServiceDefault) reconcileStorage(tx *gorm.DB, date time.Time) error {
-	var userBytes []userByte
-
-	err := db.RetryableTransaction(q.ctx, tx, func(tx *gorm.DB) *gorm.DB {
-		return tx.Table("files").
-			Select("user_id, COALESCE(SUM(size), 0) as bytes_used").
-			Where("created_at < ?", date.Add(24*time.Hour)).
-			Group("user_id").
-			Scan(&userBytes)
-	})
-	if err != nil {
-		return err
-	}
-
-	return q.updateQuotas(tx, userBytes, date, "bytes_stored")
-}
-
-func (q *QuotaServiceDefault) updateQuotas(tx *gorm.DB, userBytes []userByte, date time.Time, updateColumn string) error {
-	for _, ub := range userBytes {
-		quota := &pluginDb.UserQuota{
-			UserID: ub.UserID,
-			Date:   date,
-		}
-
-		switch updateColumn {
-		case "bytes_downloaded":
-			quota.BytesDownloaded = ub.BytesUsed
-		case "bytes_uploaded":
-			quota.BytesUploaded = ub.BytesUsed
-		case "bytes_stored":
-			quota.BytesStored = ub.BytesUsed
-		}
-
-		if err := db.RetryableTransaction(q.ctx, tx, func(tx *gorm.DB) *gorm.DB {
-			return tx.Clauses(clause.OnConflict{
-				Columns:   []clause.Column{{Name: "user_id"}, {Name: "date"}},
-				DoUpdates: clause.AssignmentColumns([]string{updateColumn, "updated_at"}),
-			}).Create(quota)
-		}); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
 func (q *QuotaServiceDefault) getUsageHistory(userID uint, period int, usageType string) ([]*messages.UsageData, error) {
 	if !q.enabled() {
 		return nil, nil
 	}
 
-	var usageData []*messages.UsageData
-	endDate := time.Now().UTC().Truncate(24 * time.Hour)
+	endDate := time.Now().UTC().Truncate(24 * time.Hour).Add(24 * time.Hour)
 	startDate := endDate.AddDate(0, 0, -period)
 
-	var column string
-	switch usageType {
-	case "upload":
-		column = "bytes_uploaded"
-	case "download":
-		column = "bytes_downloaded"
-	case "storage":
-		column = "bytes_stored"
-	default:
-		return nil, fmt.Errorf("invalid usage type: %s", usageType)
-	}
+	var usageData []*messages.UsageData
+	var err error
 
-	err := db.RetryableTransaction(q.ctx, q.db, func(tx *gorm.DB) *gorm.DB {
-		return tx.Model(&pluginDb.UserQuota{}).
-			Select(fmt.Sprintf("date, %s as `usage`", column)).
-			Where("user_id = ? AND date >= ? AND date <= ?", userID, startDate, endDate).
-			Order("date ASC").
-			Scan(&usageData)
-	})
+	if usageType == "storage" {
+		err = q.getStorageUsageHistory(userID, startDate, endDate, &usageData)
+	} else {
+		err = q.getBandwidthUsageHistory(userID, startDate, endDate, usageType, &usageData)
+	}
 
 	if err != nil {
 		return nil, err
@@ -462,6 +501,58 @@ func (q *QuotaServiceDefault) getUsageHistory(userID uint, period int, usageType
 	return usageData, nil
 }
 
+func (q *QuotaServiceDefault) getBandwidthUsageHistory(userID uint, startDate, endDate time.Time, usageType string, usageData *[]*messages.UsageData) error {
+	column := "bytes_uploaded"
+	if usageType == "download" {
+		column = "bytes_downloaded"
+	}
+
+	return db.RetryableTransaction(q.ctx, q.db, func(tx *gorm.DB) *gorm.DB {
+		return tx.Model(&pluginDb.UserBandwidthQuota{}).
+			Select(fmt.Sprintf("date, %s as `usage`", column)).
+			Where("user_id = ? AND date >= ? AND date <= ?", userID, startDate, endDate).
+			Order("date ASC").
+			Scan(usageData)
+	})
+}
+
+func (q *QuotaServiceDefault) getStorageUsageHistory(userID uint, startDate, endDate time.Time, usageData *[]*messages.UsageData) error {
+	return db.RetryableTransaction(q.ctx, q.db, func(tx *gorm.DB) *gorm.DB {
+		// First, get daily changes
+		var dailyChanges []struct {
+			Date        time.Time
+			DailyChange int64
+		}
+
+		query := `
+            SELECT 
+                DATE(created_at) as date,
+                SUM(CASE WHEN is_add THEN bytes ELSE -bytes END) as daily_change
+            FROM user_storage
+            WHERE user_id = ? AND created_at >= ? AND created_at <= ?
+            GROUP BY DATE(created_at)
+            ORDER BY date ASC
+        `
+
+		if err := tx.Raw(query, userID, startDate, endDate).Scan(&dailyChanges).Error; err != nil {
+			_ = tx.AddError(err)
+			return tx
+		}
+
+		// Calculate cumulative sums in Go
+		var cumulativeSum int64
+		*usageData = make([]*messages.UsageData, len(dailyChanges))
+		for i, change := range dailyChanges {
+			cumulativeSum += change.DailyChange
+			(*usageData)[i] = &messages.UsageData{
+				Date:  change.Date,
+				Usage: uint64(max(0, cumulativeSum)),
+			}
+		}
+
+		return tx
+	})
+}
 func (b *QuotaServiceDefault) Config() (any, error) {
 	return &config.QuotaConfig{}, nil
 }

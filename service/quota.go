@@ -18,6 +18,9 @@ type QuotaService interface {
 	// RecordUpload records an upload for a user
 	RecordUpload(uploadID, userID uint, bytes uint64, ip string) error
 
+	// RecordStorage records a storage usage for a user
+	RecordStorage(uploadID, userID uint, bytes int64, ip string) error
+
 	// CheckStorageQuota checks if a user has enough storage quota for a requested number of bytes
 	CheckStorageQuota(userID uint, requestedBytes uint64) (bool, error)
 
