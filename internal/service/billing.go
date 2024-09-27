@@ -628,6 +628,11 @@ func (b *BillingServiceDefault) ChangeSubscription(ctx context.Context, userID u
 		return nil
 	}
 
+	err := b.CreateCustomerById(ctx, userID)
+	if err != nil {
+		return err
+	}
+
 	acct, err := b.api.Account.GetAccountByKey(ctx, &account.GetAccountByKeyParams{
 		ExternalKey: strconv.FormatUint(uint64(userID), 10),
 	})
