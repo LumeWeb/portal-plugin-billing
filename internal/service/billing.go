@@ -624,7 +624,7 @@ func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint
 }
 
 func (b *BillingServiceDefault) ChangeSubscription(ctx context.Context, userID uint, planID string) error {
-	if !b.enabled() {
+	if !b.enabled() || !b.paidEnabled() {
 		return nil
 	}
 
