@@ -3,7 +3,6 @@ package api
 import (
 	"fmt"
 	"github.com/gorilla/mux"
-	"github.com/rs/cors"
 	"go.lumeweb.com/httputil"
 	"go.lumeweb.com/portal-plugin-billing/internal/api/messages"
 	"go.lumeweb.com/portal-plugin-billing/service"
@@ -49,16 +48,7 @@ func (a API) Configure(_ *mux.Router) error {
 	accountApi := core.GetAPI("dashboard")
 	router := core.GetService[core.HTTPService](a.ctx, core.HTTP_SERVICE).Router()
 
-	corsOpts := cors.Options{
-		AllowOriginFunc: func(origin string) bool {
-			return true
-		},
-		AllowedMethods:   []string{"GET", "POST", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Authorization", "Content-Type"},
-		AllowCredentials: true,
-	}
-
-	corsHandler := cors.New(corsOpts)
+	corsHandler := middleware.CorsMiddleware(nil)
 
 	authMw := middleware.AuthMiddleware(middleware.AuthMiddlewareOptions{
 		Context: a.ctx,
@@ -68,8 +58,8 @@ func (a API) Configure(_ *mux.Router) error {
 	domain := fmt.Sprintf("%s.%s", accountApi.Subdomain(), a.ctx.Config().Config().Core.Domain)
 	accountRouter := router.Host(domain).Subrouter()
 
-	router.Use(corsHandler.Handler)
-	accountRouter.Use(corsHandler.Handler)
+	router.Use(corsHandler)
+	accountRouter.Use(corsHandler)
 
 	router.HandleFunc("/api/account/subscription", a.getSubscription).Methods("GET", "OPTIONS").Use(authMw)
 	router.HandleFunc("/api/account/subscription/billing", a.updateBilling).Methods("POST", "OPTIONS").Use(authMw)
