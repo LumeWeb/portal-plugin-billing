@@ -1,8 +1,8 @@
 module go.lumeweb.com/portal-plugin-billing
 
-go 1.22.1
+go 1.23.0
 
-toolchain go1.22.5
+toolchain go1.23.1
 
 require (
 	github.com/go-openapi/runtime v0.28.0
@@ -12,7 +12,7 @@ require (
 	github.com/rs/cors v1.11.1
 	github.com/samber/lo v1.47.0
 	go.lumeweb.com/httputil v0.0.0-20240616192644-3d270a528d86
-	go.lumeweb.com/portal v0.1.2-0.20240923223939-90f2d522ebd4
+	go.lumeweb.com/portal v0.1.2-0.20240930223804-8f09726b1f90
 	go.uber.org/zap v1.27.0
 	gorm.io/driver/mysql v1.5.7
 	gorm.io/gorm v1.25.12
@@ -32,7 +32,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.3.20 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.11.20 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.17.18 // indirect
-	github.com/aws/aws-sdk-go-v2/service/s3 v1.63.1 // indirect
+	github.com/aws/aws-sdk-go-v2/service/s3 v1.63.3 // indirect
 	github.com/aws/smithy-go v1.21.0 // indirect
 	github.com/bmatcuk/doublestar/v4 v4.6.1 // indirect
 	github.com/boombuler/barcode v1.0.1 // indirect
@@ -98,9 +98,9 @@ require (
 	go.opentelemetry.io/otel v1.28.0 // indirect
 	go.opentelemetry.io/otel/metric v1.28.0 // indirect
 	go.opentelemetry.io/otel/trace v1.28.0 // indirect
-	go.sia.tech/core v0.4.6 // indirect
-	go.sia.tech/coreutils v0.3.2 // indirect
-	go.sia.tech/mux v1.2.0 // indirect
+	go.sia.tech/core v0.4.7 // indirect
+	go.sia.tech/coreutils v0.3.3-0.20240927170025-f45eedc64d6f // indirect
+	go.sia.tech/mux v1.3.0 // indirect
 	go.sia.tech/renterd v1.0.8 // indirect
 	go.sia.tech/siad v1.5.10-0.20230228235644-3059c0b930ca // indirect
 	go.uber.org/multierr v1.11.0 // indirect
