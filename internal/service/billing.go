@@ -1379,7 +1379,7 @@ type PaymentRequest struct {
 	Customer         Customer        `json:"customer"`
 	Billing          CustomerBilling `json:"billing,omitempty"`
 	Description      string          `json:"description"`
-	Metadata         PaymentMetadata `json:"upload"`
+	Metadata         PaymentMetadata `json:"metadata"`
 	SetupFutureUsage string          `json:"setup_future_usage"`
 	PaymentType      string          `json:"payment_type"`
 }
