@@ -137,6 +137,10 @@ func (b *BillingServiceDefault) CreateCustomer(ctx context.Context, user *models
 		}
 	}
 
+	if result != nil {
+		return nil
+	}
+
 	_, err = b.api.Account.CreateAccount(ctx, &account.CreateAccountParams{
 		Body: &kbmodel.Account{
 			ExternalKey: externalKey,
