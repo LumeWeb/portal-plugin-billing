@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Boostport/address"
 	"github.com/go-openapi/runtime"
 	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
@@ -174,6 +175,11 @@ func (b *BillingServiceDefault) UpdateBillingInfo(ctx context.Context, userID ui
 		return nil
 	}
 
+	err := b.normalizeBillingInfo(billingInfo)
+	if err != nil {
+		return err
+	}
+
 	acct, err := b.api.Account.GetAccountByKey(ctx, &account.GetAccountByKeyParams{
 		ExternalKey: strconv.FormatUint(uint64(userID), 10),
 	})
@@ -186,6 +192,10 @@ func (b *BillingServiceDefault) UpdateBillingInfo(ctx context.Context, userID ui
 
 	if acct.Payload.Name != billingInfo.Name && len(billingInfo.Name) > 0 {
 		acctChanges.Name = billingInfo.Name
+	}
+
+	if acct.Payload.Company != billingInfo.Organization && len(billingInfo.Organization) > 0 {
+		acctChanges.Company = billingInfo.Organization
 	}
 
 	if acct.Payload.Address1 != billingInfo.Address && len(billingInfo.Address) > 0 {
@@ -1278,6 +1288,78 @@ func (b *BillingServiceDefault) fetchClientSecret(ctx context.Context, paymentID
 	}
 
 	return paymentResponse.ClientSecret, paymentResponse.Created, nil
+}
+
+func (b *BillingServiceDefault) normalizeBillingInfo(billingInfo *messages.BillingInfo) error {
+	if billingInfo == nil {
+		return fmt.Errorf("billing info is required")
+	}
+
+	addr, err := address.NewValid(
+		address.WithCountry(billingInfo.Country),
+		address.WithName(billingInfo.Name),
+		address.WithStreetAddress(strings.Split(billingInfo.Address, "\n")),
+		address.WithLocality(billingInfo.City),
+		address.WithDependentLocality(billingInfo.DependentLocality),
+		address.WithAdministrativeArea(billingInfo.State),
+		address.WithPostCode(billingInfo.Zip),
+		address.WithSortingCode(billingInfo.SortingCode),
+		address.WithOrganization(billingInfo.Organization),
+	)
+
+	if err != nil {
+		var unsupportedErr *address.ErrUnsupportedFields
+		if errors.As(err, &unsupportedErr) {
+			// Unset only the unsupported fields
+			for _, field := range unsupportedErr.Fields {
+				switch field {
+				case address.Name:
+					billingInfo.Name = ""
+				case address.Organization:
+					billingInfo.Organization = ""
+				case address.StreetAddress:
+					billingInfo.Address = ""
+				case address.Locality:
+					billingInfo.City = ""
+				case address.AdministrativeArea:
+					billingInfo.State = ""
+				case address.PostCode:
+					billingInfo.Zip = ""
+				case address.Country:
+					billingInfo.Country = ""
+				}
+			}
+		} else {
+			return err
+		}
+	}
+
+	// Update billingInfo with normalized values, only for supported fields
+	if addr.Name != "" {
+		billingInfo.Name = addr.Name
+	}
+
+	if addr.Organization != "" {
+		billingInfo.Organization = addr.Organization
+	}
+
+	if len(addr.StreetAddress) > 0 {
+		billingInfo.Address = strings.Join(addr.StreetAddress, "\n")
+	}
+	if addr.Locality != "" {
+		billingInfo.City = addr.Locality
+	}
+	if addr.AdministrativeArea != "" {
+		billingInfo.State = addr.AdministrativeArea
+	}
+	if addr.PostCode != "" {
+		billingInfo.Zip = addr.PostCode
+	}
+	if addr.Country != "" {
+		billingInfo.Country = addr.Country
+	}
+
+	return nil
 }
 
 /*

@@ -5,11 +5,12 @@ go 1.23.0
 toolchain go1.23.1
 
 require (
+	github.com/Boostport/address v0.11.2
 	github.com/go-openapi/runtime v0.28.0
 	github.com/go-openapi/strfmt v0.23.0
 	github.com/gorilla/mux v1.8.1
+	github.com/hashicorp/go-multierror v1.1.1
 	github.com/killbill/kbcli/v3 v3.1.0
-	github.com/rs/cors v1.11.1
 	github.com/samber/lo v1.47.0
 	go.lumeweb.com/httputil v0.0.0-20240616192644-3d270a528d86
 	go.lumeweb.com/portal v0.1.2-0.20240930223804-8f09726b1f90
@@ -64,6 +65,7 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gookit/event v1.1.2 // indirect
 	github.com/gotd/contrib v0.20.0 // indirect
+	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hbollon/go-edlib v1.6.0 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
@@ -87,6 +89,7 @@ require (
 	github.com/pquerna/otp v1.4.0 // indirect
 	github.com/redis/go-redis/v9 v9.6.1 // indirect
 	github.com/robfig/cron/v3 v3.0.1 // indirect
+	github.com/rs/cors v1.11.1 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/spaolacci/murmur3 v1.1.0 // indirect
 	gitlab.com/NebulousLabs/errors v0.0.0-20200929122200-06c536cf6975 // indirect

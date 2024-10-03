@@ -43,12 +43,15 @@ type SubscriptionResponse struct {
 }
 
 type BillingInfo struct {
-	Name    string `json:"name"`
-	Address string `json:"address"`
-	City    string `json:"city"`
-	State   string `json:"state"`
-	Zip     string `json:"zip"`
-	Country string `json:"country"`
+	Name              string `json:"name"`
+	Organization      string `json:"organization"`
+	Address           string `json:"address"`
+	DependentLocality string `json:"dependent_locality"`
+	SortingCode       string `json:"sorting_code"`
+	City              string `json:"city"`
+	State             string `json:"state"`
+	Zip               string `json:"zip"`
+	Country           string `json:"country"`
 }
 
 type PaymentInfo struct {
@@ -87,4 +90,35 @@ type CurrentUsageResponse struct {
 	Upload   uint64 `json:"upload"`
 	Download uint64 `json:"download"`
 	Storage  uint64 `json:"storage"`
+}
+
+type ListBillingCountriesResponse = []*ListBillingCountriesResponseItem
+
+type ListBillingCountriesResponseItem struct {
+	Name              string   `json:"name"`
+	Code              string   `json:"code"`
+	SupportedEntities []string `json:"supported_entities,omitempty"`
+}
+
+type ListBillingStatesResponse = []*ListBillingStatesResponseItem
+
+type ListBillingStatesResponseItem struct {
+	Name string `json:"name"`
+	Code string `json:"code"`
+}
+
+type ListBillingCitiesResponse = []*ListBillingCitiesResponseItem
+
+type ListBillingCitiesResponseItem struct {
+	Code string `json:"code"`
+	Name string `json:"name"`
+}
+
+type UpdateBillingInfoResponseError struct {
+	Errors []*UpdateBillingInfoResponseErrorItem `json:"errors"`
+}
+
+type UpdateBillingInfoResponseErrorItem struct {
+	Field   string `json:"field"`
+	Message string `json:"message"`
 }
