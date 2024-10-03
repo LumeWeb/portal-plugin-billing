@@ -32,7 +32,6 @@ import (
 	"io"
 	"math"
 	"net/http"
-	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -399,7 +398,7 @@ func (b *BillingServiceDefault) GetPlans(ctx context.Context) ([]*messages.Subsc
 func (b *BillingServiceDefault) getFreePlan() *messages.SubscriptionPlan {
 	return &messages.SubscriptionPlan{
 		Name:       b.cfg.FreePlanName,
-		Identifier: slugify(b.cfg.FreePlanName),
+		Identifier: b.cfg.FreePlanID,
 		Period:     messages.SubscriptionPlanPeriodMonth,
 		Price:      0,
 		Storage:    b.cfg.FreeStorage,
@@ -634,6 +633,10 @@ func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint
 }
 
 func (b *BillingServiceDefault) ChangeSubscription(ctx context.Context, userID uint, planID string) error {
+	if planID == b.cfg.FreePlanID {
+		return b.CancelSubscription(ctx, userID)
+	}
+
 	if !b.enabled() || !b.paidEnabled() {
 		return nil
 	}
@@ -1428,25 +1431,4 @@ type EphemeralKeyRequest struct {
 
 type EphemeralKeyResponse struct {
 	Secret string `json:"secret"`
-}
-
-func slugify(name string) string {
-	// Convert to lowercase
-	name = strings.ToLower(name)
-
-	// Replace spaces with hyphens
-	name = strings.ReplaceAll(name, " ", "-")
-
-	// Remove any character that is not a letter, number, or hyphen
-	reg := regexp.MustCompile("[^a-z0-9-]")
-	name = reg.ReplaceAllString(name, "")
-
-	// Remove leading and trailing hyphens
-	name = strings.Trim(name, "-")
-
-	// Collapse multiple consecutive hyphens into a single hyphen
-	reg = regexp.MustCompile("-+")
-	name = reg.ReplaceAllString(name, "-")
-
-	return name
 }
