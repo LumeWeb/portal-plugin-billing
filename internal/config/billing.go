@@ -3,6 +3,8 @@ package config
 import (
 	"errors"
 	"go.lumeweb.com/portal/config"
+	"regexp"
+	"strings"
 )
 
 var _ config.Defaults = (*BillingConfig)(nil)
@@ -14,16 +16,25 @@ type BillingConfig struct {
 	KillBill         KillBillConfig    `mapstructure:"kill_bill"`
 	Hyperswitch      HyperswitchConfig `mapstructure:"hyperswitch"`
 	FreePlanName     string            `mapstructure:"free_plan_name"`
+	FreePlanID       string            `mapstructure:"free_plan_id"`
 	FreeStorage      uint64            `mapstructure:"free_storage"`
 	FreeUpload       uint64            `mapstructure:"free_upload"`
 	FreeDownload     uint64            `mapstructure:"free_download"`
 }
 
 func (c BillingConfig) Defaults() map[string]any {
+
+	freePlanName := c.FreePlanName
+
+	if freePlanName == "" {
+		freePlanName = "Free"
+	}
+
 	return map[string]any{
 		"enabled":            false,
 		"paid_plans_enabled": false,
-		"free_plan_name":     "Free",
+		"free_plan_name":     freePlanName,
+		"free_plan_id":       slugify(freePlanName),
 		"free_storage":       0,
 		"free_upload":        0,
 		"free_download":      0,
@@ -70,4 +81,25 @@ func (c BillingConfig) Validate() error {
 	}
 
 	return nil
+}
+
+func slugify(name string) string {
+	// Convert to lowercase
+	name = strings.ToLower(name)
+
+	// Replace spaces with hyphens
+	name = strings.ReplaceAll(name, " ", "-")
+
+	// Remove any character that is not a letter, number, or hyphen
+	reg := regexp.MustCompile("[^a-z0-9-]")
+	name = reg.ReplaceAllString(name, "")
+
+	// Remove leading and trailing hyphens
+	name = strings.Trim(name, "-")
+
+	// Collapse multiple consecutive hyphens into a single hyphen
+	reg = regexp.MustCompile("-+")
+	name = reg.ReplaceAllString(name, "-")
+
+	return name
 }
