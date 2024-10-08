@@ -5,7 +5,7 @@ import "go.lumeweb.com/portal/config"
 var _ config.Defaults = (*QuotaConfig)(nil)
 
 type QuotaConfig struct {
-	Enabled bool `mapstructure:"enabled"`
+	Enabled bool `config:"enabled"`
 }
 
 func (c QuotaConfig) Defaults() map[string]any {

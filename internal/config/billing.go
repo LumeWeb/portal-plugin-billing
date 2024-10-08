@@ -11,15 +11,15 @@ var _ config.Defaults = (*BillingConfig)(nil)
 var _ config.Validator = (*BillingConfig)(nil)
 
 type BillingConfig struct {
-	Enabled          bool              `mapstructure:"enabled"`
-	PaidPlansEnabled bool              `mapstructure:"paid_plans_enabled"`
-	KillBill         KillBillConfig    `mapstructure:"kill_bill"`
-	Hyperswitch      HyperswitchConfig `mapstructure:"hyperswitch"`
-	FreePlanName     string            `mapstructure:"free_plan_name"`
-	FreePlanID       string            `mapstructure:"free_plan_id"`
-	FreeStorage      uint64            `mapstructure:"free_storage"`
-	FreeUpload       uint64            `mapstructure:"free_upload"`
-	FreeDownload     uint64            `mapstructure:"free_download"`
+	Enabled          bool              `config:"enabled"`
+	PaidPlansEnabled bool              `config:"paid_plans_enabled"`
+	KillBill         KillBillConfig    `config:"kill_bill"`
+	Hyperswitch      HyperswitchConfig `config:"hyperswitch"`
+	FreePlanName     string            `config:"free_plan_name"`
+	FreePlanID       string            `config:"free_plan_id"`
+	FreeStorage      uint64            `config:"free_storage"`
+	FreeUpload       uint64            `config:"free_upload"`
+	FreeDownload     uint64            `config:"free_download"`
 }
 
 func (c BillingConfig) Defaults() map[string]any {
