@@ -1,7 +1,7 @@
 package config
 
 type HyperswitchConfig struct {
-	APIServer      string `mapstructure:"api_server"`
-	APIKey         string `mapstructure:"api_key"`
-	PublishableKey string `mapstructure:"publishable_key"`
+	APIServer      string `config:"api_server"`
+	APIKey         string `config:"api_key"`
+	PublishableKey string `config:"publishable_key"`
 }

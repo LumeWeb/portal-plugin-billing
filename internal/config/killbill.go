@@ -1,9 +1,9 @@
 package config
 
 type KillBillConfig struct {
-	APIServer string `mapstructure:"api_server"`
-	Username  string `mapstructure:"username"`
-	Password  string `mapstructure:"password"`
-	APIKey    string `mapstructure:"api_key"`
-	APISecret string `mapstructure:"api_secret"`
+	APIServer string `config:"api_server"`
+	Username  string `config:"username"`
+	Password  string `config:"password"`
+	APIKey    string `config:"api_key"`
+	APISecret string `config:"api_secret"`
 }
