@@ -49,40 +49,61 @@ func (a API) Subdomain() string {
 	return service.BILLING_SERVICE
 }
 
-func (a API) Configure(_ *mux.Router) error {
+func (a *API) Configure(_ *mux.Router, accessSvc core.AccessService) error {
 	accountApi := core.GetAPI("dashboard")
-	router := core.GetService[core.HTTPService](a.ctx, core.HTTP_SERVICE).Router()
+	httpService := core.GetService[core.HTTPService](a.ctx, core.HTTP_SERVICE)
 
+	// Middleware setup
 	corsHandler := middleware.CorsMiddleware(nil)
-
 	authMw := middleware.AuthMiddleware(middleware.AuthMiddlewareOptions{
 		Context: a.ctx,
-		Purpose: core.JWTPurposeNone,
+		Purpose: core.JWTPurposeLogin,
 	})
+	accessMw := middleware.AccessMiddleware(a.ctx)
 
+	// Setup routers
+	mainRouter := httpService.Router()
 	domain := fmt.Sprintf("%s.%s", accountApi.Subdomain(), a.ctx.Config().Config().Core.Domain)
-	accountRouter := router.Host(domain).Subrouter()
+	accountRouter := mainRouter.Host(domain).Subrouter()
 
-	router.Use(corsHandler)
+	mainRouter.Use(corsHandler)
 	accountRouter.Use(corsHandler)
 
-	router.HandleFunc("/api/account/subscription", a.getSubscription).Methods("GET", "OPTIONS").Use(authMw)
-	router.HandleFunc("/api/account/subscription/billing", a.updateBilling).Methods("POST", "OPTIONS").Use(authMw)
-	router.HandleFunc("/api/account/subscription/change", a.changeSubscription).Methods("POST", "OPTIONS").Use(authMw)
-	router.HandleFunc("/api/account/subscription/connect", a.connectSubscription).Methods("POST", "OPTIONS").Use(authMw)
-	router.HandleFunc("/api/account/subscription/ephemeral-key", a.generateEphemeralKey).Methods("POST", "OPTIONS").Use(authMw)
-	router.HandleFunc("/api/account/subscription/request-payment-method-change", a.requestPaymentMethodChange).Methods("POST", "OPTIONS").Use(authMw)
-	router.HandleFunc("/api/account/subscription/cancel", a.cancelSubscription).Methods("POST", "OPTIONS").Use(authMw)
+	// Define routes
+	routes := []struct {
+		Router      *mux.Router
+		Path        string
+		Method      string
+		Handler     http.HandlerFunc
+		Middlewares []mux.MiddlewareFunc
+		Access      string
+	}{
+		{mainRouter, "/api/account/subscription", "GET", a.getSubscription, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
+		{mainRouter, "/api/account/subscription/billing", "POST", a.updateBilling, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
+		{mainRouter, "/api/account/subscription/change", "POST", a.changeSubscription, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
+		{mainRouter, "/api/account/subscription/connect", "POST", a.connectSubscription, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
+		{mainRouter, "/api/account/subscription/ephemeral-key", "POST", a.generateEphemeralKey, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
+		{mainRouter, "/api/account/subscription/request-payment-method-change", "POST", a.requestPaymentMethodChange, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
+		{mainRouter, "/api/account/subscription/cancel", "POST", a.cancelSubscription, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
+		{mainRouter, "/api/account/subscription/billing/countries", "GET", a.listBillingCountries, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
+		{mainRouter, "/api/account/subscription/billing/states", "GET", a.listBillingStates, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
+		{mainRouter, "/api/account/subscription/billing/cities", "GET", a.listBillingCities, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
+		{accountRouter, "/api/account/subscription/plans", "GET", a.getPlans, nil, ""},
+		{accountRouter, "/api/account/usage/current", "GET", a.getCurrentUsage, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
+		{accountRouter, "/api/account/usage/history/upload", "GET", a.getUploadUsageHistory, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
+		{accountRouter, "/api/account/usage/history/download", "GET", a.getDownloadUsageHistory, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
+		{accountRouter, "/api/account/usage/history/storage", "GET", a.getStorageUsageHistory, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
+	}
 
-	router.HandleFunc("/api/account/subscription/billing/countries", a.listBillingCountries).Methods("GET", "OPTIONS").Use(authMw)
-	router.HandleFunc("/api/account/subscription/billing/states", a.listBillingStates).Methods("GET", "OPTIONS").Use(authMw)
-	router.HandleFunc("/api/account/subscription/billing/cities", a.listBillingCities).Methods("GET", "OPTIONS").Use(authMw)
+	// Register routes
+	for _, route := range routes {
+		r := route.Router.HandleFunc(route.Path, route.Handler).Methods(route.Method, "OPTIONS")
+		r.Use(route.Middlewares...)
 
-	accountRouter.HandleFunc("/api/account/subscription/plans", a.getPlans).Methods("GET", "OPTIONS")
-	accountRouter.HandleFunc("/api/account/usage/current", a.getCurrentUsage).Methods("GET", "OPTIONS").Use(authMw)
-	accountRouter.HandleFunc("/api/account/usage/history/upload", a.getUploadUsageHistory).Methods("GET", "OPTIONS").Use(authMw)
-	accountRouter.HandleFunc("/api/account/usage/history/download", a.getDownloadUsageHistory).Methods("GET", "OPTIONS").Use(authMw)
-	accountRouter.HandleFunc("/api/account/usage/history/storage", a.getStorageUsageHistory).Methods("GET", "OPTIONS").Use(authMw)
+		if err := accessSvc.RegisterRoute(a.Subdomain(), route.Path, route.Method, route.Access); err != nil {
+			return fmt.Errorf("failed to register route %s %s: %w", route.Method, route.Path, err)
+		}
+	}
 
 	return nil
 }
