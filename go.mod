@@ -13,7 +13,7 @@ require (
 	github.com/killbill/kbcli/v3 v3.1.0
 	github.com/samber/lo v1.47.0
 	go.lumeweb.com/httputil v0.0.0-20240907105629-dbffb601f2ab
-	go.lumeweb.com/portal v0.1.2-0.20241008213134-10febfbd4f63
+	go.lumeweb.com/portal v0.1.2-0.20241019061432-edc1bb088f74
 	go.uber.org/zap v1.27.0
 	gorm.io/driver/mysql v1.5.7
 	gorm.io/gorm v1.25.12
@@ -24,16 +24,16 @@ require (
 	github.com/AfterShip/email-verifier v1.4.1 // indirect
 	github.com/aead/chacha20 v0.0.0-20180709150244-8b13a72661da // indirect
 	github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2 // indirect
-	github.com/aws/aws-sdk-go-v2 v1.32.1 // indirect
+	github.com/aws/aws-sdk-go-v2 v1.32.2 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.6.6 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/configsources v1.3.20 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.6.20 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/v4a v1.3.20 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/configsources v1.3.21 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.6.21 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/v4a v1.3.21 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.12.0 // indirect
-	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.4.1 // indirect
-	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.12.1 // indirect
-	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.18.1 // indirect
-	github.com/aws/aws-sdk-go-v2/service/s3 v1.65.1 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.4.2 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.12.2 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.18.2 // indirect
+	github.com/aws/aws-sdk-go-v2/service/s3 v1.65.3 // indirect
 	github.com/aws/smithy-go v1.22.0 // indirect
 	github.com/bmatcuk/doublestar/v4 v4.6.1 // indirect
 	github.com/boombuler/barcode v1.0.1 // indirect
@@ -87,7 +87,7 @@ require (
 	github.com/oklog/ulid v1.3.1 // indirect
 	github.com/opentracing/opentracing-go v1.2.0 // indirect
 	github.com/pquerna/otp v1.4.0 // indirect
-	github.com/redis/go-redis/v9 v9.6.1 // indirect
+	github.com/redis/go-redis/v9 v9.6.2 // indirect
 	github.com/robfig/cron/v3 v3.0.1 // indirect
 	github.com/rs/cors v1.11.1 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
