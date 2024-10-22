@@ -33,7 +33,7 @@ type SubscriptionPlan struct {
 	Upload     uint64                 `json:"upload"`
 	Download   uint64                 `json:"download"`
 	Status     SubscriptionPlanStatus `json:"status"`
-	StartDate  *strfmt.DateTime       `json:"start_date;omitempty"`
+	StartDate  *strfmt.DateTime       `json:"start_date,omitempty"`
 	IsFree     bool                   `json:"is_free,omitempty"`
 }
 type SubscriptionResponse struct {
