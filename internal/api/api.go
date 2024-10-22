@@ -100,7 +100,7 @@ func (a *API) Configure(_ *mux.Router, accessSvc core.AccessService) error {
 		r := route.Router.HandleFunc(route.Path, route.Handler).Methods(route.Method, "OPTIONS")
 		r.Use(route.Middlewares...)
 
-		if err := accessSvc.RegisterRoute(a.Subdomain(), route.Path, route.Method, route.Access); err != nil {
+		if err := accessSvc.RegisterRoute(accountApi.Subdomain(), route.Path, route.Method, route.Access); err != nil {
 			return fmt.Errorf("failed to register route %s %s: %w", route.Method, route.Path, err)
 		}
 	}
