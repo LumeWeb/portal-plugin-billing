@@ -13,7 +13,7 @@ require (
 	github.com/killbill/kbcli/v3 v3.1.0
 	github.com/samber/lo v1.47.0
 	go.lumeweb.com/httputil v0.0.0-20240907105629-dbffb601f2ab
-	go.lumeweb.com/portal v0.2.0
+	go.lumeweb.com/portal v0.2.1
 	go.uber.org/zap v1.27.0
 	gorm.io/gorm v1.25.12
 )
