@@ -58,7 +58,7 @@ func (s *SubscriptionLifecycleImpl) CreateSubscription(ctx context.Context, user
 	}
 
 	// Parse subscription ID from Location header
-	subID, err := parseSubscriptionIDFromLocation(resp.HttpResponse.Header.Get("Location"))
+	subID, err := parseSubscriptionIDFromLocation(resp.HttpResponse.GetHeader("Location"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse subscription ID: %w", err)
 	}
@@ -306,16 +306,16 @@ func (s *SubscriptionLifecycleImpl) GetSubscriptionStatus(ctx context.Context, u
 	var paymentStatus string
 	var currentPeriodEnd time.Time
 
-	if sub.ChargedThroughDate != nil && !time.Time(*sub.ChargedThroughDate).IsZero() {
-		paymentStatus = time.Time(*sub.ChargedThroughDate).Format(time.RFC3339)
-		currentPeriodEnd = time.Time(*sub.ChargedThroughDate)
+	if chargedDate := time.Time(sub.ChargedThroughDate); !chargedDate.IsZero() {
+		paymentStatus = chargedDate.Format(time.RFC3339)
+		currentPeriodEnd = chargedDate
 	}
 
 	return &SubscriptionStatus{
 		Status:            string(sub.State),
 		PaymentStatus:     paymentStatus,
 		CurrentPeriodEnd:  currentPeriodEnd,
-		CancelAtPeriodEnd: sub.BillingEndDate != nil,
+		CancelAtPeriodEnd: time.Time(sub.BillingEndDate).IsZero(),
 	}, nil
 }
 
