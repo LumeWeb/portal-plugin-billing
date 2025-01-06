@@ -676,49 +676,6 @@ func (b *BillingServiceDefault) GenerateEphemeralKey(ctx context.Context, userID
 	}, nil
 }
 
-func (b *BillingServiceDefault) UpdatePaymentMethod(ctx context.Context, userID uint, paymentMethodID string) error {
-	if !b.enabled() || !b.paidEnabled() {
-		return nil
-	}
-
-	// Verify the payment method exists and is valid
-	if err := b.verifyPaymentMethod(ctx, paymentMethodID); err != nil {
-		return fmt.Errorf("invalid payment method: %w", err)
-	}
-
-	// Get account
-	acct, err := b.kbRepo.GetAccountByUserId(ctx, userID)
-	if err != nil {
-		return fmt.Errorf("failed to get account: %w", err)
-	}
-
-	// Set as default payment method
-	_, err = b.kbRepo.CreatePaymentMethod(ctx, acct.Payload.AccountID, &kbmodel.PaymentMethod{
-		PluginName: paymentMethodPluginName,
-		PluginInfo: &kbmodel.PaymentMethodPluginDetail{
-			IsDefaultPaymentMethod: true,
-			Properties: []*kbmodel.PluginProperty{
-				{
-					Key:   "mandateId",
-					Value: paymentMethodID,
-				},
-			},
-		},
-		IsDefault: true,
-	}, true)
-	if err != nil {
-		return fmt.Errorf("failed to create payment method: %w", err)
-	}
-
-	// Clean up old payment methods
-	err = b.prunePaymentMethods(ctx, acct.Payload.AccountID)
-	if err != nil {
-		b.logger.Error("failed to prune old payment methods", zap.Error(err))
-		// Don't fail the update for cleanup errors
-	}
-
-	return nil
-}
 
 func (b *BillingServiceDefault) RequestPaymentMethodChange(ctx context.Context, userID uint) (*messages.RequestPaymentMethodChangeResponse, error) {
 	acct, err := b.kbRepo.GetAccountByUserId(ctx, userID)

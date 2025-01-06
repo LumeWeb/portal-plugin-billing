@@ -39,6 +39,9 @@ type SubscriptionManager interface {
 
 	// GenerateEphemeralKey generates an ephemeral key for the payment system
 	GenerateEphemeralKey(ctx context.Context, userID uint) (*messages.EphemeralKeyResponse, error)
+
+	// UpdatePaymentMethod updates the payment method for a user
+	UpdatePaymentMethod(ctx context.Context, userID uint, paymentMethodID string) error
 }
 
 // SubscriptionManagerDefault handles subscription-related operations and caching
@@ -276,4 +279,50 @@ func (sm *SubscriptionManagerDefault) RequestPaymentMethodChange(ctx context.Con
 // GenerateEphemeralKey generates an ephemeral key for the payment system
 func (sm *SubscriptionManagerDefault) GenerateEphemeralKey(ctx context.Context, userID uint) (*messages.EphemeralKeyResponse, error) {
 	return sm.billingService.GenerateEphemeralKey(ctx, userID)
+}
+
+// UpdatePaymentMethod updates the payment method for a user
+func (sm *SubscriptionManagerDefault) UpdatePaymentMethod(ctx context.Context, userID uint, paymentMethodID string) error {
+	if !sm.billingService.enabled() || !sm.billingService.paidEnabled() {
+		return nil
+	}
+
+	// Verify the payment method exists and is valid
+	if err := sm.billingService.verifyPaymentMethod(ctx, paymentMethodID); err != nil {
+		return fmt.Errorf("invalid payment method: %w", err)
+	}
+
+	// Get account
+	acct, err := sm.billingService.kbRepo.GetAccountByUserId(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("failed to get account: %w", err)
+	}
+
+	// Set as default payment method
+	_, err = sm.billingService.kbRepo.CreatePaymentMethod(ctx, acct.Payload.AccountID, &kbmodel.PaymentMethod{
+		PluginName: paymentMethodPluginName,
+		PluginInfo: &kbmodel.PaymentMethodPluginDetail{
+			IsDefaultPaymentMethod: true,
+			Properties: []*kbmodel.PluginProperty{
+				{
+					Key:   "mandateId",
+					Value: paymentMethodID,
+				},
+			},
+		},
+		IsDefault: true,
+	}, true)
+	if err != nil {
+		return fmt.Errorf("failed to create payment method: %w", err)
+	}
+
+	// Clean up old payment methods
+	err = sm.billingService.kbRepo.RefreshPaymentMethods(ctx, acct.Payload.AccountID)
+	if err != nil {
+		sm.logger.Error("failed to refresh payment methods", zap.Error(err))
+		// Don't fail the update for cleanup errors
+	}
+
+	sm.InvalidateCache(userID)
+	return nil
 }

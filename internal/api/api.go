@@ -300,7 +300,7 @@ func (a API) updatePaymentMethod(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := a.billingService.UpdatePaymentMethod(ctx, user, updateRequest.PaymentMethodID); err != nil {
+	if err := a.billingService.GetSubscriptionManager().UpdatePaymentMethod(ctx, user, updateRequest.PaymentMethodID); err != nil {
 		_ = ctx.Error(err, http.StatusInternalServerError)
 		return
 	}
