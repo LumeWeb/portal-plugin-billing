@@ -82,7 +82,6 @@ func (a *API) Configure(_ *mux.Router, accessSvc core.AccessService) error {
 		{mainRouter, "/api/account/subscription/billing", "POST", a.updateBilling, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
 		{mainRouter, "/api/account/subscription/change", "POST", a.changeSubscription, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
 		{mainRouter, "/api/account/subscription/connect", "POST", a.connectSubscription, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
-		{mainRouter, "/api/account/subscription/ephemeral-key", "POST", a.generateEphemeralKey, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
 		{mainRouter, "/api/account/subscription/request-payment-method-change", "POST", a.requestPaymentMethodChange, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
 		{mainRouter, "/api/account/subscription/update-payment-method", "POST", a.updatePaymentMethod, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
 		{mainRouter, "/api/account/subscription/cancel", "POST", a.cancelSubscription, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
