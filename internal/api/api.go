@@ -121,7 +121,7 @@ func (a API) Config() config.APIConfig {
 func (a API) getPlans(w http.ResponseWriter, r *http.Request) {
 	ctx := httputil.Context(r, w)
 
-	plans, err := a.billingService.subscriptionMgr.GetPlans(ctx)
+	plans, err := a.billingService.GetSubscriptionManager().GetPlans(ctx)
 
 	if err != nil {
 		_ = ctx.Error(err, http.StatusInternalServerError)
@@ -141,7 +141,7 @@ func (a API) getSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	subscription, err := a.billingService.subscriptionMgr.GetSubscription(ctx, user)
+	subscription, err := a.billingService.GetSubscriptionManager().GetSubscription(ctx, user)
 
 	if err != nil {
 		_ = ctx.Error(err, http.StatusInternalServerError)
@@ -172,7 +172,7 @@ func (a API) changeSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := a.billingService.subscriptionMgr.UpdateSubscription(ctx, user, changeRequest.Plan); err != nil {
+	if err := a.billingService.GetSubscriptionManager().UpdateSubscription(ctx, user, changeRequest.Plan); err != nil {
 		_ = ctx.Error(err, http.StatusInternalServerError)
 		return
 	}
@@ -194,7 +194,7 @@ func (a API) updateBilling(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := a.billingService.subscriptionMgr.UpdateBillingInfo(ctx, user, &billingInfo); err != nil {
+	if err := a.billingService.GetSubscriptionManager().UpdateBillingInfo(ctx, user, &billingInfo); err != nil {
 		errs :=
 			make([]*messages.UpdateBillingInfoResponseErrorItem, 0)
 		if merr, ok := errors.Unwrap(err).(*multierror.Error); ok {
@@ -254,7 +254,7 @@ func (a API) connectSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := a.billingService.subscriptionMgr.ConnectSubscription(ctx, user, connectRequest.PaymentMethodID); err != nil {
+	if err := a.billingService.GetSubscriptionManager().ConnectSubscription(ctx, user, connectRequest.PaymentMethodID); err != nil {
 		_ = ctx.Error(err, http.StatusInternalServerError)
 		return
 	}
@@ -270,7 +270,7 @@ func (a API) generateEphemeralKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	key, err := a.billingService.subscriptionMgr.GenerateEphemeralKey(ctx, user)
+	key, err := a.billingService.GetSubscriptionManager().GenerateEphemeralKey(ctx, user)
 
 	if err != nil {
 		_ = ctx.Error(err, http.StatusInternalServerError)
@@ -316,7 +316,7 @@ func (a API) requestPaymentMethodChange(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	response, err := a.billingService.subscriptionMgr.RequestPaymentMethodChange(ctx, user)
+	response, err := a.billingService.GetSubscriptionManager().RequestPaymentMethodChange(ctx, user)
 
 	if err != nil {
 		_ = ctx.Error(err, http.StatusInternalServerError)
@@ -347,7 +347,7 @@ func (a API) cancelSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, err := a.billingService.subscriptionMgr.CancelSubscription(ctx, user, &req)
+	resp, err := a.billingService.GetSubscriptionManager().CancelSubscription(ctx, user, &req)
 	if err != nil {
 		_ = ctx.Error(err, http.StatusInternalServerError)
 		return
