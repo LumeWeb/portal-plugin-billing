@@ -13,17 +13,12 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/killbill/kbcli/v3/kbclient"
 	"github.com/killbill/kbcli/v3/kbclient/account"
-	"github.com/killbill/kbcli/v3/kbclient/catalog"
-	"github.com/killbill/kbcli/v3/kbclient/invoice"
-	"github.com/killbill/kbcli/v3/kbclient/nodes_info"
-	"github.com/killbill/kbcli/v3/kbclient/payment_method"
-	"github.com/killbill/kbcli/v3/kbclient/subscription"
 	"github.com/killbill/kbcli/v3/kbcommon"
 	"github.com/killbill/kbcli/v3/kbmodel"
-	"github.com/samber/lo"
 	"go.lumeweb.com/portal-plugin-billing/internal/api/messages"
 	"go.lumeweb.com/portal-plugin-billing/internal/config"
 	pluginDb "go.lumeweb.com/portal-plugin-billing/internal/db"
+	"go.lumeweb.com/portal-plugin-billing/internal/repository"
 	"go.lumeweb.com/portal/core"
 	"go.lumeweb.com/portal/db"
 	"go.lumeweb.com/portal/db/models"
@@ -59,12 +54,15 @@ var _ core.Configurable = (*BillingServiceDefault)(nil)
 const BILLING_SERVICE = "billing"
 
 type BillingServiceDefault struct {
-	ctx    core.Context
-	db     *gorm.DB
-	logger *core.Logger
-	cfg    *config.BillingConfig
-	api    *kbclient.KillBill
-	user   core.UserService
+	ctx              core.Context
+	db               *gorm.DB
+	logger           *core.Logger
+	cfg              *config.BillingConfig
+	api              *kbclient.KillBill
+	user             core.UserService
+	subscriptionMgr  SubscriptionManager
+	subscriptionLife SubscriptionLifecycle
+	kbRepo           *repository.KillBillRepository
 }
 
 func NewBillingService() (core.Service, []core.ContextBuilderOption, error) {
@@ -72,9 +70,14 @@ func NewBillingService() (core.Service, []core.ContextBuilderOption, error) {
 
 	return _service, core.ContextOptions(
 		core.ContextWithStartupFunc(func(ctx core.Context) error {
+			_service.logger = ctx.ServiceLogger(_service)
+			_service.subscriptionMgr = NewSubscriptionManager(_service, _service.logger.Named("subscription-manager"))      // Logger will be set after startup
+			_service.subscriptionLife = NewSubscriptionLifecycle(_service, _service.logger.Named("subscription-lifecycle")) // Logger will be set after startup
+
 			_service.ctx = ctx
 			_service.db = ctx.DB()
-			_service.logger = ctx.ServiceLogger(_service)
+
+			_service.subscriptionLife.(*SubscriptionLifecycleImpl).logger = _service.logger.Named("subscription-lifecycle")
 			_service.user = core.GetService[core.UserService](ctx, core.USER_SERVICE)
 			_service.cfg = ctx.Config().GetService(BILLING_SERVICE).(*config.BillingConfig)
 
@@ -100,8 +103,12 @@ func NewBillingService() (core.Service, []core.ContextBuilderOption, error) {
 			})
 			_service.api = kbclient.New(trp, strfmt.Default, authWriter, kbclient.KillbillDefaults{})
 
-			info, err := _service.api.NodesInfo.GetNodesInfo(ctx, &nodes_info.GetNodesInfoParams{})
-			if err != nil || info.Payload == nil || len(info.Payload) == 0 {
+			// Initialize repository
+			_service.kbRepo = repository.NewKillBillRepository(_service.api)
+
+			// Test connection
+			info, err := _service.kbRepo.GetNodesInfo(ctx)
+			if err != nil || info == nil || len(info) == 0 {
 				return fmt.Errorf("failed to connect to KillBill: %v", err)
 			}
 
@@ -125,9 +132,7 @@ func (b *BillingServiceDefault) CreateCustomer(ctx context.Context, user *models
 
 	externalKey := strconv.FormatUint(uint64(user.ID), 10)
 
-	result, err := b.api.Account.GetAccountByKey(ctx, &account.GetAccountByKeyParams{
-		ExternalKey: externalKey,
-	})
+	result, err := b.kbRepo.GetAccountByUserId(ctx, user.ID)
 
 	if err != nil || result == nil {
 		if kbErr, ok := err.(*kbcommon.KillbillError); ok {
@@ -141,13 +146,11 @@ func (b *BillingServiceDefault) CreateCustomer(ctx context.Context, user *models
 		return nil
 	}
 
-	_, err = b.api.Account.CreateAccount(ctx, &account.CreateAccountParams{
-		Body: &kbmodel.Account{
-			ExternalKey: externalKey,
-			Name:        fmt.Sprintf("%s %s", user.FirstName, user.LastName),
-			Email:       user.Email,
-			Currency:    kbmodel.AccountCurrencyUSD,
-		},
+	_, err = b.kbRepo.CreateAccount(ctx, &kbmodel.Account{
+		ExternalKey: externalKey,
+		Name:        fmt.Sprintf("%s %s", user.FirstName, user.LastName),
+		Email:       user.Email,
+		Currency:    kbmodel.AccountCurrencyUSD,
 	})
 
 	if err != nil {
@@ -180,9 +183,7 @@ func (b *BillingServiceDefault) UpdateBillingInfo(ctx context.Context, userID ui
 		return err
 	}
 
-	acct, err := b.api.Account.GetAccountByKey(ctx, &account.GetAccountByKeyParams{
-		ExternalKey: strconv.FormatUint(uint64(userID), 10),
-	})
+	acct, err := b.kbRepo.GetAccountByUserId(ctx, userID)
 
 	if err != nil {
 		return err
@@ -222,15 +223,12 @@ func (b *BillingServiceDefault) UpdateBillingInfo(ctx context.Context, userID ui
 		return nil
 	}
 
-	_, err = b.api.Account.UpdateAccount(ctx, &account.UpdateAccountParams{
-		AccountID: acct.Payload.AccountID,
-		Body: &kbmodel.Account{
-			Address1:   billingInfo.Address,
-			City:       billingInfo.City,
-			State:      billingInfo.State,
-			PostalCode: billingInfo.Zip,
-			Country:    billingInfo.Country,
-		},
+	_, err = b.kbRepo.UpdateAccount(ctx, acct.Payload.AccountID, &kbmodel.Account{
+		Address1:   billingInfo.Address,
+		City:       billingInfo.City,
+		State:      billingInfo.State,
+		PostalCode: billingInfo.Zip,
+		Country:    billingInfo.Country,
 	})
 
 	if err != nil {
@@ -264,6 +262,10 @@ func (b *BillingServiceDefault) Config() (any, error) {
 	return &config.BillingConfig{}, nil
 }
 
+func (b *BillingServiceDefault) GetSubscriptionManager() SubscriptionManager {
+	return b.subscriptionMgr
+}
+
 func (b *BillingServiceDefault) getUsageByUserID(ctx context.Context, userID uint, usageType UsageType) (uint64, error) {
 	if !b.enabled() {
 		return math.MaxUint64, nil
@@ -273,16 +275,12 @@ func (b *BillingServiceDefault) getUsageByUserID(ctx context.Context, userID uin
 		return b.getFreeUsage(usageType), nil
 	}
 
-	acct, err := b.api.Account.GetAccountByKey(ctx, &account.GetAccountByKeyParams{
-		ExternalKey: strconv.FormatUint(uint64(userID), 10),
-	})
+	acct, err := b.kbRepo.GetAccountByUserId(ctx, userID)
 	if err != nil {
 		return 0, err
 	}
 
-	bundles, err := b.api.Account.GetAccountBundles(ctx, &account.GetAccountBundlesParams{
-		AccountID: acct.Payload.AccountID,
-	})
+	bundles, err := b.kbRepo.GetBundlesByAccountId(ctx, acct.Payload.AccountID)
 	if err != nil {
 		return 0, err
 	}
@@ -351,7 +349,7 @@ func (b *BillingServiceDefault) GetPlans(ctx context.Context) ([]*messages.Subsc
 		return []*messages.SubscriptionPlan{b.getFreePlan()}, nil
 	}
 
-	plans, err := b.api.Catalog.GetCatalogJSON(ctx, &catalog.GetCatalogJSONParams{})
+	plans, err := b.kbRepo.GetCatalog(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -420,7 +418,7 @@ func (b *BillingServiceDefault) getFreePlan() *messages.SubscriptionPlan {
 }
 
 func (b *BillingServiceDefault) getPlanNameById(ctx context.Context, id string) (string, error) {
-	plans, err := b.api.Catalog.GetCatalogJSON(ctx, &catalog.GetCatalogJSONParams{})
+	plans, err := b.kbRepo.GetCatalog(ctx)
 
 	if err != nil {
 		return "", err
@@ -440,8 +438,7 @@ func (b *BillingServiceDefault) getPlanNameById(ctx context.Context, id string) 
 }
 
 func (b *BillingServiceDefault) getPlanPriceById(ctx context.Context, id string, kind string, currency string) (float64, error) {
-	plans, err := b.api.Catalog.GetCatalogJSON(ctx, &catalog.GetCatalogJSONParams{})
-
+	plans, err := b.kbRepo.GetCatalog(ctx)
 	if err != nil {
 		return 0, err
 	}
@@ -467,7 +464,7 @@ func (b *BillingServiceDefault) getPlanPriceById(ctx context.Context, id string,
 }
 
 func (b *BillingServiceDefault) getBasePlanByID(ctx context.Context, planId string) (*kbmodel.PlanDetail, error) {
-	plans, err := b.api.Catalog.GetAvailableBasePlans(ctx, &catalog.GetAvailableBasePlansParams{})
+	plans, err := b.kbRepo.GetAvailablePlans(ctx)
 
 	if err != nil {
 		return nil, err
@@ -523,170 +520,11 @@ func (b *BillingServiceDefault) getSortedPlans(ctx context.Context, catalog *kbm
 }
 
 func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint) (*messages.SubscriptionResponse, error) {
-	if !b.enabled() {
-		return nil, nil
-	}
-
-	if !b.paidEnabled() {
-		freePlan := b.getFreePlan()
-		return &messages.SubscriptionResponse{
-			Plan:        freePlan,
-			BillingInfo: messages.BillingInfo{},
-			PaymentInfo: messages.PaymentInfo{},
-		}, nil
-	}
-
-	err := b.CreateCustomerById(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
-
-	acct, err := b.api.Account.GetAccountByKey(ctx, &account.GetAccountByKeyParams{
-		ExternalKey: strconv.FormatUint(uint64(userID), 10),
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	bundles, err := b.api.Account.GetAccountBundles(ctx, &account.GetAccountBundlesParams{
-		AccountID: acct.Payload.AccountID,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	var subPlan *messages.SubscriptionPlan
-	var paymentID string
-	var clientSecret string
-	var paymentExpires time.Time
-	publishableKey := b.cfg.Hyperswitch.PublishableKey
-
-	sub := findActiveOrPendingSubscription(bundles.Payload)
-
-	if sub != nil {
-		plan, err := b.getPlanByIdentifier(ctx, *sub.PlanName)
-		if err != nil {
-			return nil, err
-		}
-
-		planName, err := b.getPlanNameById(ctx, *sub.PlanName)
-		if err != nil {
-			return nil, err
-		}
-
-		prices := lo.Filter(sub.Prices, func(price *kbmodel.PhasePrice, _ int) bool {
-			return kbmodel.SubscriptionPhaseTypeEnum(price.PhaseType) == sub.PhaseType
-		})
-
-		if len(prices) > 0 {
-			subPlan = &messages.SubscriptionPlan{
-				Name:       planName,
-				Price:      prices[0].RecurringPrice,
-				Status:     remoteSubscriptionStatusToLocal(sub.State),
-				Identifier: plan.Identifier,
-				Period:     remoteSubscriptionPhaseToLocal(kbmodel.SubscriptionPhaseTypeEnum(*sub.BillingPeriod)),
-				Storage:    plan.Storage,
-				Upload:     plan.Upload,
-				Download:   plan.Download,
-				StartDate:  &sub.StartDate,
-			}
-
-			cfState, err := b.getCustomField(ctx, sub.SubscriptionID, pendingCustomField)
-			if err != nil {
-				return nil, err
-			}
-
-			if sub.State == kbmodel.SubscriptionStatePENDING || (cfState != nil && *cfState.Value == "1") {
-				// Get the client secret
-				_paymentID, err := b.getCustomField(ctx, sub.SubscriptionID, paymentIdCustomField)
-				if err != nil {
-					return nil, err
-				}
-
-				if _paymentID != nil {
-					_clientSecret, created, err := b.fetchClientSecret(ctx, *_paymentID.Value)
-					if err != nil {
-						return nil, err
-					}
-
-					paymentID = *_paymentID.Value
-					paymentExpires = created.Add(15 * time.Minute)
-					clientSecret = _clientSecret
-					subPlan.Status = messages.SubscriptionPlanStatusPending
-				}
-			}
-		}
-	}
-
-	if subPlan == nil {
-		subPlan = b.getFreePlan()
-	}
-
-	return &messages.SubscriptionResponse{
-		Plan: subPlan,
-		BillingInfo: messages.BillingInfo{
-			Name:    acct.Payload.Name,
-			Address: acct.Payload.Address1,
-			City:    acct.Payload.City,
-			State:   acct.Payload.State,
-			Zip:     acct.Payload.PostalCode,
-			Country: acct.Payload.Country,
-		},
-		PaymentInfo: messages.PaymentInfo{
-			PaymentID:      paymentID,
-			PaymentExpires: paymentExpires,
-			ClientSecret:   clientSecret,
-			PublishableKey: publishableKey,
-		},
-	}, nil
+	return b.subscriptionMgr.GetSubscription(ctx, userID)
 }
 
 func (b *BillingServiceDefault) ChangeSubscription(ctx context.Context, userID uint, planID string) error {
-	if planID == b.cfg.FreePlanID {
-		return b.CancelSubscription(ctx, userID)
-	}
-
-	if !b.enabled() || !b.paidEnabled() {
-		return nil
-	}
-
-	err := b.CreateCustomerById(ctx, userID)
-	if err != nil {
-		return err
-	}
-
-	acct, err := b.api.Account.GetAccountByKey(ctx, &account.GetAccountByKeyParams{
-		ExternalKey: strconv.FormatUint(uint64(userID), 10),
-	})
-	if err != nil {
-		return err
-	}
-
-	bundles, err := b.api.Account.GetAccountBundles(ctx, &account.GetAccountBundlesParams{
-		AccountID: acct.Payload.AccountID,
-	})
-	if err != nil {
-		return err
-	}
-
-	sub := findActiveOrPendingSubscription(bundles.Payload)
-	if sub == nil {
-		return b.handleNewSubscription(ctx, acct.Payload.AccountID, planID)
-	}
-
-	cfPending, err := b.getCustomField(ctx, sub.SubscriptionID, pendingCustomField)
-	if err != nil {
-		return err
-	}
-
-	if sub.State == kbmodel.SubscriptionStatePENDING || (cfPending != nil && *cfPending.Value == "1") {
-		return b.handlePendingSubscription(ctx, sub)
-	} else if sub.State == kbmodel.SubscriptionStateACTIVE {
-		return b.submitSubscriptionPlanChange(ctx, sub.SubscriptionID, planID)
-	}
-
-	return fmt.Errorf("unexpected subscription state: %s", sub.State)
+	return b.subscriptionMgr.UpdateSubscription(ctx, userID, planID)
 }
 
 func (b *BillingServiceDefault) ConnectSubscription(ctx context.Context, userID uint, paymentMethodID string) error {
@@ -699,16 +537,12 @@ func (b *BillingServiceDefault) ConnectSubscription(ctx context.Context, userID 
 		return fmt.Errorf("invalid payment method: %w", err)
 	}
 
-	acct, err := b.api.Account.GetAccountByKey(ctx, &account.GetAccountByKeyParams{
-		ExternalKey: strconv.FormatUint(uint64(userID), 10),
-	})
+	acct, err := b.kbRepo.GetAccountByUserId(ctx, userID)
 	if err != nil {
 		return err
 	}
 
-	bundles, err := b.api.Account.GetAccountBundles(ctx, &account.GetAccountBundlesParams{
-		AccountID: acct.Payload.AccountID,
-	})
+	bundles, err := b.kbRepo.GetBundlesByAccountId(ctx, acct.Payload.AccountID)
 	if err != nil {
 		return err
 	}
@@ -743,33 +577,6 @@ func (b *BillingServiceDefault) ConnectSubscription(ctx context.Context, userID 
 			return nil
 		}
 
-		unpaid := true
-
-		invoices, err := b.api.Account.GetInvoicesForAccount(ctx, &account.GetInvoicesForAccountParams{
-			AccountID:          acct.Payload.AccountID,
-			UnpaidInvoicesOnly: &unpaid,
-		})
-		if err != nil {
-			return err
-		}
-
-		for _, inv := range invoices.Payload {
-			_, err = b.api.Invoice.AdjustInvoiceItem(ctx, &invoice.AdjustInvoiceItemParams{
-				InvoiceID: inv.InvoiceID,
-				Body: &kbmodel.InvoiceItem{
-					AccountID:     &acct.Payload.AccountID,
-					InvoiceItemID: inv.Items[0].InvoiceItemID,
-					Amount:        inv.Amount,
-					Currency:      kbmodel.InvoiceItemCurrencyEnum(inv.Currency),
-					Description:   "Initial outside subscription payment",
-				},
-			})
-
-			if err != nil {
-				return err
-			}
-		}
-
 		err = b.setCustomField(ctx, sub.SubscriptionID, subscriptionSetupCustomField, "1")
 		if err != nil {
 			return err
@@ -784,9 +591,7 @@ func (b *BillingServiceDefault) ConnectSubscription(ctx context.Context, userID 
 }
 
 func (b *BillingServiceDefault) prunePaymentMethods(ctx context.Context, acctID strfmt.UUID) error {
-	paymentMethods, err := b.api.Account.GetPaymentMethodsForAccount(ctx, &account.GetPaymentMethodsForAccountParams{
-		AccountID: acctID,
-	})
+	paymentMethods, err := b.kbRepo.GetPaymentMethods(ctx, acctID)
 	if err != nil {
 		return err
 	}
@@ -796,9 +601,7 @@ func (b *BillingServiceDefault) prunePaymentMethods(ctx context.Context, acctID 
 			if method.IsDefault {
 				continue
 			}
-			_, err = b.api.PaymentMethod.DeletePaymentMethod(ctx, &payment_method.DeletePaymentMethodParams{
-				PaymentMethodID: method.PaymentMethodID,
-			})
+			err = b.kbRepo.DeletePaymentMethod(ctx, acctID, method.PaymentMethodID, false)
 			if err != nil {
 				return err
 			}
@@ -809,25 +612,20 @@ func (b *BillingServiceDefault) prunePaymentMethods(ctx context.Context, acctID 
 }
 
 func (b *BillingServiceDefault) setUserPaymentMethod(ctx context.Context, acctID strfmt.UUID, paymentMethodID string) error {
-	def := true
-	_, err := b.api.Account.CreatePaymentMethod(ctx, &account.CreatePaymentMethodParams{
-		AccountID: acctID,
-		Body: &kbmodel.PaymentMethod{
-			PluginName: paymentMethodPluginName,
-			PluginInfo: &kbmodel.PaymentMethodPluginDetail{
-				IsDefaultPaymentMethod: true,
-				Properties: []*kbmodel.PluginProperty{
-					{
-						Key:         "mandateId",
-						Value:       paymentMethodID,
-						IsUpdatable: false,
-					},
+	_, err := b.kbRepo.CreatePaymentMethod(ctx, acctID, &kbmodel.PaymentMethod{
+		PluginName: paymentMethodPluginName,
+		PluginInfo: &kbmodel.PaymentMethodPluginDetail{
+			IsDefaultPaymentMethod: true,
+			Properties: []*kbmodel.PluginProperty{
+				{
+					Key:         "mandateId",
+					Value:       paymentMethodID,
+					IsUpdatable: false,
 				},
 			},
-			IsDefault: true,
 		},
-		IsDefault: &def,
-	})
+		IsDefault: true,
+	}, true)
 	if err != nil {
 		return err
 	}
@@ -841,9 +639,7 @@ func (b *BillingServiceDefault) setUserPaymentMethod(ctx context.Context, acctID
 }
 
 func (b *BillingServiceDefault) GenerateEphemeralKey(ctx context.Context, userID uint) (*messages.EphemeralKeyResponse, error) {
-	acct, err := b.api.Account.GetAccountByKey(ctx, &account.GetAccountByKeyParams{
-		ExternalKey: strconv.FormatUint(uint64(userID), 10),
-	})
+	acct, err := b.kbRepo.GetAccountByUserId(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -880,17 +676,57 @@ func (b *BillingServiceDefault) GenerateEphemeralKey(ctx context.Context, userID
 	}, nil
 }
 
+func (b *BillingServiceDefault) UpdatePaymentMethod(ctx context.Context, userID uint, paymentMethodID string) error {
+	if !b.enabled() || !b.paidEnabled() {
+		return nil
+	}
+
+	// Verify the payment method exists and is valid
+	if err := b.verifyPaymentMethod(ctx, paymentMethodID); err != nil {
+		return fmt.Errorf("invalid payment method: %w", err)
+	}
+
+	// Get account
+	acct, err := b.kbRepo.GetAccountByUserId(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("failed to get account: %w", err)
+	}
+
+	// Set as default payment method
+	_, err = b.kbRepo.CreatePaymentMethod(ctx, acct.Payload.AccountID, &kbmodel.PaymentMethod{
+		PluginName: paymentMethodPluginName,
+		PluginInfo: &kbmodel.PaymentMethodPluginDetail{
+			IsDefaultPaymentMethod: true,
+			Properties: []*kbmodel.PluginProperty{
+				{
+					Key:   "mandateId",
+					Value: paymentMethodID,
+				},
+			},
+		},
+		IsDefault: true,
+	}, true)
+	if err != nil {
+		return fmt.Errorf("failed to create payment method: %w", err)
+	}
+
+	// Clean up old payment methods
+	err = b.prunePaymentMethods(ctx, acct.Payload.AccountID)
+	if err != nil {
+		b.logger.Error("failed to prune old payment methods", zap.Error(err))
+		// Don't fail the update for cleanup errors
+	}
+
+	return nil
+}
+
 func (b *BillingServiceDefault) RequestPaymentMethodChange(ctx context.Context, userID uint) (*messages.RequestPaymentMethodChangeResponse, error) {
-	acct, err := b.api.Account.GetAccountByKey(ctx, &account.GetAccountByKeyParams{
-		ExternalKey: strconv.FormatUint(uint64(userID), 10),
-	})
+	acct, err := b.kbRepo.GetAccountByUserId(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	bundles, err := b.api.Account.GetAccountBundles(ctx, &account.GetAccountBundlesParams{
-		AccountID: acct.Payload.AccountID,
-	})
+	bundles, err := b.kbRepo.GetBundlesByAccountId(ctx, acct.Payload.AccountID)
 	if err != nil {
 		return nil, err
 	}
@@ -910,36 +746,64 @@ func (b *BillingServiceDefault) RequestPaymentMethodChange(ctx context.Context, 
 	}, nil
 }
 
-func (b *BillingServiceDefault) CancelSubscription(ctx context.Context, userID uint) error {
+func (b *BillingServiceDefault) CancelSubscription(ctx context.Context, userID uint, req *messages.CancellationRequest) (*messages.CancellationResponse, error) {
 	if !b.enabled() || !b.paidEnabled() {
-		return nil
+		return nil, nil
 	}
 
+	// Get account and subscription
 	acct, err := b.api.Account.GetAccountByKey(ctx, &account.GetAccountByKeyParams{
 		ExternalKey: strconv.FormatUint(uint64(userID), 10),
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	bundles, err := b.api.Account.GetAccountBundles(ctx, &account.GetAccountBundlesParams{
-		AccountID: acct.Payload.AccountID,
-	})
+	bundles, err := b.kbRepo.GetBundlesByAccountId(ctx, acct.Payload.AccountID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	sub := findActiveOrPendingSubscription(bundles.Payload)
 	if sub == nil {
-		return nil
+		return nil, fmt.Errorf("no active subscription found")
 	}
 
-	_, err = b.api.Subscription.CancelSubscriptionPlan(ctx, &subscription.CancelSubscriptionPlanParams{SubscriptionID: sub.SubscriptionID})
+	// Set cancellation policy based on request
+	var policy string
+	if req.EndOfTerm {
+		policy = "END_OF_TERM"
+	} else {
+		policy = "IMMEDIATE"
+	}
+
+	// Cancel subscription
+	err = b.kbRepo.CancelSubscription(ctx, sub.SubscriptionID, &policy)
 	if err != nil {
-		return err
+		return nil, fmt.Errorf("failed to cancel subscription: %w", err)
 	}
 
-	return nil
+	// Store cancellation reason
+	err = b.setCustomField(ctx, sub.SubscriptionID, "cancellation_reason", req.Reason)
+	if err != nil {
+		b.logger.Error("failed to store cancellation reason",
+			zap.Error(err),
+			zap.String("subscription_id", sub.SubscriptionID.String()))
+		// Don't fail the cancellation for this
+	}
+
+	// Calculate effective date
+	var effectiveDate time.Time
+	if req.EndOfTerm {
+		effectiveDate = time.Time(sub.ChargedThroughDate)
+	} else {
+		effectiveDate = time.Now()
+	}
+
+	return &messages.CancellationResponse{
+		Status:        "cancelled",
+		EffectiveDate: effectiveDate,
+	}, nil
 }
 
 func (b *BillingServiceDefault) verifyPaymentMethod(ctx context.Context, paymentMethodID string) error {
@@ -993,11 +857,9 @@ func (b *BillingServiceDefault) makeRequest(ctx context.Context, method, url str
 
 func (b *BillingServiceDefault) handleNewSubscription(ctx context.Context, accountID strfmt.UUID, planId string) error {
 	// Create a new subscription
-	resp, err := b.api.Subscription.CreateSubscription(ctx, &subscription.CreateSubscriptionParams{
-		Body: &kbmodel.Subscription{
-			AccountID: accountID,
-			PlanName:  &planId,
-		},
+	resp, err := b.kbRepo.CreateSubscription(ctx, &kbmodel.Subscription{
+		AccountID: accountID,
+		PlanName:  &planId,
 	})
 
 	if err != nil {
@@ -1017,9 +879,7 @@ func (b *BillingServiceDefault) handleNewSubscription(ctx context.Context, accou
 	}
 
 	// Fetch the subscription details
-	sub, err := b.api.Subscription.GetSubscription(ctx, &subscription.GetSubscriptionParams{
-		SubscriptionID: strfmt.UUID(subID),
-	})
+	sub, err := b.kbRepo.GetSubscription(ctx, strfmt.UUID(subID))
 	if err != nil {
 		return fmt.Errorf("failed to fetch subscription details: %w", err)
 	}
@@ -1053,9 +913,7 @@ func (b *BillingServiceDefault) handlePendingSubscription(ctx context.Context, s
 }
 
 func (b *BillingServiceDefault) getCustomField(ctx context.Context, subscriptionID strfmt.UUID, fieldName string) (*kbmodel.CustomField, error) {
-	fields, err := b.api.Subscription.GetSubscriptionCustomFields(ctx, &subscription.GetSubscriptionCustomFieldsParams{
-		SubscriptionID: subscriptionID,
-	})
+	fields, err := b.kbRepo.GetCustomFields(ctx, subscriptionID)
 	if err != nil {
 		return nil, err
 	}
@@ -1076,26 +934,13 @@ func (b *BillingServiceDefault) setCustomField(ctx context.Context, subscription
 	}
 
 	if existingField == nil {
-		_, err = b.api.Subscription.CreateSubscriptionCustomFields(ctx, &subscription.CreateSubscriptionCustomFieldsParams{
-			SubscriptionID: subscriptionID,
-			Body: []*kbmodel.CustomField{
-				{
-					Name:  &fieldName,
-					Value: &value,
-				},
-			},
-		})
+		err = b.kbRepo.SetCustomField(ctx, subscriptionID, fieldName, value)
 		return err
 	}
 
 	existingField.Value = &value
 
-	_, err = b.api.Subscription.ModifySubscriptionCustomFields(ctx, &subscription.ModifySubscriptionCustomFieldsParams{
-		SubscriptionID: subscriptionID,
-		Body: []*kbmodel.CustomField{
-			existingField,
-		},
-	})
+	err = b.kbRepo.SetCustomField(ctx, subscriptionID, *existingField.Name, *existingField.Value)
 
 	return err
 }
@@ -1110,10 +955,7 @@ func (b *BillingServiceDefault) deleteCustomField(ctx context.Context, subscript
 		return nil
 	}
 
-	_, err = b.api.Subscription.DeleteSubscriptionCustomFields(ctx, &subscription.DeleteSubscriptionCustomFieldsParams{
-		SubscriptionID: subscriptionID,
-		CustomField:    []strfmt.UUID{field.CustomFieldID},
-	})
+	err = b.kbRepo.DeleteCustomField(ctx, subscriptionID, field.CustomFieldID)
 
 	return err
 }
@@ -1126,9 +968,7 @@ func (b *BillingServiceDefault) createNewPayment(ctx context.Context, accountID 
 		return "", err
 	}
 
-	acct, err := b.api.Account.GetAccount(ctx, &account.GetAccountParams{
-		AccountID: accountID,
-	})
+	acct, err := b.kbRepo.GetAccount(ctx, accountID)
 	if err != nil {
 		return "", err
 	}
@@ -1245,12 +1085,7 @@ func (b *BillingServiceDefault) cancelPayment(ctx context.Context, paymentID str
 }
 
 func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context, subscriptionID strfmt.UUID, planID string) error {
-	_, err := b.api.Subscription.ChangeSubscriptionPlan(ctx, &subscription.ChangeSubscriptionPlanParams{
-		SubscriptionID: subscriptionID,
-		Body: &kbmodel.Subscription{
-			PlanName: &planID,
-		},
-	})
+	err := b.kbRepo.UpdateSubscriptionPlan(ctx, subscriptionID, planID)
 
 	if err != nil {
 		return err
@@ -1361,19 +1196,6 @@ func (b *BillingServiceDefault) normalizeBillingInfo(billingInfo *messages.Billi
 
 	return nil
 }
-
-/*
-func findPrimaryBaseProduct(catalog []*kbmodel.Catalog) *kbmodel.Product {
-	for _, _catalog := range catalog {
-		for _, product := range _catalog.Products {
-			if product.Type == "BASE" {
-				return product
-			}
-		}
-	}
-
-	return nil
-}*/
 
 func findActiveOrPendingSubscription(bundles []*kbmodel.Bundle) *kbmodel.Subscription {
 	for _, bundle := range bundles {

@@ -84,6 +84,7 @@ func (a *API) Configure(_ *mux.Router, accessSvc core.AccessService) error {
 		{mainRouter, "/api/account/subscription/connect", "POST", a.connectSubscription, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
 		{mainRouter, "/api/account/subscription/ephemeral-key", "POST", a.generateEphemeralKey, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
 		{mainRouter, "/api/account/subscription/request-payment-method-change", "POST", a.requestPaymentMethodChange, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
+		{mainRouter, "/api/account/subscription/update-payment-method", "POST", a.updatePaymentMethod, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
 		{mainRouter, "/api/account/subscription/cancel", "POST", a.cancelSubscription, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
 		{mainRouter, "/api/account/subscription/billing/countries", "GET", a.listBillingCountries, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
 		{mainRouter, "/api/account/subscription/billing/states", "GET", a.listBillingStates, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
@@ -93,6 +94,7 @@ func (a *API) Configure(_ *mux.Router, accessSvc core.AccessService) error {
 		{accountRouter, "/api/account/usage/history/upload", "GET", a.getUploadUsageHistory, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
 		{accountRouter, "/api/account/usage/history/download", "GET", a.getDownloadUsageHistory, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
 		{accountRouter, "/api/account/usage/history/storage", "GET", a.getStorageUsageHistory, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
+		{mainRouter, "/api/account/webhook/payment", "POST", a.handleWebhook, nil, ""},
 	}
 
 	// Register routes
@@ -119,7 +121,7 @@ func (a API) Config() config.APIConfig {
 func (a API) getPlans(w http.ResponseWriter, r *http.Request) {
 	ctx := httputil.Context(r, w)
 
-	plans, err := a.billingService.GetPlans(ctx)
+	plans, err := a.billingService.subscriptionMgr.GetPlans(ctx)
 
 	if err != nil {
 		_ = ctx.Error(err, http.StatusInternalServerError)
@@ -139,7 +141,7 @@ func (a API) getSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	subscription, err := a.billingService.GetSubscription(ctx, user)
+	subscription, err := a.billingService.subscriptionMgr.GetSubscription(ctx, user)
 
 	if err != nil {
 		_ = ctx.Error(err, http.StatusInternalServerError)
@@ -170,7 +172,7 @@ func (a API) changeSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := a.billingService.ChangeSubscription(ctx, user, changeRequest.Plan); err != nil {
+	if err := a.billingService.subscriptionMgr.UpdateSubscription(ctx, user, changeRequest.Plan); err != nil {
 		_ = ctx.Error(err, http.StatusInternalServerError)
 		return
 	}
@@ -192,7 +194,7 @@ func (a API) updateBilling(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := a.billingService.UpdateBillingInfo(ctx, user, &billingInfo); err != nil {
+	if err := a.billingService.subscriptionMgr.UpdateBillingInfo(ctx, user, &billingInfo); err != nil {
 		errs :=
 			make([]*messages.UpdateBillingInfoResponseErrorItem, 0)
 		if merr, ok := errors.Unwrap(err).(*multierror.Error); ok {
@@ -252,7 +254,7 @@ func (a API) connectSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := a.billingService.ConnectSubscription(ctx, user, connectRequest.PaymentMethodID); err != nil {
+	if err := a.billingService.subscriptionMgr.ConnectSubscription(ctx, user, connectRequest.PaymentMethodID); err != nil {
 		_ = ctx.Error(err, http.StatusInternalServerError)
 		return
 	}
@@ -268,7 +270,7 @@ func (a API) generateEphemeralKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	key, err := a.billingService.GenerateEphemeralKey(ctx, user)
+	key, err := a.billingService.subscriptionMgr.GenerateEphemeralKey(ctx, user)
 
 	if err != nil {
 		_ = ctx.Error(err, http.StatusInternalServerError)
@@ -276,6 +278,32 @@ func (a API) generateEphemeralKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx.Encode(key)
+}
+
+func (a API) updatePaymentMethod(w http.ResponseWriter, r *http.Request) {
+	ctx := httputil.Context(r, w)
+
+	user, err := middleware.GetUserFromContext(ctx)
+	if err != nil {
+		_ = ctx.Error(core.NewAccountError(core.ErrKeyInvalidLogin, nil), http.StatusUnauthorized)
+		return
+	}
+
+	var updateRequest messages.UpdatePaymentMethodRequest
+	if err := ctx.Decode(&updateRequest); err != nil {
+		_ = ctx.Error(err, http.StatusBadRequest)
+		return
+	}
+
+	if updateRequest.PaymentMethodID == "" {
+		_ = ctx.Error(fmt.Errorf("payment_method_id is required"), http.StatusBadRequest)
+		return
+	}
+
+	if err := a.billingService.UpdatePaymentMethod(ctx, user, updateRequest.PaymentMethodID); err != nil {
+		_ = ctx.Error(err, http.StatusInternalServerError)
+		return
+	}
 }
 
 func (a API) requestPaymentMethodChange(w http.ResponseWriter, r *http.Request) {
@@ -288,7 +316,7 @@ func (a API) requestPaymentMethodChange(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	response, err := a.billingService.RequestPaymentMethodChange(ctx, user)
+	response, err := a.billingService.subscriptionMgr.RequestPaymentMethodChange(ctx, user)
 
 	if err != nil {
 		_ = ctx.Error(err, http.StatusInternalServerError)
@@ -302,16 +330,30 @@ func (a API) cancelSubscription(w http.ResponseWriter, r *http.Request) {
 	ctx := httputil.Context(r, w)
 
 	user, err := middleware.GetUserFromContext(ctx)
-
 	if err != nil {
 		_ = ctx.Error(core.NewAccountError(core.ErrKeyInvalidLogin, nil), http.StatusUnauthorized)
 		return
 	}
 
-	if err := a.billingService.CancelSubscription(ctx, user); err != nil {
+	var req messages.CancellationRequest
+	if err := ctx.Decode(&req); err != nil {
+		_ = ctx.Error(err, http.StatusBadRequest)
+		return
+	}
+
+	// Validate reason is provided
+	if req.Reason == "" {
+		_ = ctx.Error(fmt.Errorf("cancellation reason is required"), http.StatusBadRequest)
+		return
+	}
+
+	resp, err := a.billingService.subscriptionMgr.CancelSubscription(ctx, user, &req)
+	if err != nil {
 		_ = ctx.Error(err, http.StatusInternalServerError)
 		return
 	}
+
+	ctx.Encode(resp)
 }
 func (a API) getUploadUsageHistory(w http.ResponseWriter, r *http.Request) {
 	a.getUsageHistory(w, r, a.quotaService.GetUploadUsageHistory)

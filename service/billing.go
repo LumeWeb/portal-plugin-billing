@@ -49,7 +49,12 @@ type BillingService interface {
 	RequestPaymentMethodChange(ctx context.Context, userID uint) (*messages.RequestPaymentMethodChangeResponse, error)
 
 	// CancelSubscription cancels a user's subscription
-	CancelSubscription(ctx context.Context, userID uint) error
+	CancelSubscription(ctx context.Context, userID uint, req *messages.CancellationRequest) (*messages.CancellationResponse, error)
+
+	// GetSubscriptionManager returns the subscription manager instance
+	GetSubscriptionManager() SubscriptionManager
 }
+
+type SubscriptionManager = service.SubscriptionManager
 
 var _ BillingService = (*service.BillingServiceDefault)(nil)

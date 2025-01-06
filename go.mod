@@ -6,6 +6,7 @@ toolchain go1.23.1
 
 require (
 	github.com/Boostport/address v0.11.2
+	github.com/avast/retry-go v3.0.0+incompatible
 	github.com/go-openapi/runtime v0.28.0
 	github.com/go-openapi/strfmt v0.23.0
 	github.com/gorilla/mux v1.8.1
@@ -15,6 +16,7 @@ require (
 	go.lumeweb.com/httputil v0.0.0-20240907105629-dbffb601f2ab
 	go.lumeweb.com/portal v0.3.2
 	go.uber.org/zap v1.27.0
+	gorm.io/driver/mysql v1.5.7
 	gorm.io/gorm v1.25.12
 )
 
@@ -114,7 +116,6 @@ require (
 	google.golang.org/protobuf v1.34.2 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	gorm.io/datatypes v1.2.4 // indirect
-	gorm.io/driver/mysql v1.5.7 // indirect
 	gorm.io/driver/sqlite v1.5.6 // indirect
 	lukechampine.com/blake3 v1.3.0 // indirect
 	lukechampine.com/frand v1.4.2 // indirect

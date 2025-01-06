@@ -81,6 +81,20 @@ type RequestPaymentMethodChangeResponse struct {
 	ClientSecret string `json:"client_secret"`
 }
 
+type UpdatePaymentMethodRequest struct {
+	PaymentMethodID string `json:"payment_method_id"`
+}
+
+type CancellationRequest struct {
+	Reason string `json:"reason"`
+	EndOfTerm bool `json:"end_of_term"`
+}
+
+type CancellationResponse struct {
+	Status string `json:"status"`
+	EffectiveDate time.Time `json:"effective_date"`
+}
+
 type UsageData struct {
 	Date  time.Time `json:"date"`
 	Usage uint64    `json:"usage"`
