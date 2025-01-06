@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"go.lumeweb.com/portal-plugin-billing/internal/client/hyperswitch"
 	"errors"
 	"fmt"
 	"github.com/Boostport/address"
@@ -324,7 +325,7 @@ func (a API) handlePaymentWebhook(w http.ResponseWriter, r *http.Request) {
 	ctx := httputil.Context(r, w)
 
 	// Read and parse the webhook payload
-	var event messages.WebhookEvent
+	var event hyperswitch.WebhookEvent
 	if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
 		a.logger.Error("failed to decode webhook payload", zap.Error(err))
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
