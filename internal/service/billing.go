@@ -71,15 +71,14 @@ func NewBillingService() (core.Service, []core.ContextBuilderOption, error) {
 	return _service, core.ContextOptions(
 		core.ContextWithStartupFunc(func(ctx core.Context) error {
 			_service.logger = ctx.ServiceLogger(_service)
-			_service.subscriptionMgr = NewSubscriptionManager(_service, _service.logger.Named("subscription-manager"))      // Logger will be set after startup
-			_service.subscriptionLife = NewSubscriptionLifecycle(_service, _service.logger.Named("subscription-lifecycle")) // Logger will be set after startup
-
 			_service.ctx = ctx
 			_service.db = ctx.DB()
-
-			_service.subscriptionLife.(*SubscriptionLifecycleImpl).logger = _service.logger.Named("subscription-lifecycle")
 			_service.user = core.GetService[core.UserService](ctx, core.USER_SERVICE)
 			_service.cfg = ctx.Config().GetService(BILLING_SERVICE).(*config.BillingConfig)
+
+			// Initialize subscription services after basic configuration
+			_service.subscriptionMgr = NewSubscriptionManager(_service, _service.logger.Named("subscription-manager"))
+			_service.subscriptionLife = NewSubscriptionLifecycle(_service, _service.logger.Named("subscription-lifecycle"))
 
 			if !_service.enabled() {
 				return nil
