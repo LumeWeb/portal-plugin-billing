@@ -276,11 +276,6 @@ func (sm *SubscriptionManagerDefault) RequestPaymentMethodChange(ctx context.Con
 	return response, nil
 }
 
-// GenerateEphemeralKey generates an ephemeral key for the payment system
-func (sm *SubscriptionManagerDefault) GenerateEphemeralKey(ctx context.Context, userID uint) (*messages.EphemeralKeyResponse, error) {
-	return sm.billingService.GenerateEphemeralKey(ctx, userID)
-}
-
 // UpdatePaymentMethod updates the payment method for a user
 func (sm *SubscriptionManagerDefault) UpdatePaymentMethod(ctx context.Context, userID uint, paymentMethodID string) error {
 	if !sm.billingService.enabled() || !sm.billingService.paidEnabled() {

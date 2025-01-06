@@ -44,8 +44,6 @@ type BillingService interface {
 	// ConnectSubscription connects a payment method to a user's subscription
 	ConnectSubscription(ctx context.Context, userID uint, paymentMethodID string) error
 
-	GenerateEphemeralKey(ctx context.Context, userID uint) (*messages.EphemeralKeyResponse, error)
-
 	RequestPaymentMethodChange(ctx context.Context, userID uint) (*messages.RequestPaymentMethodChangeResponse, error)
 
 	// CancelSubscription cancels a user's subscription

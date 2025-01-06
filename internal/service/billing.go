@@ -638,45 +638,6 @@ func (b *BillingServiceDefault) setUserPaymentMethod(ctx context.Context, acctID
 	return nil
 }
 
-func (b *BillingServiceDefault) GenerateEphemeralKey(ctx context.Context, userID uint) (*messages.EphemeralKeyResponse, error) {
-	acct, err := b.kbRepo.GetAccountByUserId(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
-
-	data := &EphemeralKeyRequest{
-		CustomerID: acct.Payload.AccountID.String(),
-	}
-	url := fmt.Sprintf("%s/ephemeral_keys", b.cfg.Hyperswitch.APIServer)
-
-	resp, err := b.makeRequest(ctx, "POST", url, data)
-	if err != nil {
-		return nil, err
-	}
-
-	defer func(Body io.ReadCloser) {
-		err := Body.Close()
-		if err != nil {
-			b.logger.Error("error closing response body", zap.Error(err))
-		}
-	}(resp.Body)
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	var key EphemeralKeyResponse
-	if err = json.Unmarshal(body, &key); err != nil {
-		return nil, err
-	}
-
-	return &messages.EphemeralKeyResponse{
-		Key: key.Secret,
-	}, nil
-}
-
-
 func (b *BillingServiceDefault) RequestPaymentMethodChange(ctx context.Context, userID uint) (*messages.RequestPaymentMethodChangeResponse, error) {
 	acct, err := b.kbRepo.GetAccountByUserId(ctx, userID)
 	if err != nil {

@@ -260,26 +260,6 @@ func (a API) connectSubscription(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (a API) generateEphemeralKey(w http.ResponseWriter, r *http.Request) {
-	ctx := httputil.Context(r, w)
-
-	user, err := middleware.GetUserFromContext(ctx)
-
-	if err != nil {
-		_ = ctx.Error(core.NewAccountError(core.ErrKeyInvalidLogin, nil), http.StatusUnauthorized)
-		return
-	}
-
-	key, err := a.billingService.GetSubscriptionManager().GenerateEphemeralKey(ctx, user)
-
-	if err != nil {
-		_ = ctx.Error(err, http.StatusInternalServerError)
-		return
-	}
-
-	ctx.Encode(key)
-}
-
 func (a API) updatePaymentMethod(w http.ResponseWriter, r *http.Request) {
 	ctx := httputil.Context(r, w)
 
