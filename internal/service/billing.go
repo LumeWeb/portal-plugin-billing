@@ -266,6 +266,10 @@ func (b *BillingServiceDefault) GetSubscriptionManager() SubscriptionManager {
 	return b.subscriptionMgr
 }
 
+func (b *BillingServiceDefault) GetLifeCycle() SubscriptionLifecycle {
+	return b.subscriptionLife
+}
+
 func (b *BillingServiceDefault) getUsageByUserID(ctx context.Context, userID uint, usageType UsageType) (uint64, error) {
 	if !b.enabled() {
 		return math.MaxUint64, nil

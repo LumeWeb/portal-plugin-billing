@@ -51,8 +51,12 @@ type BillingService interface {
 
 	// GetSubscriptionManager returns the subscription manager instance
 	GetSubscriptionManager() SubscriptionManager
+
+	// GetLifeCycle returns the subscription lifecycle instance
+	GetLifeCycle() SubscriptionLifecycle
 }
 
 type SubscriptionManager = service.SubscriptionManager
+type SubscriptionLifecycle = service.SubscriptionLifecycle
 
 var _ BillingService = (*service.BillingServiceDefault)(nil)

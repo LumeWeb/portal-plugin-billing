@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/Boostport/address"
@@ -13,6 +14,7 @@ import (
 	"go.lumeweb.com/portal/config"
 	"go.lumeweb.com/portal/core"
 	"go.lumeweb.com/portal/middleware"
+	"go.uber.org/zap"
 	"net/http"
 	"sort"
 )
@@ -330,7 +332,7 @@ func (a API) handlePaymentWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Forward the webhook to KillBill through the subscription manager
-	err := a.billingService.GetSubscriptionManager().(*SubscriptionManagerDefault).HandleWebhook(ctx, &event, r.Header.Get("Hyperswitch-Signature"))
+	err := a.billingService.GetLifeCycle().HandleWebhook(ctx, event, r.Header.Get("Hyperswitch-Signature"))
 	if err != nil {
 		a.logger.Error("failed to process webhook", zap.Error(err))
 		http.Error(w, "Webhook processing failed", http.StatusInternalServerError)
