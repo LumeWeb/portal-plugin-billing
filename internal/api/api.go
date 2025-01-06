@@ -92,7 +92,7 @@ func (a *API) Configure(_ *mux.Router, accessSvc core.AccessService) error {
 		{accountRouter, "/api/account/usage/history/upload", "GET", a.getUploadUsageHistory, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
 		{accountRouter, "/api/account/usage/history/download", "GET", a.getDownloadUsageHistory, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
 		{accountRouter, "/api/account/usage/history/storage", "GET", a.getStorageUsageHistory, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
-		{mainRouter, "/api/account/webhook/payment", "POST", a.handleWebhook, nil, ""},
+		{mainRouter, "/api/account/webhook/payment", "POST", a.handlePaymentWebhook, nil, ""},
 	}
 
 	// Register routes
