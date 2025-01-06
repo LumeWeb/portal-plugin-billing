@@ -318,6 +318,28 @@ func (a API) getStorageUsageHistory(w http.ResponseWriter, r *http.Request) {
 	a.getUsageHistory(w, r, a.quotaService.GetStorageUsageHistory)
 }
 
+func (a API) handlePaymentWebhook(w http.ResponseWriter, r *http.Request) {
+	ctx := httputil.Context(r, w)
+
+	// Read and parse the webhook payload
+	var event messages.WebhookEvent
+	if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
+		a.logger.Error("failed to decode webhook payload", zap.Error(err))
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Forward the webhook to KillBill through the subscription manager
+	err := a.billingService.GetSubscriptionManager().(*SubscriptionManagerDefault).HandleWebhook(ctx, &event, r.Header.Get("Hyperswitch-Signature"))
+	if err != nil {
+		a.logger.Error("failed to process webhook", zap.Error(err))
+		http.Error(w, "Webhook processing failed", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
 func (a API) getUsageHistory(w http.ResponseWriter, r *http.Request, getHistoryFunc func(uint, int) ([]*messages.UsageData, error)) {
 	ctx := httputil.Context(r, w)
 
