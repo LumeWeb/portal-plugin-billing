@@ -22,9 +22,6 @@ type SubscriptionManager interface {
 	// UpdateSubscription changes a user's subscription
 	UpdateSubscription(ctx context.Context, userID uint, planID string) error
 
-	// ConnectSubscription connects a payment method to a subscription
-	ConnectSubscription(ctx context.Context, userID uint, paymentMethodID string) error
-
 	// CancelSubscription cancels a user's subscription
 	CancelSubscription(ctx context.Context, userID uint, req *messages.CancellationRequest) (*messages.CancellationResponse, error)
 
@@ -36,9 +33,6 @@ type SubscriptionManager interface {
 
 	// RequestPaymentMethodChange initiates a payment method change
 	RequestPaymentMethodChange(ctx context.Context, userID uint) (*messages.RequestPaymentMethodChangeResponse, error)
-
-	// GenerateEphemeralKey generates an ephemeral key for the payment system
-	GenerateEphemeralKey(ctx context.Context, userID uint) (*messages.EphemeralKeyResponse, error)
 
 	// UpdatePaymentMethod updates the payment method for a user
 	UpdatePaymentMethod(ctx context.Context, userID uint, paymentMethodID string) error
@@ -221,17 +215,6 @@ func (sm *SubscriptionManagerDefault) UpdateSubscription(ctx context.Context, us
 	err := sm.billingService.ChangeSubscription(ctx, userID, planID)
 	if err != nil {
 		return fmt.Errorf("failed to change subscription: %w", err)
-	}
-
-	sm.InvalidateCache(userID)
-	return nil
-}
-
-// ConnectSubscription connects a payment method to a subscription
-func (sm *SubscriptionManagerDefault) ConnectSubscription(ctx context.Context, userID uint, paymentMethodID string) error {
-	err := sm.billingService.ConnectSubscription(ctx, userID, paymentMethodID)
-	if err != nil {
-		return fmt.Errorf("failed to connect subscription: %w", err)
 	}
 
 	sm.InvalidateCache(userID)

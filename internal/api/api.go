@@ -81,7 +81,6 @@ func (a *API) Configure(_ *mux.Router, accessSvc core.AccessService) error {
 		{mainRouter, "/api/account/subscription", "GET", a.getSubscription, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
 		{mainRouter, "/api/account/subscription/billing", "POST", a.updateBilling, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
 		{mainRouter, "/api/account/subscription/change", "POST", a.changeSubscription, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
-		{mainRouter, "/api/account/subscription/connect", "POST", a.connectSubscription, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
 		{mainRouter, "/api/account/subscription/request-payment-method-change", "POST", a.requestPaymentMethodChange, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
 		{mainRouter, "/api/account/subscription/update-payment-method", "POST", a.updatePaymentMethod, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
 		{mainRouter, "/api/account/subscription/cancel", "POST", a.cancelSubscription, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
@@ -230,33 +229,6 @@ func (a API) updateBilling(w http.ResponseWriter, r *http.Request) {
 		_ = ctx.Error(err, http.StatusInternalServerError)
 	}
 	return
-}
-
-func (a API) connectSubscription(w http.ResponseWriter, r *http.Request) {
-	ctx := httputil.Context(r, w)
-
-	user, err := middleware.GetUserFromContext(ctx)
-
-	if err != nil {
-		_ = ctx.Error(core.NewAccountError(core.ErrKeyInvalidLogin, nil), http.StatusUnauthorized)
-		return
-	}
-
-	var connectRequest messages.SubscriptionConnectRequest
-	if err := ctx.Decode(&connectRequest); err != nil {
-		_ = ctx.Error(err, http.StatusInternalServerError)
-		return
-	}
-
-	if connectRequest.PaymentMethodID == "" {
-		_ = ctx.Error(fmt.Errorf("payment_method_id is required"), http.StatusBadRequest)
-		return
-	}
-
-	if err := a.billingService.GetSubscriptionManager().ConnectSubscription(ctx, user, connectRequest.PaymentMethodID); err != nil {
-		_ = ctx.Error(err, http.StatusInternalServerError)
-		return
-	}
 }
 
 func (a API) updatePaymentMethod(w http.ResponseWriter, r *http.Request) {
