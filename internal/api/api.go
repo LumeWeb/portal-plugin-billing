@@ -2,7 +2,6 @@ package api
 
 import (
 	"encoding/json"
-	"go.lumeweb.com/portal-plugin-billing/internal/client/hyperswitch"
 	"errors"
 	"fmt"
 	"github.com/Boostport/address"
@@ -11,6 +10,7 @@ import (
 	"github.com/samber/lo"
 	"go.lumeweb.com/httputil"
 	"go.lumeweb.com/portal-plugin-billing/internal/api/messages"
+	"go.lumeweb.com/portal-plugin-billing/internal/client/hyperswitch"
 	"go.lumeweb.com/portal-plugin-billing/service"
 	"go.lumeweb.com/portal/config"
 	"go.lumeweb.com/portal/core"
@@ -333,7 +333,7 @@ func (a API) handlePaymentWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Forward the webhook to KillBill through the subscription manager
-	err := a.billingService.GetLifeCycle().HandleWebhook(ctx, event, r.Header.Get("Hyperswitch-Signature"))
+	err := a.billingService.GetLifeCycle().HandleWebhook(ctx, &event, r.Header.Get("Hyperswitch-Signature"))
 	if err != nil {
 		a.logger.Error("failed to process webhook", zap.Error(err))
 		http.Error(w, "Webhook processing failed", http.StatusInternalServerError)
