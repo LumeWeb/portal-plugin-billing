@@ -142,12 +142,7 @@ func (sm *SubscriptionManagerDefault) GetSubscription(ctx context.Context, userI
 				StartDate:  &sub.StartDate,
 			}
 
-			cfState, err := sm.billingService.getCustomField(ctx, sub.SubscriptionID, pendingCustomField)
-			if err != nil {
-				return nil, err
-			}
-
-			if sub.State == kbmodel.SubscriptionStatePENDING || (cfState != nil && *cfState.Value == "1") {
+			if sub.State == kbmodel.SubscriptionStatePENDING {
 				// Get the client secret
 				_paymentID, err := sm.billingService.getCustomField(ctx, sub.SubscriptionID, paymentIdCustomField)
 				if err != nil {

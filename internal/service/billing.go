@@ -22,7 +22,6 @@ import (
 	"go.lumeweb.com/portal/core"
 	"go.lumeweb.com/portal/db"
 	"go.lumeweb.com/portal/db/models"
-	"go.lumeweb.com/portal/event"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 	"io"
@@ -110,10 +109,6 @@ func NewBillingService() (core.Service, []core.ContextBuilderOption, error) {
 			if err != nil || info == nil || len(info) == 0 {
 				return fmt.Errorf("failed to connect to KillBill: %v", err)
 			}
-
-			event.Listen[*event.UserCreatedEvent](ctx, event.EVENT_USER_CREATED, func(evt *event.UserCreatedEvent) error {
-				return _service.CreateCustomer(ctx, evt.User())
-			})
 
 			return nil
 		}),
