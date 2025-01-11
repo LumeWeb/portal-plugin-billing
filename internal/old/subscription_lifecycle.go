@@ -1,4 +1,4 @@
-package service
+package old
 
 import (
 	"context"
@@ -59,8 +59,8 @@ type PaymentMethodResponse struct {
 
 type PlanChangeResponse struct {
 	ClientSecret string
-	PriceChange float64
-	Status      string
+	PriceChange  float64
+	Status       string
 }
 
 type PaymentIntent struct {
