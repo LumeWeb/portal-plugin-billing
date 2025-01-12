@@ -74,20 +74,20 @@ func (a *API) Configure(_ *mux.Router, accessSvc core.AccessService) error {
 		Access      string
 	}{
 		{mainRouter, "/api/account/subscription", "GET", a.getSubscription, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
-		/*		{mainRouter, "/api/account/subscription/billing", "POST", a.updateBilling, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
-				{mainRouter, "/api/account/subscription/change", "POST", a.changeSubscription, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
-				{mainRouter, "/api/account/subscription/request-payment-method-change", "POST", a.requestPaymentMethodChange, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
-				{mainRouter, "/api/account/subscription/update-payment-method", "POST", a.updatePaymentMethod, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
-				{mainRouter, "/api/account/subscription/cancel", "POST", a.cancelSubscription, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
-				{mainRouter, "/api/account/subscription/billing/countries", "GET", a.listBillingCountries, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
-				{mainRouter, "/api/account/subscription/billing/states", "GET", a.listBillingStates, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
-				{mainRouter, "/api/account/subscription/billing/cities", "GET", a.listBillingCities, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
-				{accountRouter, "/api/account/subscription/plans", "GET", a.getPlans, nil, ""},
-				{accountRouter, "/api/account/usage/current", "GET", a.getCurrentUsage, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
-				{accountRouter, "/api/account/usage/history/upload", "GET", a.getUploadUsageHistory, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
-				{accountRouter, "/api/account/usage/history/download", "GET", a.getDownloadUsageHistory, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
-				{accountRouter, "/api/account/usage/history/storage", "GET", a.getStorageUsageHistory, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
-				{mainRouter, "/api/account/webhook/payment", "POST", a.handlePaymentWebhook, nil, ""},*/
+		//{mainRouter, "/api/account/subscription/billing", "POST", a.updateBilling, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
+		//{mainRouter, "/api/account/subscription/change", "POST", a.changeSubscription, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
+		//{mainRouter, "/api/account/subscription/request-payment-method-change", "POST", a.requestPaymentMethodChange, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
+		//{mainRouter, "/api/account/subscription/update-payment-method", "POST", a.updatePaymentMethod, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
+		//{mainRouter, "/api/account/subscription/cancel", "POST", a.cancelSubscription, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
+		//{mainRouter, "/api/account/subscription/billing/countries", "GET", a.listBillingCountries, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
+		//{mainRouter, "/api/account/subscription/billing/states", "GET", a.listBillingStates, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
+		//{mainRouter, "/api/account/subscription/billing/cities", "GET", a.listBillingCities, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
+		{accountRouter, "/api/account/subscription/plans", "GET", a.getPlans, nil, ""},
+		//{accountRouter, "/api/account/usage/current", "GET", a.getCurrentUsage, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
+		//{accountRouter, "/api/account/usage/history/upload", "GET", a.getUploadUsageHistory, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
+		//{accountRouter, "/api/account/usage/history/download", "GET", a.getDownloadUsageHistory, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
+		//{accountRouter, "/api/account/usage/history/storage", "GET", a.getStorageUsageHistory, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
+		//{mainRouter, "/api/account/webhook/payment", "POST", a.handlePaymentWebhook, nil, ""},
 	}
 
 	// Register routes
