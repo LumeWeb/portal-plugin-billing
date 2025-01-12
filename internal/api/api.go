@@ -3,8 +3,6 @@ package api
 import (
 	"fmt"
 	"github.com/gorilla/mux"
-	"go.lumeweb.com/httputil"
-	"go.lumeweb.com/portal-plugin-billing/internal/api/messages"
 	"go.lumeweb.com/portal-plugin-billing/service"
 	"go.lumeweb.com/portal/config"
 	"go.lumeweb.com/portal/core"
