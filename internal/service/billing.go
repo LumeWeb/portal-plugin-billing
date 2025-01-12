@@ -442,7 +442,7 @@ func (b *BillingServiceDefault) GetUserMaxDownload(userID uint) (uint64, error) 
 	return b.getUsageByUserID(b.ctx, userID, DownloadUsage)
 }
 
-func (b *BillingServiceDefault) ChangeSubscription(ctx context.Context, userID uint, planID string) error {
+func (b *BillingServiceDefault) UpdateSubscription(ctx context.Context, userID uint, planID string) error {
 	if planID == b.cfg.FreePlanID {
 		return b.CancelSubscription(ctx, userID)
 	}
