@@ -1,23 +1,15 @@
 package api
 
 import (
-	"encoding/json"
-	"errors"
 	"fmt"
-	"github.com/Boostport/address"
 	"github.com/gorilla/mux"
-	"github.com/hashicorp/go-multierror"
-	"github.com/samber/lo"
 	"go.lumeweb.com/httputil"
 	"go.lumeweb.com/portal-plugin-billing/internal/api/messages"
-	"go.lumeweb.com/portal-plugin-billing/internal/client/hyperswitch"
 	"go.lumeweb.com/portal-plugin-billing/service"
 	"go.lumeweb.com/portal/config"
 	"go.lumeweb.com/portal/core"
 	"go.lumeweb.com/portal/middleware"
-	"go.uber.org/zap"
 	"net/http"
-	"sort"
 )
 
 var _ core.API = (*API)(nil)
@@ -82,20 +74,20 @@ func (a *API) Configure(_ *mux.Router, accessSvc core.AccessService) error {
 		Access      string
 	}{
 		{mainRouter, "/api/account/subscription", "GET", a.getSubscription, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
-		{mainRouter, "/api/account/subscription/billing", "POST", a.updateBilling, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
-		{mainRouter, "/api/account/subscription/change", "POST", a.changeSubscription, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
-		{mainRouter, "/api/account/subscription/request-payment-method-change", "POST", a.requestPaymentMethodChange, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
-		{mainRouter, "/api/account/subscription/update-payment-method", "POST", a.updatePaymentMethod, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
-		{mainRouter, "/api/account/subscription/cancel", "POST", a.cancelSubscription, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
-		{mainRouter, "/api/account/subscription/billing/countries", "GET", a.listBillingCountries, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
-		{mainRouter, "/api/account/subscription/billing/states", "GET", a.listBillingStates, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
-		{mainRouter, "/api/account/subscription/billing/cities", "GET", a.listBillingCities, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
-		{accountRouter, "/api/account/subscription/plans", "GET", a.getPlans, nil, ""},
-		{accountRouter, "/api/account/usage/current", "GET", a.getCurrentUsage, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
-		{accountRouter, "/api/account/usage/history/upload", "GET", a.getUploadUsageHistory, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
-		{accountRouter, "/api/account/usage/history/download", "GET", a.getDownloadUsageHistory, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
-		{accountRouter, "/api/account/usage/history/storage", "GET", a.getStorageUsageHistory, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
-		{mainRouter, "/api/account/webhook/payment", "POST", a.handlePaymentWebhook, nil, ""},
+		/*		{mainRouter, "/api/account/subscription/billing", "POST", a.updateBilling, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
+				{mainRouter, "/api/account/subscription/change", "POST", a.changeSubscription, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
+				{mainRouter, "/api/account/subscription/request-payment-method-change", "POST", a.requestPaymentMethodChange, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
+				{mainRouter, "/api/account/subscription/update-payment-method", "POST", a.updatePaymentMethod, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
+				{mainRouter, "/api/account/subscription/cancel", "POST", a.cancelSubscription, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
+				{mainRouter, "/api/account/subscription/billing/countries", "GET", a.listBillingCountries, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
+				{mainRouter, "/api/account/subscription/billing/states", "GET", a.listBillingStates, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
+				{mainRouter, "/api/account/subscription/billing/cities", "GET", a.listBillingCities, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
+				{accountRouter, "/api/account/subscription/plans", "GET", a.getPlans, nil, ""},
+				{accountRouter, "/api/account/usage/current", "GET", a.getCurrentUsage, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
+				{accountRouter, "/api/account/usage/history/upload", "GET", a.getUploadUsageHistory, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
+				{accountRouter, "/api/account/usage/history/download", "GET", a.getDownloadUsageHistory, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
+				{accountRouter, "/api/account/usage/history/storage", "GET", a.getStorageUsageHistory, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
+				{mainRouter, "/api/account/webhook/payment", "POST", a.handlePaymentWebhook, nil, ""},*/
 	}
 
 	// Register routes
@@ -122,7 +114,7 @@ func (a API) Config() config.APIConfig {
 func (a API) getPlans(w http.ResponseWriter, r *http.Request) {
 	ctx := httputil.Context(r, w)
 
-	plans, err := a.billingService.GetSubscriptionManager().GetPlans(ctx)
+	plans, err := a.billingService.GetPlans(ctx)
 
 	if err != nil {
 		_ = ctx.Error(err, http.StatusInternalServerError)
@@ -142,7 +134,7 @@ func (a API) getSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	subscription, err := a.billingService.GetSubscriptionManager().GetSubscription(ctx, user)
+	subscription, err := a.billingService.GetSubscription(ctx, user)
 
 	if err != nil {
 		_ = ctx.Error(err, http.StatusInternalServerError)
@@ -151,6 +143,9 @@ func (a API) getSubscription(w http.ResponseWriter, r *http.Request) {
 
 	ctx.Encode(subscription)
 }
+
+/*
+
 
 func (a API) changeSubscription(w http.ResponseWriter, r *http.Request) {
 	ctx := httputil.Context(r, w)
@@ -486,3 +481,4 @@ func (a API) listBillingCities(w http.ResponseWriter, r *http.Request) {
 
 	ctx.Encode(cities)
 }
+*/

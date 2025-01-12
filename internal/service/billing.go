@@ -10,12 +10,14 @@ import (
 	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
 	"github.com/killbill/kbcli/v3/kbclient"
+	"github.com/killbill/kbcli/v3/kbclient/account"
+	"github.com/killbill/kbcli/v3/kbclient/catalog"
 	"github.com/killbill/kbcli/v3/kbcommon"
 	"github.com/killbill/kbcli/v3/kbmodel"
+	"github.com/samber/lo"
 	"go.lumeweb.com/portal-plugin-billing/internal/api/messages"
 	"go.lumeweb.com/portal-plugin-billing/internal/config"
 	pluginDb "go.lumeweb.com/portal-plugin-billing/internal/db"
-	"go.lumeweb.com/portal-plugin-billing/internal/repository"
 	"go.lumeweb.com/portal/core"
 	"go.lumeweb.com/portal/db"
 	"go.lumeweb.com/portal/db/models"
@@ -26,6 +28,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type UsageType string
@@ -45,9 +48,6 @@ type BillingServiceDefault struct {
 	cfg    *config.BillingConfig
 	api    *kbclient.KillBill
 	user   core.UserService
-	//	subscriptionMgr  SubscriptionManager
-	//	subscriptionLife SubscriptionLifecycle
-	kbRepo *repository.KillBillRepository
 }
 
 func NewBillingService() (core.Service, []core.ContextBuilderOption, error) {
@@ -60,10 +60,6 @@ func NewBillingService() (core.Service, []core.ContextBuilderOption, error) {
 			_service.db = ctx.DB()
 			_service.user = core.GetService[core.UserService](ctx, core.USER_SERVICE)
 			_service.cfg = ctx.Config().GetService(BILLING_SERVICE).(*config.BillingConfig)
-
-			// Initialize subscription services after basic configuration
-			//	_service.subscriptionMgr = NewSubscriptionManager(_service, _service.logger.Named("subscription-manager"))
-			//	_service.subscriptionLife = NewSubscriptionLifecycle(_service, _service.logger.Named("subscription-lifecycle"))
 
 			if !_service.enabled() {
 				return nil
@@ -87,15 +83,6 @@ func NewBillingService() (core.Service, []core.ContextBuilderOption, error) {
 			})
 			_service.api = kbclient.New(trp, strfmt.Default, authWriter, kbclient.KillbillDefaults{})
 
-			// Initialize repository
-			_service.kbRepo = repository.NewKillBillRepository(_service.api)
-
-			// Test connection
-			info, err := _service.kbRepo.GetNodesInfo(ctx)
-			if err != nil || info == nil || len(info) == 0 {
-				return fmt.Errorf("failed to connect to KillBill: %v", err)
-			}
-
 			return nil
 		}),
 	), nil
@@ -116,7 +103,9 @@ func (b *BillingServiceDefault) CreateCustomer(ctx context.Context, user *models
 
 	externalKey := strconv.FormatUint(uint64(user.ID), 10)
 
-	result, err := b.kbRepo.GetAccountByUserId(ctx, user.ID)
+	result, err := b.api.Account.GetAccountByKey(ctx, &account.GetAccountByKeyParams{
+		ExternalKey: externalKey,
+	})
 
 	if err != nil || result == nil {
 		if kbErr, ok := err.(*kbcommon.KillbillError); ok {
@@ -130,11 +119,13 @@ func (b *BillingServiceDefault) CreateCustomer(ctx context.Context, user *models
 		return nil
 	}
 
-	_, err = b.kbRepo.CreateAccount(ctx, &kbmodel.Account{
-		ExternalKey: externalKey,
-		Name:        fmt.Sprintf("%s %s", user.FirstName, user.LastName),
-		Email:       user.Email,
-		Currency:    kbmodel.AccountCurrencyUSD,
+	_, err = b.api.Account.CreateAccount(ctx, &account.CreateAccountParams{
+		Body: &kbmodel.Account{
+			ExternalKey: externalKey,
+			Name:        fmt.Sprintf("%s %s", user.FirstName, user.LastName),
+			Email:       user.Email,
+			Currency:    kbmodel.AccountCurrencyUSD,
+		},
 	})
 
 	if err != nil {
@@ -167,7 +158,9 @@ func (b *BillingServiceDefault) UpdateBillingInfo(ctx context.Context, userID ui
 		return err
 	}
 
-	acct, err := b.kbRepo.GetAccountByUserId(ctx, userID)
+	acct, err := b.api.Account.GetAccountByKey(ctx, &account.GetAccountByKeyParams{
+		ExternalKey: strconv.FormatUint(uint64(userID), 10),
+	})
 
 	if err != nil {
 		return err
@@ -207,12 +200,15 @@ func (b *BillingServiceDefault) UpdateBillingInfo(ctx context.Context, userID ui
 		return nil
 	}
 
-	_, err = b.kbRepo.UpdateAccount(ctx, acct.Payload.AccountID, &kbmodel.Account{
-		Address1:   billingInfo.Address,
-		City:       billingInfo.City,
-		State:      billingInfo.State,
-		PostalCode: billingInfo.Zip,
-		Country:    billingInfo.Country,
+	_, err = b.api.Account.UpdateAccount(ctx, &account.UpdateAccountParams{
+		AccountID: acct.Payload.AccountID,
+		Body: &kbmodel.Account{
+			Address1:   billingInfo.Address,
+			City:       billingInfo.City,
+			State:      billingInfo.State,
+			PostalCode: billingInfo.Zip,
+			Country:    billingInfo.Country,
+		},
 	})
 
 	if err != nil {
@@ -231,7 +227,7 @@ func (b *BillingServiceDefault) GetPlans(ctx context.Context) ([]*messages.Subsc
 		return []*messages.SubscriptionPlan{b.getFreePlan()}, nil
 	}
 
-	plans, err := b.kbRepo.GetCatalog(ctx)
+	plans, err := b.api.Catalog.GetCatalogJSON(ctx, &catalog.GetCatalogJSONParams{})
 	if err != nil {
 		return nil, err
 	}
@@ -283,6 +279,126 @@ func (b *BillingServiceDefault) GetPlans(ctx context.Context) ([]*messages.Subsc
 	result = slices.Insert(result, 0, b.getFreePlan())
 
 	return result, nil
+}
+
+func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint) (*messages.SubscriptionResponse, error) {
+	if !b.enabled() {
+		return nil, nil
+	}
+
+	if !b.paidEnabled() {
+		freePlan := b.getFreePlan()
+		return &messages.SubscriptionResponse{
+			Plan:        freePlan,
+			BillingInfo: messages.BillingInfo{},
+			PaymentInfo: messages.PaymentInfo{},
+		}, nil
+	}
+
+	err := b.CreateCustomerById(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	acct, err := b.api.Account.GetAccountByKey(ctx, &account.GetAccountByKeyParams{
+		ExternalKey: strconv.FormatUint(uint64(userID), 10),
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	bundles, err := b.api.Account.GetAccountBundles(ctx, &account.GetAccountBundlesParams{
+		AccountID: acct.Payload.AccountID,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var subPlan *messages.SubscriptionPlan
+	var paymentID string
+	var clientSecret string
+	var paymentExpires time.Time
+	publishableKey := b.cfg.Hyperswitch.PublishableKey
+
+	sub := findActiveOrPendingSubscription(bundles.Payload)
+
+	if sub != nil {
+		plan, err := b.getPlanByIdentifier(ctx, *sub.PlanName)
+		if err != nil {
+			return nil, err
+		}
+
+		planName, err := b.getPlanNameById(ctx, *sub.PlanName)
+		if err != nil {
+			return nil, err
+		}
+
+		prices := lo.Filter(sub.Prices, func(price *kbmodel.PhasePrice, _ int) bool {
+			return kbmodel.SubscriptionPhaseTypeEnum(price.PhaseType) == sub.PhaseType
+		})
+
+		if len(prices) > 0 {
+			subPlan = &messages.SubscriptionPlan{
+				Name:       planName,
+				Price:      prices[0].RecurringPrice,
+				Status:     remoteSubscriptionStatusToLocal(sub.State),
+				Identifier: plan.Identifier,
+				Period:     remoteSubscriptionPhaseToLocal(kbmodel.SubscriptionPhaseTypeEnum(*sub.BillingPeriod)),
+				Storage:    plan.Storage,
+				Upload:     plan.Upload,
+				Download:   plan.Download,
+				StartDate:  &sub.StartDate,
+			}
+
+			/*			cfState, err := b.getCustomField(ctx, sub.SubscriptionID, pendingCustomField)
+						if err != nil {
+							return nil, err
+						}
+
+						if sub.State == kbmodel.SubscriptionStatePENDING || (cfState != nil && *cfState.Value == "1") {
+							// Get the client secret
+							_paymentID, err := b.getCustomField(ctx, sub.SubscriptionID, paymentIdCustomField)
+							if err != nil {
+								return nil, err
+							}
+
+							if _paymentID != nil {
+								_clientSecret, created, err := b.fetchClientSecret(ctx, *_paymentID.Value)
+								if err != nil {
+									return nil, err
+								}
+
+								paymentID = *_paymentID.Value
+								paymentExpires = created.Add(15 * time.Minute)
+								clientSecret = _clientSecret
+								subPlan.Status = messages.SubscriptionPlanStatusPending
+							}
+						}*/
+		}
+	}
+
+	if subPlan == nil {
+		subPlan = b.getFreePlan()
+	}
+
+	return &messages.SubscriptionResponse{
+		Plan: subPlan,
+		BillingInfo: messages.BillingInfo{
+			Name:    acct.Payload.Name,
+			Address: acct.Payload.Address1,
+			City:    acct.Payload.City,
+			State:   acct.Payload.State,
+			Zip:     acct.Payload.PostalCode,
+			Country: acct.Payload.Country,
+		},
+		PaymentInfo: messages.PaymentInfo{
+			PaymentID:      paymentID,
+			PaymentExpires: paymentExpires,
+			ClientSecret:   clientSecret,
+			PublishableKey: publishableKey,
+		},
+	}, nil
 }
 
 func (b *BillingServiceDefault) GetUserMaxStorage(userID uint) (uint64, error) {
@@ -411,12 +527,16 @@ func (b *BillingServiceDefault) getUsageByUserID(ctx context.Context, userID uin
 		return b.getFreeUsage(usageType), nil
 	}
 
-	acct, err := b.kbRepo.GetAccountByUserId(ctx, userID)
+	acct, err := b.api.Account.GetAccountByKey(ctx, &account.GetAccountByKeyParams{
+		ExternalKey: strconv.FormatUint(uint64(userID), 10),
+	})
 	if err != nil {
 		return 0, err
 	}
 
-	bundles, err := b.kbRepo.GetBundlesByAccountId(ctx, acct.Payload.AccountID)
+	bundles, err := b.api.Account.GetAccountBundles(ctx, &account.GetAccountBundlesParams{
+		AccountID: acct.Payload.AccountID,
+	})
 	if err != nil {
 		return 0, err
 	}
@@ -489,7 +609,7 @@ func (b *BillingServiceDefault) getFreePlan() *messages.SubscriptionPlan {
 }
 
 func (b *BillingServiceDefault) getPlanNameById(ctx context.Context, id string) (string, error) {
-	plans, err := b.kbRepo.GetCatalog(ctx)
+	plans, err := b.api.Catalog.GetCatalogJSON(ctx, &catalog.GetCatalogJSONParams{})
 
 	if err != nil {
 		return "", err
@@ -509,7 +629,8 @@ func (b *BillingServiceDefault) getPlanNameById(ctx context.Context, id string) 
 }
 
 func (b *BillingServiceDefault) getPlanPriceById(ctx context.Context, id string, kind string, currency string) (float64, error) {
-	plans, err := b.kbRepo.GetCatalog(ctx)
+	plans, err := b.api.Catalog.GetCatalogJSON(ctx, &catalog.GetCatalogJSONParams{})
+
 	if err != nil {
 		return 0, err
 	}
@@ -535,7 +656,7 @@ func (b *BillingServiceDefault) getPlanPriceById(ctx context.Context, id string,
 }
 
 func (b *BillingServiceDefault) getBasePlanByID(ctx context.Context, planId string) (*kbmodel.PlanDetail, error) {
-	plans, err := b.kbRepo.GetAvailablePlans(ctx)
+	plans, err := b.api.Catalog.GetAvailableBasePlans(ctx, &catalog.GetAvailableBasePlansParams{})
 
 	if err != nil {
 		return nil, err
@@ -595,6 +716,26 @@ func remoteBillingPeriodToLocal(period kbmodel.PlanDetailFinalPhaseBillingPeriod
 		return messages.SubscriptionPlanPeriodMonth
 	case kbmodel.PlanDetailFinalPhaseBillingPeriodANNUAL:
 		return messages.SubscriptionPlanPeriodYear
+	default:
+		return messages.SubscriptionPlanPeriodMonth
+	}
+}
+func remoteSubscriptionStatusToLocal(status kbmodel.SubscriptionStateEnum) messages.SubscriptionPlanStatus {
+	switch status {
+	case kbmodel.SubscriptionStateACTIVE:
+		return messages.SubscriptionPlanStatusActive
+	case kbmodel.SubscriptionStatePENDING:
+		return messages.SubscriptionPlanStatusPending
+	default:
+		return messages.SubscriptionPlanStatusPending
+	}
+}
+func remoteSubscriptionPhaseToLocal(phase kbmodel.SubscriptionPhaseTypeEnum) messages.SubscriptionPlanPeriod {
+	switch phase {
+	case kbmodel.SubscriptionPhaseTypeEVERGREEN:
+		return messages.SubscriptionPlanPeriodMonth
+	case kbmodel.SubscriptionPhaseTypeTRIAL:
+		return messages.SubscriptionPlanPeriodMonth
 	default:
 		return messages.SubscriptionPlanPeriodMonth
 	}
