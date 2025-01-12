@@ -40,16 +40,18 @@ func (b *BillingServiceDefault) handleNewSubscription(ctx context.Context, accou
 		return fmt.Errorf("failed to fetch subscription details: %w", err)
 	}
 
-	// Create new payment
-	_, err = b.createNewPayment(ctx, accountID, sub.Payload, false)
-	if err != nil {
-		return fmt.Errorf("failed to create new payment: %w", err)
-	}
+	_ = sub
 
+	// Create new payment
+	/*	_, err = b.createNewPayment(ctx, accountID, sub.Payload, false)
+		if err != nil {
+			return fmt.Errorf("failed to create new payment: %w", err)
+		}
+	*/
 	return nil
 }
 
-func (b *BillingServiceDefault) createNewPayment(ctx context.Context, accountID strfmt.UUID, sub *kbmodel.Subscription, zeroAuth bool) (string, error) {
+/*func (b *BillingServiceDefault) createNewPayment(ctx context.Context, accountID strfmt.UUID, sub *kbmodel.Subscription, zeroAuth bool) (string, error) {
 	url := fmt.Sprintf("%s/payments", b.cfg.Hyperswitch.APIServer)
 
 	planName, err := b.getPlanNameById(ctx, *sub.PlanName)
@@ -173,4 +175,4 @@ func (b *BillingServiceDefault) cancelPayment(ctx context.Context, paymentID str
 	}
 
 	return nil
-}
+}*/
