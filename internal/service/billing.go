@@ -319,7 +319,6 @@ func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint
 	var paymentID string
 	var clientSecret string
 	var paymentExpires time.Time
-	publishableKey := b.cfg.Hyperswitch.PublishableKey
 
 	sub := findActiveOrPendingSubscription(bundles.Payload)
 
@@ -396,7 +395,7 @@ func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint
 			PaymentID:      paymentID,
 			PaymentExpires: paymentExpires,
 			ClientSecret:   clientSecret,
-			PublishableKey: publishableKey,
+			//	PublishableKey: publishableKey,
 		},
 	}, nil
 }
