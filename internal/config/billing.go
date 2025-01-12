@@ -15,6 +15,7 @@ type BillingConfig struct {
 	PaidPlansEnabled bool              `config:"paid_plans_enabled"`
 	KillBill         KillBillConfig    `config:"kill_bill"`
 	Hyperswitch      HyperswitchConfig `config:"hyperswitch"`
+	FreePlanEnabled  bool              `config:"free_plan_enabled"`
 	FreePlanName     string            `config:"free_plan_name"`
 	FreePlanID       string            `config:"free_plan_id"`
 	FreeStorage      uint64            `config:"free_storage"`
@@ -33,6 +34,7 @@ func (c BillingConfig) Defaults() map[string]any {
 	return map[string]any{
 		"enabled":            false,
 		"paid_plans_enabled": false,
+		"free_plan_enabled":  false,
 		"free_plan_name":     freePlanName,
 		"free_plan_id":       slugify(freePlanName),
 		"free_storage":       0,

@@ -420,6 +420,10 @@ func (b *BillingServiceDefault) paidEnabled() bool {
 	return b.cfg.PaidPlansEnabled
 }
 
+func (b *BillingServiceDefault) freeEnabled() bool {
+	return b.cfg.FreePlanEnabled
+}
+
 func (b *BillingServiceDefault) normalizeBillingInfo(billingInfo *messages.BillingInfo) error {
 	if billingInfo == nil {
 		return fmt.Errorf("billing info is required")
@@ -594,6 +598,10 @@ func (b *BillingServiceDefault) getPlanUsage(plan *pluginDb.Plan, usageType Usag
 	}
 }
 func (b *BillingServiceDefault) getFreePlan() *messages.SubscriptionPlan {
+	if !b.enabled() || !b.freeEnabled() {
+		return nil
+	}
+
 	return &messages.SubscriptionPlan{
 		Name:       b.cfg.FreePlanName,
 		Identifier: b.cfg.FreePlanID,
