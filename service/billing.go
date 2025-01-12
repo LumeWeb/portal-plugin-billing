@@ -15,7 +15,7 @@ type BillingService interface {
 
 	// Core subscription operations
 	GetSubscription(ctx context.Context, userID uint) (*messages.SubscriptionResponse, error)
-	//UpdateSubscription(ctx context.Context, userID uint, planID string) error
+	UpdateSubscription(ctx context.Context, userID uint, planID string) error
 	//CancelSubscription(ctx context.Context, userID uint, req *messages.CancellationRequest) error
 
 	// Plan management

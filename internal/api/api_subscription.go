@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"go.lumeweb.com/httputil"
 	"go.lumeweb.com/portal-plugin-billing/internal/api/messages"
 	"go.lumeweb.com/portal/core"
@@ -39,4 +40,31 @@ func (a API) getPlans(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx.Encode(&messages.SubscriptionPlansResponse{Plans: plans})
+}
+
+func (a API) changeSubscription(w http.ResponseWriter, r *http.Request) {
+	ctx := httputil.Context(r, w)
+
+	user, err := middleware.GetUserFromContext(ctx)
+
+	if err != nil {
+		_ = ctx.Error(core.NewAccountError(core.ErrKeyInvalidLogin, nil), http.StatusUnauthorized)
+		return
+	}
+
+	var changeRequest messages.SubscriptionChangeRequest
+	if err := ctx.Decode(&changeRequest); err != nil {
+		_ = ctx.Error(err, http.StatusInternalServerError)
+		return
+	}
+
+	if changeRequest.Plan == "" {
+		_ = ctx.Error(fmt.Errorf("plan is required"), http.StatusBadRequest)
+		return
+	}
+
+	if err := a.billingService.UpdateSubscription(ctx, user, changeRequest.Plan); err != nil {
+		_ = ctx.Error(err, http.StatusInternalServerError)
+		return
+	}
 }

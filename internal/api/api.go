@@ -73,7 +73,7 @@ func (a *API) Configure(_ *mux.Router, accessSvc core.AccessService) error {
 	}{
 		{mainRouter, "/api/account/subscription", "GET", a.getSubscription, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
 		//{mainRouter, "/api/account/subscription/billing", "POST", a.updateBilling, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
-		//{mainRouter, "/api/account/subscription/change", "POST", a.changeSubscription, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
+		{mainRouter, "/api/account/subscription/plan", "PUT", a.changeSubscription, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
 		//{mainRouter, "/api/account/subscription/request-payment-method-change", "POST", a.requestPaymentMethodChange, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
 		//{mainRouter, "/api/account/subscription/update-payment-method", "POST", a.updatePaymentMethod, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
 		//{mainRouter, "/api/account/subscription/cancel", "POST", a.cancelSubscription, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
@@ -112,32 +112,7 @@ func (a API) Config() config.APIConfig {
 /*
 
 
-func (a API) changeSubscription(w http.ResponseWriter, r *http.Request) {
-	ctx := httputil.Context(r, w)
 
-	user, err := middleware.GetUserFromContext(ctx)
-
-	if err != nil {
-		_ = ctx.Error(core.NewAccountError(core.ErrKeyInvalidLogin, nil), http.StatusUnauthorized)
-		return
-	}
-
-	var changeRequest messages.SubscriptionChangeRequest
-	if err := ctx.Decode(&changeRequest); err != nil {
-		_ = ctx.Error(err, http.StatusInternalServerError)
-		return
-	}
-
-	if changeRequest.Plan == "" {
-		_ = ctx.Error(fmt.Errorf("plan is required"), http.StatusBadRequest)
-		return
-	}
-
-	if err := a.billingService.GetSubscriptionManager().UpdateSubscription(ctx, user, changeRequest.Plan); err != nil {
-		_ = ctx.Error(err, http.StatusInternalServerError)
-		return
-	}
-}
 
 func (a API) updateBilling(w http.ResponseWriter, r *http.Request) {
 	ctx := httputil.Context(r, w)
