@@ -29,7 +29,7 @@ func init() {
 					builder.AddFeatureFlag("paid_billing", true)
 				}
 
-				if billingConfig.FreeStorage > 0 || billingConfig.FreeDownload > 0 || billingConfig.FreeUpload > 0 {
+				if billingConfig.FreePlanEnabled {
 					builder.AddFeatureFlag("free_plan", true)
 					builder.AddPluginMeta(pluginName, "free_plan_name", billingConfig.FreePlanName)
 				}
