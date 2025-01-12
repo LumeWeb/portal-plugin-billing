@@ -276,7 +276,11 @@ func (b *BillingServiceDefault) GetPlans(ctx context.Context) ([]*messages.Subsc
 		})
 	}
 
-	result = slices.Insert(result, 0, b.getFreePlan())
+	freePlan := b.getFreePlan()
+
+	if freePlan != nil {
+		result = slices.Insert(result, 0, freePlan)
+	}
 
 	return result, nil
 }
