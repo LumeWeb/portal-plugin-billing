@@ -42,6 +42,32 @@ func (a API) getPlans(w http.ResponseWriter, r *http.Request) {
 	ctx.Encode(&messages.SubscriptionPlansResponse{Plans: plans})
 }
 
+func (a API) createSubscription(w http.ResponseWriter, r *http.Request) {
+	ctx := httputil.Context(r, w)
+
+	user, err := middleware.GetUserFromContext(ctx)
+
+	if err != nil {
+		_ = ctx.Error(core.NewAccountError(core.ErrKeyInvalidLogin, nil), http.StatusUnauthorized)
+		return
+	}
+
+	var createRequest messages.SubscriptionCreateRequest
+	if err := ctx.Decode(&createRequest); err != nil {
+		_ = ctx.Error(err, http.StatusInternalServerError)
+	}
+
+	if createRequest.Plan == "" {
+		_ = ctx.Error(fmt.Errorf("plan is required"), http.StatusBadRequest)
+		return
+	}
+
+	if err := a.billingService.CreateSubscription(ctx, user, createRequest.Plan); err != nil {
+		_ = ctx.Error(err, http.StatusInternalServerError)
+		return
+	}
+}
+
 func (a API) changeSubscription(w http.ResponseWriter, r *http.Request) {
 	ctx := httputil.Context(r, w)
 

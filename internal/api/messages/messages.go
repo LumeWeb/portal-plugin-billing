@@ -61,6 +61,10 @@ type PaymentInfo struct {
 	PublishableKey string    `json:"publishable_key,omitempty"`
 }
 
+type SubscriptionCreateRequest struct {
+	Plan string `json:"plan"`
+}
+
 type SubscriptionChangeRequest struct {
 	Plan string `json:"plan"`
 }
@@ -86,12 +90,12 @@ type UpdatePaymentMethodRequest struct {
 }
 
 type CancellationRequest struct {
-	Reason string `json:"reason"`
-	EndOfTerm bool `json:"end_of_term"`
+	Reason    string `json:"reason"`
+	EndOfTerm bool   `json:"end_of_term"`
 }
 
 type CancellationResponse struct {
-	Status string `json:"status"`
+	Status        string    `json:"status"`
 	EffectiveDate time.Time `json:"effective_date"`
 }
 

@@ -398,6 +398,38 @@ func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint
 	}, nil
 }
 
+func (b *BillingServiceDefault) CreateSubscription(ctx context.Context, userID uint, planID string) error {
+	if !b.enabled() || !b.paidEnabled() {
+		return nil
+	}
+
+	err := b.CreateCustomerById(ctx, userID)
+	if err != nil {
+		return err
+	}
+
+	acct, err := b.api.Account.GetAccountByKey(ctx, &account.GetAccountByKeyParams{
+		ExternalKey: strconv.FormatUint(uint64(userID), 10),
+	})
+	if err != nil {
+		return err
+	}
+
+	bundles, err := b.api.Account.GetAccountBundles(ctx, &account.GetAccountBundlesParams{
+		AccountID: acct.Payload.AccountID,
+	})
+	if err != nil {
+		return err
+	}
+
+	sub := findActiveOrPendingSubscription(bundles.Payload)
+	if sub == nil {
+		return b.handleNewSubscription(ctx, acct.Payload.AccountID, planID)
+	}
+
+	return fmt.Errorf("subscription already exists")
+}
+
 func (b *BillingServiceDefault) GetUserMaxStorage(userID uint) (uint64, error) {
 	return b.getUsageByUserID(b.ctx, userID, StorageUsage)
 }
