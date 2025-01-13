@@ -10,7 +10,7 @@ import (
 func findActiveOrPendingSubscription(bundles []*kbmodel.Bundle) *kbmodel.Subscription {
 	for _, bundle := range bundles {
 		for _, sub := range bundle.Subscriptions {
-			if sub.State == kbmodel.SubscriptionStateACTIVE || sub.State == kbmodel.SubscriptionStatePENDING {
+			if sub.State == kbmodel.SubscriptionStateACTIVE || sub.State == kbmodel.SubscriptionStatePENDING || sub.State == kbmodel.SubscriptionStateBLOCKED {
 				return sub
 			}
 		}
