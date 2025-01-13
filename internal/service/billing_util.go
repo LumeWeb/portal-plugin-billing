@@ -44,7 +44,7 @@ func remoteSubscriptionStatusToLocal(status kbmodel.SubscriptionStateEnum) messa
 	switch status {
 	case kbmodel.SubscriptionStateACTIVE:
 		return messages.SubscriptionPlanStatusActive
-	case kbmodel.SubscriptionStatePENDING:
+	case kbmodel.SubscriptionStatePENDING, kbmodel.SubscriptionStateBLOCKED:
 		return messages.SubscriptionPlanStatusPending
 	default:
 		return messages.SubscriptionPlanStatusPending
