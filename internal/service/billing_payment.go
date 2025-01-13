@@ -14,6 +14,7 @@ func (b *BillingServiceDefault) handleNewSubscription(ctx context.Context, accou
 		Body: &kbmodel.Subscription{
 			AccountID: accountID,
 			PlanName:  &planId,
+			State:     kbmodel.SubscriptionStatePENDING,
 		},
 	})
 
