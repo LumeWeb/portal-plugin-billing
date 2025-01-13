@@ -34,14 +34,19 @@ func (b *BillingServiceDefault) handleNewSubscription(ctx context.Context, accou
 	}
 
 	// Fetch the subscription details
-	sub, err := b.api.Subscription.GetSubscription(ctx, &subscription.GetSubscriptionParams{
+	_, err = b.api.Subscription.GetSubscription(ctx, &subscription.GetSubscriptionParams{
 		SubscriptionID: strfmt.UUID(subID),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to fetch subscription details: %w", err)
 	}
 
-	_ = sub
+	err = b.setUserPaymentMethod(ctx, accountID)
+	if err != nil {
+		return err
+	}
+
+	// Create a new payment method
 
 	// Create new payment
 	/*	_, err = b.createNewPayment(ctx, accountID, sub.Payload, false)
@@ -179,7 +184,7 @@ func (b *BillingServiceDefault) handleNewSubscription(ctx context.Context, accou
 		return nil
 	}
 */
-func (b *BillingServiceDefault) setUserPaymentMethod(ctx context.Context, acctID strfmt.UUID, paymentMethodID string) error {
+func (b *BillingServiceDefault) setUserPaymentMethod(ctx context.Context, acctID strfmt.UUID) error {
 	def := true
 	_, err := b.api.Account.CreatePaymentMethod(ctx, &account.CreatePaymentMethodParams{
 		AccountID: acctID,
