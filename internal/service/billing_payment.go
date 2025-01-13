@@ -8,6 +8,7 @@ import (
 	"github.com/killbill/kbcli/v3/kbclient/payment_method"
 	"github.com/killbill/kbcli/v3/kbclient/subscription"
 	"github.com/killbill/kbcli/v3/kbmodel"
+	"github.com/samber/lo"
 	"time"
 )
 
@@ -92,7 +93,6 @@ func (b *BillingServiceDefault) authorizePayment(ctx context.Context, accountID 
 }
 
 func (b *BillingServiceDefault) setUserPaymentMethod(ctx context.Context, acctID strfmt.UUID) error {
-	def := true
 	_, err := b.api.Account.CreatePaymentMethod(ctx, &account.CreatePaymentMethodParams{
 		AccountID: acctID,
 		Body: &kbmodel.PaymentMethod{
@@ -102,7 +102,7 @@ func (b *BillingServiceDefault) setUserPaymentMethod(ctx context.Context, acctID
 			},
 			IsDefault: true,
 		},
-		IsDefault: &def,
+		IsDefault: lo.ToPtr(true),
 	})
 	if err != nil {
 		return err
