@@ -41,6 +41,11 @@ func (b *BillingServiceDefault) handleNewSubscription(ctx context.Context, accou
 		return fmt.Errorf("failed to fetch subscription details: %w", err)
 	}
 
+	err = b.setAutoPay(ctx, accountID, false)
+	if err != nil {
+		return err
+	}
+
 	err = b.setUserPaymentMethod(ctx, accountID)
 	if err != nil {
 		return err
