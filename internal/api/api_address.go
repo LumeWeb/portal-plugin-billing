@@ -1,10 +1,14 @@
 package api
 
 import (
+	"errors"
 	"github.com/Boostport/address"
+	"github.com/hashicorp/go-multierror"
 	"github.com/samber/lo"
 	"go.lumeweb.com/httputil"
 	"go.lumeweb.com/portal-plugin-billing/internal/api/messages"
+	"go.lumeweb.com/portal/core"
+	"go.lumeweb.com/portal/middleware"
 	"net/http"
 	"sort"
 )
@@ -105,4 +109,59 @@ func (a API) listBillingCities(w http.ResponseWriter, r *http.Request) {
 	})
 
 	ctx.Encode(cities)
+}
+
+func (a API) updateBilling(w http.ResponseWriter, r *http.Request) {
+	ctx := httputil.Context(r, w)
+
+	user, err := middleware.GetUserFromContext(ctx)
+
+	if err != nil {
+		_ = ctx.Error(core.NewAccountError(core.ErrKeyInvalidLogin, nil), http.StatusUnauthorized)
+		return
+	}
+
+	var billingInfo messages.BillingInfo
+	if err := ctx.Decode(&billingInfo); err != nil {
+		_ = ctx.Error(err, http.StatusInternalServerError)
+		return
+	}
+
+	if err := a.billingService.UpdateBillingInfo(ctx, user, &billingInfo); err != nil {
+		errs :=
+			make([]*messages.UpdateBillingInfoResponseErrorItem, 0)
+		if merr, ok := errors.Unwrap(err).(*multierror.Error); ok {
+			for _, subErr := range merr.Errors {
+				switch {
+				case errors.Is(subErr, address.ErrInvalidCountryCode):
+					errs = append(errs, &messages.UpdateBillingInfoResponseErrorItem{
+						Field:   "country",
+						Message: subErr.Error(),
+					})
+				case errors.Is(subErr, address.ErrInvalidAdministrativeArea):
+					errs = append(errs, &messages.UpdateBillingInfoResponseErrorItem{
+						Field:   "state",
+						Message: subErr.Error(),
+					})
+				case errors.Is(subErr, address.ErrInvalidLocality):
+					errs = append(errs, &messages.UpdateBillingInfoResponseErrorItem{
+						Field:   "city",
+						Message: subErr.Error(),
+					})
+				case errors.Is(subErr, address.ErrInvalidPostCode):
+					errs = append(errs, &messages.UpdateBillingInfoResponseErrorItem{
+						Field:   "zip",
+						Message: subErr.Error(),
+					})
+				}
+			}
+
+			ctx.Response.WriteHeader(http.StatusBadRequest)
+			ctx.Encode(&messages.UpdateBillingInfoResponseError{Errors: errs})
+			return
+		}
+
+		_ = ctx.Error(err, http.StatusInternalServerError)
+	}
+	return
 }

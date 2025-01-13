@@ -24,7 +24,7 @@ type BillingService interface {
 
 	// Customer management
 	//CreateCustomer(ctx context.Context, user *models.User) error
-	//UpdateBillingInfo(ctx context.Context, userID uint, info *messages.BillingInfo) error
+	UpdateBillingInfo(ctx context.Context, userID uint, info *messages.BillingInfo) error
 
 	// Usage limits
 	//GetUserMaxStorage(userID uint) (uint64, error)
