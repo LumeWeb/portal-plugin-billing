@@ -40,13 +40,15 @@ func (b *BillingServiceDefault) setAutoPay(ctx context.Context, accountID strfmt
 		}
 	}
 
-	_, err = b.api.Account.CreateAccountTags(ctx, &account.CreateAccountTagsParams{
-		AccountID: accountID,
-		Body:      []strfmt.UUID{tagDefId},
-	})
+	if tagDefId == "" {
+		_, err = b.api.Account.CreateAccountTags(ctx, &account.CreateAccountTagsParams{
+			AccountID: accountID,
+			Body:      []strfmt.UUID{tagDefId},
+		})
 
-	if err != nil {
-		return err
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
