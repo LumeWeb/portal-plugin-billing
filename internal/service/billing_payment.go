@@ -10,7 +10,6 @@ import (
 	"github.com/killbill/kbcli/v3/kbclient/subscription"
 	"github.com/killbill/kbcli/v3/kbmodel"
 	"github.com/samber/lo"
-	"time"
 )
 
 const paymentMethodPluginName = "hyperswitch-plugin"
@@ -87,7 +86,6 @@ func (b *BillingServiceDefault) authorizePayment(ctx context.Context, accountID 
 		Body: &kbmodel.PaymentTransaction{
 			Amount:          latestInvoice.Balance,
 			Currency:        kbmodel.PaymentTransactionCurrencyEnum(latestInvoice.Currency),
-			EffectiveDate:   strfmt.DateTime(time.Now().UTC()),
 			Status:          kbmodel.PaymentTransactionStatusPENDING,
 			TransactionType: kbmodel.PaymentTransactionTransactionTypeAUTHORIZE,
 		},
