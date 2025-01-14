@@ -7,7 +7,6 @@ import (
 	"github.com/killbill/kbcli/v3/kbclient/account"
 	"github.com/killbill/kbcli/v3/kbclient/invoice"
 	"github.com/killbill/kbcli/v3/kbclient/payment_method"
-	"github.com/killbill/kbcli/v3/kbclient/payment_transaction"
 	"github.com/killbill/kbcli/v3/kbclient/subscription"
 	"github.com/killbill/kbcli/v3/kbmodel"
 	"github.com/samber/lo"
@@ -91,20 +90,12 @@ func (b *BillingServiceDefault) authorizePayment(ctx context.Context, accountID 
 			TransactionType: kbmodel.PaymentTransactionTransactionTypeAUTHORIZE,
 		},
 		ProcessLocationHeader: true,
+		PluginProperty:        []string{"client_secret", "payment_id"},
 	})
 	if err != nil {
 		return err
 	}
-
-	paymentResp, err := b.api.PaymentTransaction.GetPaymentByTransactionID(ctx, &payment_transaction.GetPaymentByTransactionIDParams{
-		TransactionID: resp.Payload.Transactions[0].TransactionID,
-	})
-
-	if err != nil {
-		return err
-	}
-
-	_ = paymentResp
+	_ = resp
 
 	return nil
 }
