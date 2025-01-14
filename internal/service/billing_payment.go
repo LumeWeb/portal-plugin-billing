@@ -90,7 +90,6 @@ func (b *BillingServiceDefault) authorizePayment(ctx context.Context, accountID 
 			EffectiveDate:   strfmt.DateTime(time.Now().UTC()),
 			Status:          kbmodel.PaymentTransactionStatusPENDING,
 			TransactionType: kbmodel.PaymentTransactionTransactionTypeAUTHORIZE,
-			AuditLogs:       make([]*kbmodel.AuditLog, 0),
 		},
 	})
 	if err != nil {
