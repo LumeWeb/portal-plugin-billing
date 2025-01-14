@@ -81,7 +81,7 @@ func (b *BillingServiceDefault) authorizePayment(ctx context.Context, accountID 
 
 	latestInvoice := invoiceResp.Payload
 
-	_, err = b.api.Account.ProcessPayment(ctx, &account.ProcessPaymentParams{
+	resp, err := b.api.Account.ProcessPayment(ctx, &account.ProcessPaymentParams{
 		AccountID: accountID,
 		Body: &kbmodel.PaymentTransaction{
 			Amount:          latestInvoice.Balance,
@@ -93,6 +93,8 @@ func (b *BillingServiceDefault) authorizePayment(ctx context.Context, accountID 
 	if err != nil {
 		return err
 	}
+
+	_ = resp
 
 	return nil
 }
