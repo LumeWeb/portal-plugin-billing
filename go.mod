@@ -7,7 +7,6 @@ toolchain go1.23.1
 require (
 	github.com/Boostport/address v0.11.2
 	github.com/avast/retry-go v3.0.0+incompatible
-	github.com/cenkalti/backoff/v4 v4.3.0
 	github.com/go-openapi/runtime v0.28.0
 	github.com/go-openapi/strfmt v0.23.0
 	github.com/gorilla/mux v1.8.1
