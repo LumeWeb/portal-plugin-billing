@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/go-openapi/strfmt"
 	"github.com/killbill/kbcli/v3/kbclient/account"
+	"github.com/killbill/kbcli/v3/kbclient/invoice"
 	"github.com/killbill/kbcli/v3/kbclient/payment_method"
 	"github.com/killbill/kbcli/v3/kbclient/subscription"
 	"github.com/killbill/kbcli/v3/kbmodel"
@@ -62,17 +63,24 @@ func (b *BillingServiceDefault) handleNewSubscription(ctx context.Context, accou
 }
 
 func (b *BillingServiceDefault) authorizePayment(ctx context.Context, accountID strfmt.UUID) error {
-	invoiceResp, err := b.api.Account.GetInvoicesForAccount(ctx, &account.GetInvoicesForAccountParams{AccountID: accountID})
+	acctInvoiceResp, err := b.api.Account.GetInvoicesForAccount(ctx, &account.GetInvoicesForAccountParams{AccountID: accountID})
 	if err != nil {
 		return err
 	}
 
-	if len(invoiceResp.Payload) == 0 {
+	if len(acctInvoiceResp.Payload) == 0 {
 		return fmt.Errorf("no invoices found for account")
 	}
 
-	// Assuming the latest invoice is the one to be authorized
-	latestInvoice := invoiceResp.Payload[0]
+	invoiceResp, err := b.api.Invoice.GetInvoice(ctx, &invoice.GetInvoiceParams{
+		InvoiceID: acctInvoiceResp.Payload[0].InvoiceID,
+	})
+
+	if err != nil {
+		return err
+	}
+
+	latestInvoice := invoiceResp.Payload
 
 	_, err = b.api.Account.ProcessPayment(ctx, &account.ProcessPaymentParams{
 		AccountID: accountID,
