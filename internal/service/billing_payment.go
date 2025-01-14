@@ -89,8 +89,8 @@ func (b *BillingServiceDefault) authorizePayment(ctx context.Context, accountID 
 			Status:          kbmodel.PaymentTransactionStatusPENDING,
 			TransactionType: kbmodel.PaymentTransactionTransactionTypeAUTHORIZE,
 		},
-		ProcessLocationHeader: true,
-		PluginProperty:        []string{"client_secret", "payment_id"},
+		//	ProcessLocationHeader: true,
+		PluginProperty: []string{"client_secret", "payment_id"},
 	})
 	if err != nil {
 		return err
