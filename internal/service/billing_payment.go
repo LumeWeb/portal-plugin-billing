@@ -6,6 +6,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/killbill/kbcli/v3/kbclient/account"
 	"github.com/killbill/kbcli/v3/kbclient/invoice"
+	"github.com/killbill/kbcli/v3/kbclient/payment"
 	"github.com/killbill/kbcli/v3/kbclient/payment_method"
 	"github.com/killbill/kbcli/v3/kbclient/subscription"
 	"github.com/killbill/kbcli/v3/kbmodel"
@@ -89,13 +90,21 @@ func (b *BillingServiceDefault) authorizePayment(ctx context.Context, accountID 
 			Status:          kbmodel.PaymentTransactionStatusPENDING,
 			TransactionType: kbmodel.PaymentTransactionTransactionTypeAUTHORIZE,
 		},
-		//	ProcessLocationHeader: true,
-		PluginProperty: []string{"client_secret", "payment_id"},
 	})
 	if err != nil {
 		return err
 	}
-	_ = resp
+
+	paymentResp, err := b.api.Payment.GetPayment(ctx, &payment.GetPaymentParams{
+		PaymentID:      resp.Payload.PaymentID,
+		WithPluginInfo: lo.ToPtr(true),
+	})
+
+	if err != nil {
+		return err
+	}
+
+	_ = paymentResp
 
 	return nil
 }
