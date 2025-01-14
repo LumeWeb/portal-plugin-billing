@@ -89,6 +89,7 @@ func (b *BillingServiceDefault) authorizePayment(ctx context.Context, accountID 
 			Status:          kbmodel.PaymentTransactionStatusPENDING,
 			TransactionType: kbmodel.PaymentTransactionTransactionTypeAUTHORIZE,
 		},
+		ProcessLocationHeader: true,
 	})
 	if err != nil {
 		return err
