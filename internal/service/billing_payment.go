@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"github.com/cenkalti/backoff/v4"
 	"github.com/go-openapi/strfmt"
 	"github.com/killbill/kbcli/v3/kbclient/account"
 	"github.com/killbill/kbcli/v3/kbclient/payment_method"
@@ -62,18 +63,38 @@ func (b *BillingServiceDefault) handleNewSubscription(ctx context.Context, accou
 }
 
 func (b *BillingServiceDefault) authorizePayment(ctx context.Context, accountID strfmt.UUID) error {
-	invoiceResp, err := b.api.Account.GetInvoicesForAccount(ctx, &account.GetInvoicesForAccountParams{AccountID: accountID})
+	// Configure exponential backoff
+	_backoff := backoff.NewExponentialBackOff()
+	_backoff.InitialInterval = 2 * time.Second
+	_backoff.MaxInterval = 30 * time.Second
+	_backoff.MaxElapsedTime = 5 * time.Minute
+
+	var latestInvoice *kbmodel.Invoice
+	operation := func() error {
+		invoiceResp, err := b.api.Account.GetInvoicesForAccount(ctx, &account.GetInvoicesForAccountParams{AccountID: accountID})
+		if err != nil {
+			return backoff.Permanent(err) // Don't retry on API errors
+		}
+
+		if len(invoiceResp.Payload) == 0 {
+			return backoff.Permanent(fmt.Errorf("no invoices found for account"))
+		}
+
+		latestInvoice = invoiceResp.Payload[0]
+		if latestInvoice.Balance == 0 {
+			return fmt.Errorf("invoice amount is 0, waiting for KillBill processing")
+		}
+
+		return nil
+	}
+
+	// Execute the retry logic
+	err := backoff.Retry(operation, backoff.WithContext(_backoff, ctx))
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get valid invoice after retries: %w", err)
 	}
 
-	if len(invoiceResp.Payload) == 0 {
-		return fmt.Errorf("no invoices found for account")
-	}
-
-	// Assuming the latest invoice is the one to be authorized
-	latestInvoice := invoiceResp.Payload[0]
-
+	// Process the payment once we have a valid invoice
 	_, err = b.api.Account.ProcessPayment(ctx, &account.ProcessPaymentParams{
 		AccountID: accountID,
 		Body: &kbmodel.PaymentTransaction{
@@ -86,7 +107,7 @@ func (b *BillingServiceDefault) authorizePayment(ctx context.Context, accountID 
 		},
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to process payment: %w", err)
 	}
 
 	return nil
