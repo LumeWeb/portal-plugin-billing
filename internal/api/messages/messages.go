@@ -52,10 +52,9 @@ type Period struct {
 
 // Payment structures
 type Payment struct {
-	PaymentMethodID string    `json:"payment_method_id,omitempty"`
-	ClientSecret    string    `json:"client_secret,omitempty"`
-	PublishableKey  string    `json:"publishable_key,omitempty"`
-	ExpiresAt       time.Time `json:"expires_at,omitempty"`
+	ClientSecret   string    `json:"client_secret,omitempty"`
+	PublishableKey string    `json:"publishable_key,omitempty"`
+	ExpiresAt      time.Time `json:"expires_at,omitempty"`
 }
 
 // Billing structures

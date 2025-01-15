@@ -309,28 +309,17 @@ func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint
 		}, nil
 	}
 
-	err := b.CreateCustomerById(ctx, userID)
+	acct, err := b.getAccount(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	acct, err := b.api.Account.GetAccountByKey(ctx, &account.GetAccountByKeyParams{
-		ExternalKey: strconv.FormatUint(uint64(userID), 10),
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	bundles, err := b.api.Account.GetAccountBundles(ctx, &account.GetAccountBundlesParams{
-		AccountID: acct.Payload.AccountID,
-	})
+	sub, err := b.getSubscription(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
 
 	var subPlan *messages.Plan
-	sub := findActiveOrPendingSubscription(bundles.Payload)
 
 	if sub != nil {
 		plan, err := b.getPlanByIdentifier(ctx, *sub.PlanName)
@@ -371,15 +360,15 @@ func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint
 	return &messages.Subscription{
 		Plan: *subPlan,
 		Billing: &messages.Billing{
-			Name:         acct.Payload.Name,
-			Organization: acct.Payload.Company,
+			Name:         acct.Name,
+			Organization: acct.Company,
 			Address: messages.Address{
-				Line1:             acct.Payload.Address1,
-				Line2:             acct.Payload.Address2,
-				City:              acct.Payload.City,
-				State:             acct.Payload.State,
-				PostalCode:        acct.Payload.PostalCode,
-				Country:           acct.Payload.Country,
+				Line1:             acct.Address1,
+				Line2:             acct.Address2,
+				City:              acct.City,
+				State:             acct.State,
+				PostalCode:        acct.PostalCode,
+				Country:           acct.Country,
 				DependentLocality: "", // KillBill doesn't have these fields
 				SortingCode:       "", // KillBill doesn't have these fields
 			},
