@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"github.com/killbill/kbcli/v3/kbmodel"
 	"go.lumeweb.com/portal-plugin-billing/internal/api/messages"
+	"slices"
 	"strings"
+	"time"
 )
 
 func findActiveOrPendingSubscription(bundles []*kbmodel.Bundle) *kbmodel.Subscription {
@@ -70,4 +72,48 @@ func parseSubscriptionIDFromLocation(location string) (string, error) {
 		return "", fmt.Errorf("invalid Location header format")
 	}
 	return parts[len(parts)-1], nil
+}
+
+func sortInvoices(invoices []*kbmodel.Invoice, order SortOrder) []*kbmodel.Invoice {
+	sorted := slices.Clone(invoices)
+	slices.SortFunc(sorted, func(i, j *kbmodel.Invoice) int {
+		iTime := time.Time(i.TargetDate)
+		jTime := time.Time(j.TargetDate)
+
+		if order == SortAscending {
+			switch {
+			case iTime.Before(jTime):
+				return -1
+			case iTime.After(jTime):
+				return 1
+			default:
+				return 0
+			}
+		}
+		switch {
+		case iTime.After(jTime):
+			return -1
+		case iTime.Before(jTime):
+			return 1
+		default:
+			return 0
+		}
+	})
+	return sorted
+}
+
+func filterRecurringInvoices(invoices []*kbmodel.Invoice) []*kbmodel.Invoice {
+	return slices.DeleteFunc(slices.Clone(invoices), func(inv *kbmodel.Invoice) bool {
+		for _, item := range inv.Items {
+			if item.ItemType == kbmodel.InvoiceItemItemTypeRECURRING {
+				return false
+			}
+		}
+		return true
+	})
+}
+func filterUnpaidInvoices(invoices []*kbmodel.Invoice) []*kbmodel.Invoice {
+	return slices.DeleteFunc(slices.Clone(invoices), func(inv *kbmodel.Invoice) bool {
+		return inv.Balance <= 0
+	})
 }

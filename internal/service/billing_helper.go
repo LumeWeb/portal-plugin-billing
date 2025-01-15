@@ -8,8 +8,10 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/killbill/kbcli/v3/kbclient/account"
 	"github.com/killbill/kbcli/v3/kbclient/catalog"
+	"github.com/killbill/kbcli/v3/kbclient/invoice"
 	"github.com/killbill/kbcli/v3/kbclient/subscription"
 	"github.com/killbill/kbcli/v3/kbmodel"
+	"github.com/samber/lo"
 	"go.lumeweb.com/portal-plugin-billing/internal/api/messages"
 	pluginDb "go.lumeweb.com/portal-plugin-billing/internal/db"
 	"go.lumeweb.com/portal/db"
@@ -18,6 +20,13 @@ import (
 	"math"
 	"sort"
 	"strconv"
+)
+
+type SortOrder int
+
+const (
+	SortAscending SortOrder = iota
+	SortDescending
 )
 
 func (b *BillingServiceDefault) enabled() bool {
@@ -319,9 +328,26 @@ func (b *BillingServiceDefault) getPlanByIdentifier(ctx context.Context, identif
 	return &plan, nil
 }
 
-func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context, subscriptionID strfmt.UUID, planID string) error {
+func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context, sub *kbmodel.Subscription, planID string) error {
+	if sub.State == kbmodel.SubscriptionStateBLOCKED {
+		invoices, err := b.getInvoicesForSubscription(ctx, sub.AccountID, sub.SubscriptionID)
+		if err != nil {
+			return err
+		}
+
+		invoices = sortInvoices(invoices, SortDescending)
+		invoices = filterRecurringInvoices(invoices)
+		invoices = filterUnpaidInvoices(invoices)
+
+		for _, _invoice := range invoices {
+			if err, _ := b.api.Invoice.VoidInvoice(ctx, &invoice.VoidInvoiceParams{InvoiceID: _invoice.InvoiceID}); err != nil {
+				return err
+			}
+		}
+	}
+
 	_, err := b.api.Subscription.ChangeSubscriptionPlan(ctx, &subscription.ChangeSubscriptionPlanParams{
-		SubscriptionID: subscriptionID,
+		SubscriptionID: sub.SubscriptionID,
 		Body: &kbmodel.Subscription{
 			PlanName: &planID,
 		},
@@ -332,4 +358,38 @@ func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context
 	}
 
 	return nil
+}
+
+func (b *BillingServiceDefault) getInvoicesForSubscription(ctx context.Context, accountID strfmt.UUID, subId strfmt.UUID) ([]*kbmodel.Invoice, error) {
+	var allInvoices []*kbmodel.Invoice
+	var offset int64 = 0
+	const batchSize int64 = 100
+
+	for {
+		result, err := b.api.Account.GetInvoicesForAccountPaginated(ctx, &account.GetInvoicesForAccountPaginatedParams{
+			AccountID: accountID,
+			Limit:     lo.ToPtr(batchSize),
+			Offset:    &offset,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to get invoices batch: %w", err)
+		}
+
+		for _, invoice := range result.Payload {
+			for _, item := range invoice.Items {
+				if item.SubscriptionID == subId {
+					allInvoices = append(allInvoices, invoice)
+					break
+				}
+			}
+		}
+
+		if int64(len(result.Payload)) < batchSize {
+			break
+		}
+
+		offset += batchSize
+	}
+
+	return allInvoices, nil
 }

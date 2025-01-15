@@ -471,7 +471,7 @@ func (b *BillingServiceDefault) UpdateSubscription(ctx context.Context, userID u
 	}
 
 	if sub.State == kbmodel.SubscriptionStateACTIVE || sub.State == kbmodel.SubscriptionStateBLOCKED {
-		return b.submitSubscriptionPlanChange(ctx, sub.SubscriptionID, planID)
+		return b.submitSubscriptionPlanChange(ctx, sub, planID)
 	}
 
 	return fmt.Errorf("unexpected subscription state: %s", sub.State)
