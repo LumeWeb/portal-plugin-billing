@@ -14,17 +14,17 @@ type BillingService interface {
 	core.Configurable
 
 	// Core subscription operations
-	GetSubscription(ctx context.Context, userID uint) (*messages.SubscriptionResponse, error)
+	GetSubscription(ctx context.Context, userID uint) (*messages.Subscription, error)
 	CreateSubscription(ctx context.Context, userID uint, planID string) error
 	UpdateSubscription(ctx context.Context, userID uint, planID string) error
 	//CancelSubscription(ctx context.Context, userID uint, req *messages.CancellationRequest) error
 
 	// Plan management
-	GetPlans(ctx context.Context) ([]*messages.SubscriptionPlan, error)
+	GetPlans(ctx context.Context) ([]*messages.Plan, error)
 
 	// Customer management
 	//CreateCustomer(ctx context.Context, user *models.User) error
-	UpdateBillingInfo(ctx context.Context, userID uint, info *messages.BillingInfo) error
+	UpdateBillingInfo(ctx context.Context, userID uint, info *messages.Billing) error
 
 	// Usage limits
 	//GetUserMaxStorage(userID uint) (uint64, error)

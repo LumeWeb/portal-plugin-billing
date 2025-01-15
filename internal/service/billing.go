@@ -142,7 +142,7 @@ func (b *BillingServiceDefault) CreateCustomerById(ctx context.Context, userID u
 	return b.CreateCustomer(ctx, user)
 }
 
-func (b *BillingServiceDefault) UpdateBillingInfo(ctx context.Context, userID uint, billingInfo *messages.BillingInfo) error {
+func (b *BillingServiceDefault) UpdateBillingInfo(ctx context.Context, userID uint, billingInfo *messages.Billing) error {
 	if !b.enabled() || !b.paidEnabled() {
 		return nil
 	}
@@ -170,38 +170,49 @@ func (b *BillingServiceDefault) UpdateBillingInfo(ctx context.Context, userID ui
 		acctChanges.Company = billingInfo.Organization
 	}
 
-	if acct.Payload.Address1 != billingInfo.Address && len(billingInfo.Address) > 0 {
-		acctChanges.Address1 = billingInfo.Address
+	if acct.Payload.Address1 != billingInfo.Address.Line1 && len(billingInfo.Address.Line1) > 0 {
+		acctChanges.Address1 = billingInfo.Address.Line1
 	}
 
-	if acct.Payload.City != billingInfo.City && len(billingInfo.City) > 0 {
-		acctChanges.City = billingInfo.City
+	if acct.Payload.Address2 != billingInfo.Address.Line2 && len(billingInfo.Address.Line2) > 0 {
+		acctChanges.Address2 = billingInfo.Address.Line2
 	}
 
-	if acct.Payload.State != billingInfo.State && len(billingInfo.State) > 0 {
-		acctChanges.State = billingInfo.State
+	if acct.Payload.City != billingInfo.Address.City && len(billingInfo.Address.City) > 0 {
+		acctChanges.City = billingInfo.Address.City
 	}
 
-	if acct.Payload.PostalCode != billingInfo.Zip && len(billingInfo.Zip) > 0 {
-		acctChanges.PostalCode = billingInfo.Zip
+	if acct.Payload.State != billingInfo.Address.State && len(billingInfo.Address.State) > 0 {
+		acctChanges.State = billingInfo.Address.State
 	}
 
-	if acct.Payload.Country != billingInfo.Country && len(billingInfo.Country) > 0 {
-		acctChanges.Country = billingInfo.Country
+	if acct.Payload.PostalCode != billingInfo.Address.PostalCode && len(billingInfo.Address.PostalCode) > 0 {
+		acctChanges.PostalCode = billingInfo.Address.PostalCode
 	}
 
-	if len(acctChanges.Name) == 0 && len(acctChanges.Address1) == 0 && len(acctChanges.City) == 0 && len(acctChanges.State) == 0 && len(acctChanges.PostalCode) == 0 && len(acctChanges.Country) == 0 {
+	if acct.Payload.Country != billingInfo.Address.Country && len(billingInfo.Address.Country) > 0 {
+		acctChanges.Country = billingInfo.Address.Country
+	}
+
+	// Check if any changes were made
+	if len(acctChanges.Name) == 0 && len(acctChanges.Company) == 0 &&
+		len(acctChanges.Address1) == 0 && len(acctChanges.Address2) == 0 &&
+		len(acctChanges.City) == 0 && len(acctChanges.State) == 0 &&
+		len(acctChanges.PostalCode) == 0 && len(acctChanges.Country) == 0 {
 		return nil
 	}
 
 	_, err = b.api.Account.UpdateAccount(ctx, &account.UpdateAccountParams{
 		AccountID: acct.Payload.AccountID,
 		Body: &kbmodel.Account{
-			Address1:   billingInfo.Address,
-			City:       billingInfo.City,
-			State:      billingInfo.State,
-			PostalCode: billingInfo.Zip,
-			Country:    billingInfo.Country,
+			Name:       billingInfo.Name,
+			Company:    billingInfo.Organization,
+			Address1:   billingInfo.Address.Line1,
+			Address2:   billingInfo.Address.Line2,
+			City:       billingInfo.Address.City,
+			State:      billingInfo.Address.State,
+			PostalCode: billingInfo.Address.PostalCode,
+			Country:    billingInfo.Address.Country,
 		},
 	})
 
@@ -212,7 +223,7 @@ func (b *BillingServiceDefault) UpdateBillingInfo(ctx context.Context, userID ui
 	return nil
 }
 
-func (b *BillingServiceDefault) GetPlans(ctx context.Context) ([]*messages.SubscriptionPlan, error) {
+func (b *BillingServiceDefault) GetPlans(ctx context.Context) ([]*messages.Plan, error) {
 	if !b.enabled() {
 		return nil, nil
 	}
@@ -260,13 +271,15 @@ func (b *BillingServiceDefault) GetPlans(ctx context.Context) ([]*messages.Subsc
 		}
 
 		result = append(result, &messages.Plan{
-			Name:       planName,
-			Identifier: basePlan.Plan,
-			Price:      basePlan.FinalPhaseRecurringPrice[0].Value,
-			Period:     period,
-			Upload:     localPlan.Upload,
-			Download:   localPlan.Download,
-			Storage:    localPlan.Storage,
+			ID:     basePlan.Plan,
+			Name:   planName,
+			Price:  basePlan.FinalPhaseRecurringPrice[0].Value,
+			Period: period,
+			Resources: messages.Resources{
+				Storage:  localPlan.Upload,
+				Upload:   localPlan.Download,
+				Download: localPlan.Storage,
+			},
 		})
 	}
 
@@ -316,11 +329,7 @@ func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint
 		return nil, err
 	}
 
-	var subPlan *messages.SubscriptionPlan
-	var paymentID string
-	var clientSecret string
-	var paymentExpires time.Time
-
+	var subPlan *messages.Plan
 	sub := findActiveOrPendingSubscription(bundles.Payload)
 
 	if sub != nil {
@@ -339,42 +348,19 @@ func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint
 		})
 
 		if len(prices) > 0 {
-			subPlan = &messages.SubscriptionPlan{
-				Name:       planName,
-				Price:      prices[0].RecurringPrice,
-				Status:     remoteSubscriptionStatusToLocal(sub.State),
-				Identifier: plan.Identifier,
-				Period:     remoteSubscriptionPhaseToLocal(kbmodel.SubscriptionPhaseTypeEnum(*sub.BillingPeriod)),
-				Storage:    plan.Storage,
-				Upload:     plan.Upload,
-				Download:   plan.Download,
-				StartDate:  &sub.StartDate,
+			subPlan = &messages.Plan{
+				ID:    plan.Identifier,
+				Name:  planName,
+				Price: prices[0].RecurringPrice,
+				//	Status:     remoteSubscriptionStatusToLocal(sub.State),
+				Period: remoteSubscriptionPhaseToLocal(kbmodel.SubscriptionPhaseTypeEnum(*sub.BillingPeriod)),
+				Resources: messages.Resources{
+					Storage:  plan.Storage,
+					Upload:   plan.Upload,
+					Download: plan.Download,
+				},
+				//	StartDate:  &sub.StartDate,
 			}
-
-			/*			cfState, err := b.getCustomField(ctx, sub.SubscriptionID, pendingCustomField)
-						if err != nil {
-							return nil, err
-						}
-
-						if sub.State == kbmodel.SubscriptionStatePENDING || (cfState != nil && *cfState.Value == "1") {
-							// Get the client secret
-							_paymentID, err := b.getCustomField(ctx, sub.SubscriptionID, paymentIdCustomField)
-							if err != nil {
-								return nil, err
-							}
-
-							if _paymentID != nil {
-								_clientSecret, created, err := b.fetchClientSecret(ctx, *_paymentID.Value)
-								if err != nil {
-									return nil, err
-								}
-
-								paymentID = *_paymentID.Value
-								paymentExpires = created.Add(15 * time.Minute)
-								clientSecret = _clientSecret
-								subPlan.Status = messages.SubscriptionPlanStatusPending
-							}
-						}*/
 		}
 	}
 
@@ -382,22 +368,23 @@ func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint
 		subPlan = b.getFreePlan()
 	}
 
-	return &messages.SubscriptionResponse{
-		Plan: subPlan,
-		BillingInfo: messages.BillingInfo{
-			Name:    acct.Payload.Name,
-			Address: acct.Payload.Address1,
-			City:    acct.Payload.City,
-			State:   acct.Payload.State,
-			Zip:     acct.Payload.PostalCode,
-			Country: acct.Payload.Country,
+	return &messages.Subscription{
+		Plan: *subPlan,
+		Billing: &messages.Billing{
+			Name:         acct.Payload.Name,
+			Organization: acct.Payload.Company,
+			Address: messages.Address{
+				Line1:             acct.Payload.Address1,
+				Line2:             acct.Payload.Address2,
+				City:              acct.Payload.City,
+				State:             acct.Payload.State,
+				PostalCode:        acct.Payload.PostalCode,
+				Country:           acct.Payload.Country,
+				DependentLocality: "", // KillBill doesn't have these fields
+				SortingCode:       "", // KillBill doesn't have these fields
+			},
 		},
-		PaymentInfo: messages.PaymentInfo{
-			PaymentID:      paymentID,
-			PaymentExpires: paymentExpires,
-			ClientSecret:   clientSecret,
-			//	PublishableKey: publishableKey,
-		},
+		Payment: &messages.Payment{},
 	}, nil
 }
 
