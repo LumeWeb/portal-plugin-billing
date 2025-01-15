@@ -330,6 +330,7 @@ func (b *BillingServiceDefault) getPlanByIdentifier(ctx context.Context, identif
 
 func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context, sub *kbmodel.Subscription, planID string) error {
 	autoInvoicingDisabled := false
+	enforcementDisabled := false
 	if sub.State == kbmodel.SubscriptionStateBLOCKED {
 		invoices, err := b.getInvoicesForSubscription(ctx, sub.AccountID, sub.SubscriptionID)
 		if err != nil {
@@ -346,6 +347,11 @@ func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context
 				return err
 			}
 			autoInvoicingDisabled = true
+			err = b.disableOverdueEnforcement(ctx, sub.AccountID, true)
+			if err != nil {
+				return err
+			}
+			enforcementDisabled = true
 		}
 
 		for _, _invoice := range invoices {
@@ -371,6 +377,10 @@ func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context
 		if err != nil {
 			return err
 		}
+	}
+
+	if enforcementDisabled {
+		err = b.disableOverdueEnforcement(ctx, sub.AccountID, false)
 	}
 
 	return nil
