@@ -365,6 +365,18 @@ func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint
 		startDate = time.Time(sub.StartDate)
 	}
 
+	paymentAuth, err := b.getLastSubscriptionAuthorizePaymentMethod(ctx, userID)
+	if err != nil {
+		if !errors.Is(err, errNoPaymentAuthorization) {
+			return nil, err
+		}
+	}
+
+	_payment := &messages.Payment{}
+	if paymentAuth != nil {
+		_payment = paymentAuth
+	}
+
 	return &messages.Subscription{
 		Plan:   subPlan,
 		Status: status,
@@ -386,7 +398,7 @@ func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint
 				SortingCode:       "", // KillBill doesn't have these fields
 			},
 		},
-		Payment: &messages.Payment{},
+		Payment: _payment,
 	}, nil
 }
 
