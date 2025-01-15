@@ -34,16 +34,16 @@ type QuotaService interface {
 	Reconcile() error
 
 	// GetCurrentUsage retrieves the current usage for a user
-	GetCurrentUsage(userID uint) (*messages.CurrentUsageResponse, error)
+	GetCurrentUsage(userID uint) (*messages.Usage, error)
 
 	// GetUploadUsageHistory retrieves the upload usage history for a user for the specified number of days
-	GetUploadUsageHistory(userID uint, days int) ([]*messages.UsageData, error)
+	GetUploadUsageHistory(userID uint, period int) ([]*messages.UsagePoint, error)
 
 	// GetDownloadUsageHistory retrieves the download usage history for a user for the specified number of days
-	GetDownloadUsageHistory(userID uint, days int) ([]*messages.UsageData, error)
+	GetDownloadUsageHistory(userID uint, days int) ([]*messages.UsagePoint, error)
 
 	// GetStorageUsageHistory retrieves the storage usage history for a user for the specified number of days
-	GetStorageUsageHistory(userID uint, days int) ([]*messages.UsageData, error)
+	GetStorageUsageHistory(userID uint, days int) ([]*messages.UsagePoint, error)
 }
 
 var _ QuotaService = (*service.QuotaServiceDefault)(nil)
