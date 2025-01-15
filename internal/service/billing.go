@@ -456,28 +456,18 @@ func (b *BillingServiceDefault) UpdateSubscription(ctx context.Context, userID u
 		return nil
 	}
 
-	err := b.CreateCustomerById(ctx, userID)
+	acct, err := b.getAccount(ctx, userID)
 	if err != nil {
 		return err
 	}
 
-	acct, err := b.api.Account.GetAccountByKey(ctx, &account.GetAccountByKeyParams{
-		ExternalKey: strconv.FormatUint(uint64(userID), 10),
-	})
+	sub, err := b.getSubscription(ctx, userID)
 	if err != nil {
 		return err
 	}
 
-	bundles, err := b.api.Account.GetAccountBundles(ctx, &account.GetAccountBundlesParams{
-		AccountID: acct.Payload.AccountID,
-	})
-	if err != nil {
-		return err
-	}
-
-	sub := findActiveOrPendingSubscription(bundles.Payload)
 	if sub == nil {
-		return b.handleNewSubscription(ctx, acct.Payload.AccountID, planID)
+		return b.handleNewSubscription(ctx, acct.AccountID, planID)
 	}
 
 	if sub.State == kbmodel.SubscriptionStateACTIVE {
