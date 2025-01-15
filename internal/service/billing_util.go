@@ -30,34 +30,37 @@ func findActiveSubscription(bundles []*kbmodel.Bundle) *kbmodel.Subscription {
 
 	return nil
 }
-func remoteBillingPeriodToLocal(period kbmodel.PlanDetailFinalPhaseBillingPeriodEnum) messages.SubscriptionPlanPeriod {
+
+func remoteBillingPeriodToLocal(period kbmodel.PlanDetailFinalPhaseBillingPeriodEnum) messages.PlanPeriod {
 	switch period {
 	case kbmodel.PlanDetailFinalPhaseBillingPeriodMONTHLY:
-		return messages.SubscriptionPlanPeriodMonth
+		return messages.PeriodMonthly
 	case kbmodel.PlanDetailFinalPhaseBillingPeriodANNUAL:
-		return messages.SubscriptionPlanPeriodYear
+		return messages.PeriodYearly
 	default:
-		return messages.SubscriptionPlanPeriodMonth
+		return messages.PeriodMonthly
 	}
 }
-func remoteSubscriptionStatusToLocal(status kbmodel.SubscriptionStateEnum) messages.SubscriptionPlanStatus {
+
+func remoteSubscriptionStatusToLocal(status kbmodel.SubscriptionStateEnum) messages.PlanStatus {
 	switch status {
 	case kbmodel.SubscriptionStateACTIVE:
-		return messages.SubscriptionPlanStatusActive
+		return messages.StatusActive
 	case kbmodel.SubscriptionStatePENDING, kbmodel.SubscriptionStateBLOCKED:
-		return messages.SubscriptionPlanStatusPending
+		return messages.StatusPending
 	default:
-		return messages.SubscriptionPlanStatusPending
+		return messages.StatusPending
 	}
 }
-func remoteSubscriptionPhaseToLocal(phase kbmodel.SubscriptionPhaseTypeEnum) messages.SubscriptionPlanPeriod {
+
+func remoteSubscriptionPhaseToLocal(phase kbmodel.SubscriptionPhaseTypeEnum) messages.PlanPeriod {
 	switch phase {
 	case kbmodel.SubscriptionPhaseTypeEVERGREEN:
-		return messages.SubscriptionPlanPeriodMonth
+		return messages.PeriodMonthly
 	case kbmodel.SubscriptionPhaseTypeTRIAL:
-		return messages.SubscriptionPlanPeriodMonth
+		return messages.PeriodMonthly
 	default:
-		return messages.SubscriptionPlanPeriodMonth
+		return messages.PeriodMonthly
 	}
 }
 
