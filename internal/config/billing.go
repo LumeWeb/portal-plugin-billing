@@ -68,6 +68,14 @@ func (c BillingConfig) Validate() error {
 		if c.KillBill.APISecret == "" {
 			return errors.New("billing.kill_bill.api_secret is required")
 		}
+
+		if c.Hyperswitch.PublishableKey == "" {
+			return errors.New("billing.hyperswitch.publishable_key is required")
+		}
+
+		if c.Hyperswitch.WebhookSecret == "" {
+			return errors.New("billing.hyperswitch.webhook_secret is required")
+		}
 	}
 
 	return nil
