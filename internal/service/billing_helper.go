@@ -376,6 +376,13 @@ func (b *BillingServiceDefault) getInvoicesForSubscription(ctx context.Context, 
 		}
 
 		for _, _invoice := range result.Payload {
+			invRresult, err := b.api.Invoice.GetInvoice(ctx, &invoice.GetInvoiceParams{
+				InvoiceID: _invoice.InvoiceID,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("failed to get invoice: %w", err)
+			}
+			_invoice = invRresult.Payload
 			for _, item := range _invoice.Items {
 				if item.SubscriptionID == subId {
 					allInvoices = append(allInvoices, _invoice)
