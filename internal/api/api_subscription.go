@@ -39,7 +39,7 @@ func (a API) getPlans(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx.Encode(&messages.SubscriptionPlansResponse{Plans: plans})
+	ctx.Encode(&messages.GetPlansResponse{Plans: plans})
 }
 
 func (a API) createSubscription(w http.ResponseWriter, r *http.Request) {
@@ -52,17 +52,17 @@ func (a API) createSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var createRequest messages.SubscriptionCreateRequest
+	var createRequest messages.CreateSubscriptionRequest
 	if err := ctx.Decode(&createRequest); err != nil {
 		_ = ctx.Error(err, http.StatusInternalServerError)
 	}
 
-	if createRequest.Plan == "" {
+	if createRequest.PlanID == "" {
 		_ = ctx.Error(fmt.Errorf("plan is required"), http.StatusBadRequest)
 		return
 	}
 
-	if err := a.billingService.CreateSubscription(ctx, user, createRequest.Plan); err != nil {
+	if err := a.billingService.CreateSubscription(ctx, user, createRequest.PlanID); err != nil {
 		_ = ctx.Error(err, http.StatusInternalServerError)
 		return
 	}
@@ -78,18 +78,18 @@ func (a API) changeSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var changeRequest messages.SubscriptionChangeRequest
+	var changeRequest messages.UpdateSubscriptionRequest
 	if err := ctx.Decode(&changeRequest); err != nil {
 		_ = ctx.Error(err, http.StatusInternalServerError)
 		return
 	}
 
-	if changeRequest.Plan == "" {
+	if changeRequest.PlanID == "" {
 		_ = ctx.Error(fmt.Errorf("plan is required"), http.StatusBadRequest)
 		return
 	}
 
-	if err := a.billingService.UpdateSubscription(ctx, user, changeRequest.Plan); err != nil {
+	if err := a.billingService.UpdateSubscription(ctx, user, changeRequest.PlanID); err != nil {
 		_ = ctx.Error(err, http.StatusInternalServerError)
 		return
 	}

@@ -110,7 +110,7 @@ type CancelSubscriptionRequest struct {
 
 // API Responses
 type GetPlansResponse struct {
-	Plans []Plan `json:"plans"`
+	Plans []*Plan `json:"plans"`
 }
 
 type SubscriptionResponse struct {
