@@ -10,11 +10,31 @@ import (
 	"strconv"
 )
 
-const AUTO_PAY_TAG_NAME = "AUTO_PAY_OFF"
+const (
+	TagAutoPayOff            = "AUTO_PAY_OFF"
+	TagAutoInvoicingOff      = "AUTO_INVOICING_OFF"
+	TagOverdueEnforcementOff = "OVERDUE_ENFORCEMENT_OFF"
+)
 
-func (b *BillingServiceDefault) setAutoPay(ctx context.Context, accountID strfmt.UUID, enabled bool) error {
-	tagDefId, err := b.getAutoPayTagDefId(ctx)
+func (b *BillingServiceDefault) setControlTag(ctx context.Context, accountID strfmt.UUID, tagName string, enabled bool) error {
+	// Get tag definition ID
+	tagDefs, err := b.api.TagDefinition.GetTagDefinitions(ctx, &tag_definition.GetTagDefinitionsParams{})
+	if err != nil {
+		return err
+	}
 
+	var tagDefId strfmt.UUID
+	for _, tagDef := range tagDefs.Payload {
+		if *tagDef.Name == tagName && tagDef.IsControlTag {
+			tagDefId = tagDef.ID
+			break
+		}
+	}
+	if tagDefId == "" {
+		return fmt.Errorf("cannot find %s tag definition", tagName)
+	}
+
+	// Check if tag exists
 	tags, err := b.api.Account.GetAccountTags(ctx, &account.GetAccountTagsParams{
 		AccountID: accountID,
 	})
@@ -22,58 +42,44 @@ func (b *BillingServiceDefault) setAutoPay(ctx context.Context, accountID strfmt
 		return err
 	}
 
-	var found bool
-
+	var hasTag bool
 	for _, tag := range tags.Payload {
-		if tag.TagDefinitionName == AUTO_PAY_TAG_NAME {
-			found = true
+		if tag.TagDefinitionName == tagName {
+			hasTag = true
 			break
 		}
 	}
 
-	if enabled {
-		if found {
-			_, err = b.api.Account.DeleteAccountTags(ctx, &account.DeleteAccountTagsParams{
-				AccountID: accountID,
-				TagDef:    []strfmt.UUID{tagDefId},
-			})
-
-			if err != nil {
-				return err
-			}
-
-			return nil
-		}
-	}
-
-	if !found {
+	// Add or remove tag based on desired state
+	if enabled && !hasTag {
 		_, err = b.api.Account.CreateAccountTags(ctx, &account.CreateAccountTagsParams{
 			AccountID: accountID,
 			Body:      []strfmt.UUID{tagDefId},
 		})
+		return err
+	}
 
-		if err != nil {
-			return err
-		}
+	if !enabled && hasTag {
+		_, err = b.api.Account.DeleteAccountTags(ctx, &account.DeleteAccountTagsParams{
+			AccountID: accountID,
+			TagDef:    []strfmt.UUID{tagDefId},
+		})
+		return err
 	}
 
 	return nil
 }
 
-func (b *BillingServiceDefault) getAutoPayTagDefId(ctx context.Context) (strfmt.UUID, error) {
-	tagDefs, err := b.api.TagDefinition.GetTagDefinitions(ctx, &tag_definition.GetTagDefinitionsParams{})
+func (b *BillingServiceDefault) disableAutoPay(ctx context.Context, accountID strfmt.UUID, disable bool) error {
+	return b.setControlTag(ctx, accountID, TagAutoPayOff, disable)
+}
 
-	if err != nil {
-		return "", err
-	}
+func (b *BillingServiceDefault) disableAutoInvoicing(ctx context.Context, accountID strfmt.UUID, disable bool) error {
+	return b.setControlTag(ctx, accountID, TagAutoInvoicingOff, disable)
+}
 
-	for _, tagDef := range tagDefs.Payload {
-		if *tagDef.Name == AUTO_PAY_TAG_NAME && tagDef.IsControlTag {
-			return tagDef.ID, nil
-		}
-	}
-
-	return "", fmt.Errorf("cannot find AUTO_PAY_OFF tag definition")
+func (b *BillingServiceDefault) disableOverdueEnforcement(ctx context.Context, accountID strfmt.UUID, disable bool) error {
+	return b.setControlTag(ctx, accountID, TagOverdueEnforcementOff, disable)
 }
 
 func (b *BillingServiceDefault) getAccount(ctx context.Context, userID uint) (*kbmodel.Account, error) {
@@ -98,7 +104,7 @@ func (b *BillingServiceDefault) getSubscription(ctx context.Context, userID uint
 	if err != nil {
 		return nil, err
 	}
-	
+
 	bundles, err := b.api.Account.GetAccountBundles(ctx, &account.GetAccountBundlesParams{
 		AccountID: acct.AccountID,
 	})

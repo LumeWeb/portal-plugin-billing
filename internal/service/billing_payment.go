@@ -50,7 +50,7 @@ func (b *BillingServiceDefault) handleNewSubscription(ctx context.Context, accou
 		return fmt.Errorf("failed to fetch subscription details: %w", err)
 	}
 
-	err = b.setAutoPay(ctx, accountID, false)
+	err = b.disableAutoPay(ctx, accountID, true)
 	if err != nil {
 		return err
 	}
@@ -246,7 +246,7 @@ func extractPaymentDetails(tx *kbmodel.PaymentTransaction) (*messages.Payment, e
 	}
 
 	if _payment.ExpiresAt.IsZero() {
-		return nil, fmt.Errorf("expires_at not found in transaction properties")
+		return nil, fmt.Errorf("client_secret not found in transaction properties")
 	}
 
 	return _payment, nil
