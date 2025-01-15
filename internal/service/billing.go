@@ -358,7 +358,12 @@ func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint
 	}
 
 	return &messages.Subscription{
-		Plan: *subPlan,
+		Plan:   *subPlan,
+		Status: remoteSubscriptionStatusToLocal(sub.State),
+		CurrentPeriod: messages.Period{
+			Start: time.Time(sub.StartDate),
+			End:   time.Time{},
+		},
 		Billing: &messages.Billing{
 			Name:         acct.Name,
 			Organization: acct.Company,
