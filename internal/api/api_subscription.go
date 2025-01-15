@@ -66,6 +66,16 @@ func (a API) createSubscription(w http.ResponseWriter, r *http.Request) {
 		_ = ctx.Error(err, http.StatusInternalServerError)
 		return
 	}
+
+	subscription, err := a.billingService.GetSubscription(ctx, user)
+
+	if err != nil {
+		_ = ctx.Error(err, http.StatusInternalServerError)
+		return
+	}
+
+	ctx.Response.WriteHeader(http.StatusCreated)
+	ctx.Encode(subscription)
 }
 
 func (a API) changeSubscription(w http.ResponseWriter, r *http.Request) {
