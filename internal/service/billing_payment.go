@@ -194,9 +194,6 @@ func (b *BillingServiceDefault) getLastSubscriptionAuthorizePaymentMethod(ctx co
 
 		// Get the effective date of the last transaction
 		lastTx := _payment.Transactions[len(_payment.Transactions)-1]
-		if lastTx.EffectiveDate.IsZero() {
-			continue // Skip if no effective date
-		}
 
 		// Update if this is the most recent authorization we've seen
 		if mostRecentAuth == nil || time.Time(lastTx.EffectiveDate).After(mostRecentDate) {
