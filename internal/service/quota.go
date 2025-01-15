@@ -415,7 +415,7 @@ func (q *QuotaServiceDefault) GetCurrentUsage(userID uint) (*messages.Usage, err
 	err = db.RetryableTransaction(q.ctx, q.db, func(tx *gorm.DB) *gorm.DB {
 		var startDate, endDate time.Time
 
-		if sub == nil || sub.Plan.ID == "" {
+		if sub == nil || sub.Plan == nil {
 			// If no subscription, get lifetime usage
 			if err := tx.Model(&pluginDb.UserBandwidthQuota{}).
 				Select("COALESCE(SUM(bytes_uploaded), 0) as upload, COALESCE(SUM(bytes_downloaded), 0) as download").

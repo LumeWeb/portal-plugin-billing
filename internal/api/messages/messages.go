@@ -38,7 +38,7 @@ type Resources struct {
 // Subscription structures
 type Subscription struct {
 	ID            string     `json:"id"`
-	Plan          Plan       `json:"plan"`
+	Plan          *Plan      `json:"plan"`
 	Status        PlanStatus `json:"status"`
 	CurrentPeriod Period     `json:"current_period"`
 	Billing       *Billing   `json:"billing,omitempty"`

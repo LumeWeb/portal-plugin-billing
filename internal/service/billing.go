@@ -300,7 +300,7 @@ func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint
 	if !b.paidEnabled() {
 		freePlan := b.getFreePlan()
 		return &messages.Subscription{
-			Plan:   *freePlan,
+			Plan:   freePlan,
 			Status: messages.StatusActive,
 			CurrentPeriod: messages.Period{
 				Start: time.Unix(0, 0),
@@ -358,7 +358,7 @@ func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint
 	}
 
 	return &messages.Subscription{
-		Plan:   *subPlan,
+		Plan:   subPlan,
 		Status: remoteSubscriptionStatusToLocal(sub.State),
 		CurrentPeriod: messages.Period{
 			Start: time.Time(sub.StartDate),
