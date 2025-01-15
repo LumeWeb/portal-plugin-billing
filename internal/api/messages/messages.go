@@ -30,9 +30,9 @@ type Plan struct {
 }
 
 type Resources struct {
-	StorageGB  uint64 `json:"storage_gb"`
-	UploadGB   uint64 `json:"upload_gb"`
-	DownloadGB uint64 `json:"download_gb"`
+	Storage  uint64 `json:"storage"`  // In bytes
+	Upload   uint64 `json:"upload"`   // In bytes
+	Download uint64 `json:"download"` // In bytes
 }
 
 // Subscription structures

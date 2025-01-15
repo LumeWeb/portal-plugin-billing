@@ -18,7 +18,6 @@ import (
 	"math"
 	"sort"
 	"strconv"
-	"strings"
 )
 
 func (b *BillingServiceDefault) enabled() bool {
@@ -33,20 +32,20 @@ func (b *BillingServiceDefault) freeEnabled() bool {
 	return b.cfg.FreePlanEnabled
 }
 
-func (b *BillingServiceDefault) normalizeBillingInfo(billingInfo *messages.BillingInfo) error {
+func (b *BillingServiceDefault) normalizeBillingInfo(billingInfo *messages.Billing) error {
 	if billingInfo == nil {
 		return fmt.Errorf("billing info is required")
 	}
 
 	addr, err := address.NewValid(
-		address.WithCountry(billingInfo.Country),
+		address.WithCountry(billingInfo.Address.Country),
 		address.WithName(billingInfo.Name),
-		address.WithStreetAddress(strings.Split(billingInfo.Address, "\n")),
-		address.WithLocality(billingInfo.City),
-		address.WithDependentLocality(billingInfo.DependentLocality),
-		address.WithAdministrativeArea(billingInfo.State),
-		address.WithPostCode(billingInfo.Zip),
-		address.WithSortingCode(billingInfo.SortingCode),
+		address.WithStreetAddress([]string{billingInfo.Address.Line1, billingInfo.Address.Line2}),
+		address.WithLocality(billingInfo.Address.City),
+		address.WithDependentLocality(billingInfo.Address.DependentLocality),
+		address.WithAdministrativeArea(billingInfo.Address.State),
+		address.WithPostCode(billingInfo.Address.PostalCode),
+		address.WithSortingCode(billingInfo.Address.SortingCode),
 		address.WithOrganization(billingInfo.Organization),
 	)
 
@@ -61,15 +60,16 @@ func (b *BillingServiceDefault) normalizeBillingInfo(billingInfo *messages.Billi
 				case address.Organization:
 					billingInfo.Organization = ""
 				case address.StreetAddress:
-					billingInfo.Address = ""
+					billingInfo.Address.Line1 = ""
+					billingInfo.Address.Line2 = ""
 				case address.Locality:
-					billingInfo.City = ""
+					billingInfo.Address.City = ""
 				case address.AdministrativeArea:
-					billingInfo.State = ""
+					billingInfo.Address.State = ""
 				case address.PostCode:
-					billingInfo.Zip = ""
+					billingInfo.Address.PostalCode = ""
 				case address.Country:
-					billingInfo.Country = ""
+					billingInfo.Address.Country = ""
 				}
 			}
 		} else {
@@ -87,19 +87,34 @@ func (b *BillingServiceDefault) normalizeBillingInfo(billingInfo *messages.Billi
 	}
 
 	if len(addr.StreetAddress) > 0 {
-		billingInfo.Address = strings.Join(addr.StreetAddress, "\n")
+		billingInfo.Address.Line1 = addr.StreetAddress[0]
+		if len(addr.StreetAddress) > 1 {
+			billingInfo.Address.Line2 = addr.StreetAddress[1]
+		}
 	}
+
 	if addr.Locality != "" {
-		billingInfo.City = addr.Locality
+		billingInfo.Address.City = addr.Locality
 	}
+
 	if addr.AdministrativeArea != "" {
-		billingInfo.State = addr.AdministrativeArea
+		billingInfo.Address.State = addr.AdministrativeArea
 	}
+
 	if addr.PostCode != "" {
-		billingInfo.Zip = addr.PostCode
+		billingInfo.Address.PostalCode = addr.PostCode
 	}
+
 	if addr.Country != "" {
-		billingInfo.Country = addr.Country
+		billingInfo.Address.Country = addr.Country
+	}
+
+	if addr.DependentLocality != "" {
+		billingInfo.Address.DependentLocality = addr.DependentLocality
+	}
+
+	if addr.SortingCode != "" {
+		billingInfo.Address.SortingCode = addr.SortingCode
 	}
 
 	return nil
@@ -167,22 +182,22 @@ func (b *BillingServiceDefault) getPlanUsage(plan *pluginDb.Plan, usageType Usag
 		return 0
 	}
 }
-func (b *BillingServiceDefault) getFreePlan() *messages.SubscriptionPlan {
+func (b *BillingServiceDefault) getFreePlan() *messages.Plan {
 	if !b.enabled() || !b.freeEnabled() {
 		return nil
 	}
 
 	return &messages.Plan{
-		ID:       b.cfg.FreePlanID,
-		Name:     b.cfg.FreePlanName,
-		Period:   messages.PeriodMonthly,
-		Price:    0,
-		Resources:
-		Storage:  b.cfg.FreeStorage,
-		Upload:   b.cfg.FreeUpload,
-		Download: b.cfg.FreeDownload,
-		Status:   messages.SubscriptionPlanStatusActive,
-		IsFree:   true,
+		ID:     b.cfg.FreePlanID,
+		Name:   b.cfg.FreePlanName,
+		Period: messages.PeriodMonthly,
+		Price:  0,
+		Resources: messages.Resources{
+			Storage:  b.cfg.FreeStorage,
+			Upload:   b.cfg.FreeUpload,
+			Download: b.cfg.FreeDownload,
+		},
+		IsFree: true,
 	}
 }
 
