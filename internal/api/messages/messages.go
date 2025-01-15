@@ -96,7 +96,7 @@ type UpdateSubscriptionRequest struct {
 }
 
 type UpdateBillingRequest struct {
-	Billing Billing `json:"billing"`
+	Billing
 }
 
 type UpdatePaymentRequest struct {
