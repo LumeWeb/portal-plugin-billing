@@ -34,11 +34,6 @@ type QuotaServiceDefault struct {
 	billing *BillingServiceDefault
 }
 
-type userByte struct {
-	UserID    uint
-	BytesUsed uint64
-}
-
 func NewQuotaService() (core.Service, []core.ContextBuilderOption, error) {
 	_service := &QuotaServiceDefault{}
 
