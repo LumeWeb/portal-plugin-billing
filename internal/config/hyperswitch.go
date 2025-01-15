@@ -1,5 +1,6 @@
 package config
 
 type HyperswitchConfig struct {
-	WebhookSecret string `config:"webhook_secret"`
+	PublishableKey string `config:"publishable_key"`
+	WebhookSecret  string `config:"webhook_secret"`
 }

@@ -375,6 +375,7 @@ func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint
 	_payment := &messages.Payment{}
 	if paymentAuth != nil {
 		_payment = paymentAuth
+		_payment.PublishableKey = b.cfg.Hyperswitch.PublishableKey
 	}
 
 	return &messages.Subscription{
