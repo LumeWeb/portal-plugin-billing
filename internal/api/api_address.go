@@ -16,24 +16,20 @@ import (
 func (a API) listBillingCountries(w http.ResponseWriter, r *http.Request) {
 	ctx := httputil.Context(r, w)
 
-	countries := address.ListCountries("en")
+	countries := lo.Map(address.ListCountries("en"), func(item address.CountryListItem, _ int) messages.Country {
+		countryData := address.GetCountry(item.Code)
+		return messages.Country{
+			Location: messages.Location{
+				Code: item.Code,
+				Name: item.Name,
+			},
+			SupportedFields: lo.Map(countryData.Allowed, func(field address.Field, _ int) string {
+				return field.Key()
+			}),
+		}
+	})
 
-	response := messages.CountriesResponse{
-		Items: lo.Map(countries, func(item address.CountryListItem, _ int) messages.Country {
-			countryData := address.GetCountry(item.Code)
-			return messages.Country{
-				Location: messages.Location{
-					Code: item.Code,
-					Name: item.Name,
-				},
-				SupportedFields: lo.Map(countryData.Allowed, func(field address.Field, _ int) string {
-					return field.Key()
-				}),
-			}
-		}),
-	}
-
-	ctx.Encode(response)
+	ctx.Encode(countries)
 }
 
 func (a API) listBillingStates(w http.ResponseWriter, r *http.Request) {
@@ -62,7 +58,7 @@ func (a API) listBillingStates(w http.ResponseWriter, r *http.Request) {
 		[]messages.Location{},
 	)
 
-	ctx.Encode(messages.LocationsResponse{Items: states})
+	ctx.Encode(states)
 }
 
 func (a API) listBillingCities(w http.ResponseWriter, r *http.Request) {
@@ -105,7 +101,7 @@ func (a API) listBillingCities(w http.ResponseWriter, r *http.Request) {
 		return cities[i].Name < cities[j].Name
 	})
 
-	ctx.Encode(messages.LocationsResponse{Items: cities})
+	ctx.Encode(cities)
 }
 
 func (a API) updateBilling(w http.ResponseWriter, r *http.Request) {

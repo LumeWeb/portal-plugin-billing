@@ -117,14 +117,6 @@ type SubscriptionResponse struct {
 	Subscription Subscription `json:"subscription"`
 }
 
-type LocationsResponse struct {
-	Items []Location `json:"items"`
-}
-
-type CountriesResponse struct {
-	Items []Country `json:"items"`
-}
-
 type ErrorResponse struct {
 	Code    string            `json:"code"`
 	Message string            `json:"message"`
