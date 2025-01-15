@@ -470,7 +470,7 @@ func (b *BillingServiceDefault) UpdateSubscription(ctx context.Context, userID u
 		return b.handleNewSubscription(ctx, acct.AccountID, planID)
 	}
 
-	if sub.State == kbmodel.SubscriptionStateACTIVE {
+	if sub.State == kbmodel.SubscriptionStateACTIVE || sub.State == kbmodel.SubscriptionStateBLOCKED {
 		return b.submitSubscriptionPlanChange(ctx, sub.SubscriptionID, planID)
 	}
 
