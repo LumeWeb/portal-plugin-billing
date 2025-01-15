@@ -381,6 +381,9 @@ func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context
 
 	if enforcementDisabled {
 		err = b.disableOverdueEnforcement(ctx, sub.AccountID, false)
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
