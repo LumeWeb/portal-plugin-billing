@@ -459,33 +459,12 @@ func (b *BillingServiceDefault) UpdateSubscription(ctx context.Context, userID u
 		return b.handleNewSubscription(ctx, acct.Payload.AccountID, planID)
 	}
 
-	/*	if sub.State == kbmodel.SubscriptionStatePENDING {
-		return b.handlePendingSubscription(ctx, sub)
-	} else */if sub.State == kbmodel.SubscriptionStateACTIVE {
+	if sub.State == kbmodel.SubscriptionStateACTIVE {
 		return b.submitSubscriptionPlanChange(ctx, sub.SubscriptionID, planID)
 	}
 
 	return fmt.Errorf("unexpected subscription state: %s", sub.State)
 }
-
-/*func (b *BillingServiceDefault) handlePendingSubscription(ctx context.Context, sub *kbmodel.Subscription) error {
-	paymentID, err := b.getCustomField(ctx, sub.SubscriptionID, paymentIdCustomField)
-	if err != nil {
-		return err
-	}
-
-	if paymentID == nil {
-		_, err = b.createNewPayment(ctx, sub.AccountID, sub, false)
-		return err
-	}
-
-	if err = b.cancelPayment(ctx, *paymentID.Value); err != nil {
-		return err
-	}
-
-	_, err = b.createNewPayment(ctx, sub.AccountID, sub, false)
-	return err
-}*/
 
 func (b *BillingServiceDefault) CancelSubscription(ctx context.Context, userID uint) error {
 	if !b.enabled() || !b.paidEnabled() {
