@@ -375,10 +375,10 @@ func (b *BillingServiceDefault) getInvoicesForSubscription(ctx context.Context, 
 			return nil, fmt.Errorf("failed to get invoices batch: %w", err)
 		}
 
-		for _, invoice := range result.Payload {
-			for _, item := range invoice.Items {
+		for _, _invoice := range result.Payload {
+			for _, item := range _invoice.Items {
 				if item.SubscriptionID == subId {
-					allInvoices = append(allInvoices, invoice)
+					allInvoices = append(allInvoices, _invoice)
 					break
 				}
 			}
