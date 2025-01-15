@@ -338,17 +338,15 @@ func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint
 
 		if len(prices) > 0 {
 			subPlan = &messages.Plan{
-				ID:    plan.Identifier,
-				Name:  planName,
-				Price: prices[0].RecurringPrice,
-				//	Status:     remoteSubscriptionStatusToLocal(sub.State),
+				ID:     plan.Identifier,
+				Name:   planName,
+				Price:  prices[0].RecurringPrice,
 				Period: remoteSubscriptionPhaseToLocal(kbmodel.SubscriptionPhaseTypeEnum(*sub.BillingPeriod)),
 				Resources: messages.Resources{
 					Storage:  plan.Storage,
 					Upload:   plan.Upload,
 					Download: plan.Download,
 				},
-				//	StartDate:  &sub.StartDate,
 			}
 		}
 	}
@@ -358,16 +356,20 @@ func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint
 	}
 
 	status := messages.StatusPending
+	var startDate time.Time
 
 	if sub != nil && subPlan != nil {
 		status = remoteSubscriptionStatusToLocal(sub.State)
+	}
+	if sub != nil {
+		startDate = time.Time(sub.StartDate)
 	}
 
 	return &messages.Subscription{
 		Plan:   subPlan,
 		Status: status,
 		CurrentPeriod: messages.Period{
-			Start: time.Time(sub.StartDate),
+			Start: startDate,
 			End:   time.Time{},
 		},
 		Billing: &messages.Billing{
