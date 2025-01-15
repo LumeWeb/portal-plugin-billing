@@ -17,10 +17,12 @@ import (
 
 const QUOTA_SERVICE = "quota"
 
-var noUsage = &messages.CurrentUsageResponse{
-	Upload:   0,
-	Download: 0,
-	Storage:  0,
+var noUsage = &messages.Usage{
+	Current: messages.Resources{
+		Storage:  0, // In bytes
+		Upload:   0, // In bytes
+		Download: 0, // In bytes
+	},
 }
 
 type QuotaServiceDefault struct {
@@ -236,11 +238,24 @@ func (q *QuotaServiceDefault) checkQuota(userID uint, requestedBytes uint64, quo
 		return true, nil
 	}
 
-	maxQuota, err := q.billing.GetUserMaxStorage(userID)
+	// Get the maximum quota for this quota type
+	var maxQuota uint64
+	var err error
+	switch quotaType {
+	case "download":
+		maxQuota, err = q.billing.GetUserMaxDownload(userID)
+	case "upload":
+		maxQuota, err = q.billing.GetUserMaxUpload(userID)
+	case "storage":
+		maxQuota, err = q.billing.GetUserMaxStorage(userID)
+	default:
+		return false, fmt.Errorf("invalid quota type: %s", quotaType)
+	}
 	if err != nil {
 		return false, err
 	}
 
+	// Get current usage
 	usage, err := q.GetCurrentUsage(userID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -250,16 +265,15 @@ func (q *QuotaServiceDefault) checkQuota(userID uint, requestedBytes uint64, quo
 		return false, err
 	}
 
+	// Check against appropriate quota type
 	var totalBytes uint64
 	switch quotaType {
 	case "download":
-		totalBytes = usage.Download + requestedBytes
+		totalBytes = usage.Current.Download + requestedBytes
 	case "upload":
-		totalBytes = usage.Upload + requestedBytes
+		totalBytes = usage.Current.Upload + requestedBytes
 	case "storage":
-		totalBytes = usage.Storage + requestedBytes
-	default:
-		return false, fmt.Errorf("invalid quota type: %s", quotaType)
+		totalBytes = usage.Current.Storage + requestedBytes
 	}
 
 	return totalBytes <= maxQuota, nil
@@ -377,19 +391,19 @@ func (q *QuotaServiceDefault) isSQLite() bool {
 	return q.db.Dialector.Name() == "sqlite"
 }
 
-func (q *QuotaServiceDefault) GetUploadUsageHistory(userID uint, period int) ([]*messages.UsageData, error) {
+func (q *QuotaServiceDefault) GetUploadUsageHistory(userID uint, period int) ([]*messages.UsagePoint, error) {
 	return q.getUsageHistory(userID, period, "upload")
 }
 
-func (q *QuotaServiceDefault) GetDownloadUsageHistory(userID uint, period int) ([]*messages.UsageData, error) {
+func (q *QuotaServiceDefault) GetDownloadUsageHistory(userID uint, period int) ([]*messages.UsagePoint, error) {
 	return q.getUsageHistory(userID, period, "download")
 }
 
-func (q *QuotaServiceDefault) GetStorageUsageHistory(userID uint, period int) ([]*messages.UsageData, error) {
+func (q *QuotaServiceDefault) GetStorageUsageHistory(userID uint, period int) ([]*messages.UsagePoint, error) {
 	return q.getUsageHistory(userID, period, "storage")
 }
 
-func (q *QuotaServiceDefault) GetCurrentUsage(userID uint) (*messages.CurrentUsageResponse, error) {
+func (q *QuotaServiceDefault) GetCurrentUsage(userID uint) (*messages.Usage, error) {
 	if !q.enabled() {
 		return noUsage, nil
 	}
@@ -399,34 +413,34 @@ func (q *QuotaServiceDefault) GetCurrentUsage(userID uint) (*messages.CurrentUsa
 		return nil, err
 	}
 
-	var usageData messages.CurrentUsageResponse
+	var resources messages.Resources
 	now := time.Now().UTC()
 
 	var innerErr error
 	err = db.RetryableTransaction(q.ctx, q.db, func(tx *gorm.DB) *gorm.DB {
 		var startDate, endDate time.Time
 
-		if sub == nil || sub.Plan == nil {
+		if sub == nil || sub.Plan.ID == "" {
 			// If no subscription, get lifetime usage
 			if err := tx.Model(&pluginDb.UserBandwidthQuota{}).
 				Select("COALESCE(SUM(bytes_uploaded), 0) as upload, COALESCE(SUM(bytes_downloaded), 0) as download").
 				Where("user_id = ?", userID).
-				Scan(&usageData).Error; err != nil {
+				Scan(&resources).Error; err != nil {
 				_ = tx.AddError(err)
 				return tx
 			}
 		} else {
 			// If subscription exists, calculate usage for the current period
 			if sub.Plan.IsFree {
-				startDate = now.Truncate(24 * time.Hour) // Start of today
+				startDate = now.Truncate(24 * time.Hour)
 			} else {
-				startDate = time.Time(*sub.Plan.StartDate)
+				startDate = sub.CurrentPeriod.Start
 			}
 
 			switch sub.Plan.Period {
-			case messages.SubscriptionPlanPeriodMonth:
+			case messages.PeriodMonthly:
 				endDate = startDate.AddDate(0, 1, 0)
-			case messages.SubscriptionPlanPeriodYear:
+			case messages.PeriodYearly:
 				endDate = startDate.AddDate(1, 0, 0)
 			default:
 				innerErr = fmt.Errorf("invalid subscription period: %s", sub.Plan.Period)
@@ -443,7 +457,7 @@ func (q *QuotaServiceDefault) GetCurrentUsage(userID uint) (*messages.CurrentUsa
 			if err := tx.Model(&pluginDb.UserBandwidthQuota{}).
 				Select("COALESCE(SUM(bytes_uploaded), 0) as upload, COALESCE(SUM(bytes_downloaded), 0) as download").
 				Where("user_id = ? AND date >= ? AND date < ?", userID, startDate, endDate).
-				Scan(&usageData).Error; err != nil {
+				Scan(&resources).Error; err != nil {
 				_ = tx.AddError(err)
 				return tx
 			}
@@ -461,7 +475,7 @@ func (q *QuotaServiceDefault) GetCurrentUsage(userID uint) (*messages.CurrentUsa
 			_ = tx.AddError(err)
 			return tx
 		}
-		usageData.Storage = storageUsage.Added - storageUsage.Removed
+		resources.Storage = storageUsage.Added - storageUsage.Removed
 
 		return tx
 	})
@@ -474,10 +488,12 @@ func (q *QuotaServiceDefault) GetCurrentUsage(userID uint) (*messages.CurrentUsa
 		return nil, innerErr
 	}
 
-	return &usageData, nil
+	return &messages.Usage{
+		Current: resources,
+	}, nil
 }
 
-func (q *QuotaServiceDefault) getUsageHistory(userID uint, period int, usageType string) ([]*messages.UsageData, error) {
+func (q *QuotaServiceDefault) getUsageHistory(userID uint, period int, usageType string) ([]*messages.UsagePoint, error) {
 	if !q.enabled() {
 		return nil, nil
 	}
@@ -485,23 +501,23 @@ func (q *QuotaServiceDefault) getUsageHistory(userID uint, period int, usageType
 	endDate := time.Now().UTC().Truncate(24 * time.Hour).Add(24 * time.Hour)
 	startDate := endDate.AddDate(0, 0, -period)
 
-	var usageData []*messages.UsageData
+	var usagePoints []*messages.UsagePoint
 	var err error
 
 	if usageType == "storage" {
-		err = q.getStorageUsageHistory(userID, startDate, endDate, &usageData)
+		err = q.getStorageUsageHistory(userID, startDate, endDate, &usagePoints)
 	} else {
-		err = q.getBandwidthUsageHistory(userID, startDate, endDate, usageType, &usageData)
+		err = q.getBandwidthUsageHistory(userID, startDate, endDate, usageType, &usagePoints)
 	}
 
 	if err != nil {
 		return nil, err
 	}
 
-	return usageData, nil
+	return usagePoints, nil
 }
 
-func (q *QuotaServiceDefault) getBandwidthUsageHistory(userID uint, startDate, endDate time.Time, usageType string, usageData *[]*messages.UsageData) error {
+func (q *QuotaServiceDefault) getBandwidthUsageHistory(userID uint, startDate, endDate time.Time, usageType string, usagePoints *[]*messages.UsagePoint) error {
 	column := "bytes_uploaded"
 	if usageType == "download" {
 		column = "bytes_downloaded"
@@ -509,50 +525,51 @@ func (q *QuotaServiceDefault) getBandwidthUsageHistory(userID uint, startDate, e
 
 	return db.RetryableTransaction(q.ctx, q.db, func(tx *gorm.DB) *gorm.DB {
 		return tx.Model(&pluginDb.UserBandwidthQuota{}).
-			Select(fmt.Sprintf("date, %s as `usage`", column)).
+			Select(fmt.Sprintf("date as timestamp, %s as value", column)).
 			Where("user_id = ? AND date >= ? AND date <= ?", userID, startDate, endDate).
 			Order("date ASC").
-			Scan(usageData)
+			Scan(usagePoints)
 	})
 }
 
-func (q *QuotaServiceDefault) getStorageUsageHistory(userID uint, startDate, endDate time.Time, usageData *[]*messages.UsageData) error {
+func (q *QuotaServiceDefault) getStorageUsageHistory(userID uint, startDate, endDate time.Time, usagePoints *[]*messages.UsagePoint) error {
 	return db.RetryableTransaction(q.ctx, q.db, func(tx *gorm.DB) *gorm.DB {
 		// First, get daily changes
 		var dailyChanges []struct {
-			Date        time.Time
+			Timestamp   time.Time
 			DailyChange int64
 		}
 
 		query := `
-            SELECT 
-                DATE(created_at) as date,
-                SUM(CASE WHEN is_add THEN bytes ELSE -bytes END) as daily_change
-            FROM user_storage
-            WHERE user_id = ? AND created_at >= ? AND created_at <= ?
-            GROUP BY DATE(created_at)
-            ORDER BY date ASC
-        `
+           SELECT 
+               DATE(created_at) as timestamp,
+               SUM(CASE WHEN is_add THEN bytes ELSE -bytes END) as daily_change
+           FROM user_storage
+           WHERE user_id = ? AND created_at >= ? AND created_at <= ?
+           GROUP BY DATE(created_at)
+           ORDER BY timestamp ASC
+       `
 
 		if err := tx.Raw(query, userID, startDate, endDate).Scan(&dailyChanges).Error; err != nil {
 			_ = tx.AddError(err)
 			return tx
 		}
 
-		// Calculate cumulative sums in Go
+		// Calculate cumulative sums
 		var cumulativeSum int64
-		*usageData = make([]*messages.UsageData, len(dailyChanges))
+		*usagePoints = make([]*messages.UsagePoint, len(dailyChanges))
 		for i, change := range dailyChanges {
 			cumulativeSum += change.DailyChange
-			(*usageData)[i] = &messages.UsageData{
-				Date:  change.Date,
-				Usage: uint64(max(0, cumulativeSum)),
+			(*usagePoints)[i] = &messages.UsagePoint{
+				Timestamp: change.Timestamp,
+				Value:     uint64(max(0, cumulativeSum)),
 			}
 		}
 
 		return tx
 	})
 }
+
 func (b *QuotaServiceDefault) Config() (any, error) {
 	return &config.QuotaConfig{}, nil
 }
