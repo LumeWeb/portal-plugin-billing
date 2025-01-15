@@ -340,7 +340,7 @@ func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context
 		invoices = filterUnpaidInvoices(invoices)
 
 		for _, _invoice := range invoices {
-			if err, _ := b.api.Invoice.VoidInvoice(ctx, &invoice.VoidInvoiceParams{InvoiceID: _invoice.InvoiceID}); err != nil {
+			if _, err := b.api.Invoice.VoidInvoice(ctx, &invoice.VoidInvoiceParams{InvoiceID: _invoice.InvoiceID}); err != nil {
 				return err
 			}
 		}
