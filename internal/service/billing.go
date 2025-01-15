@@ -357,9 +357,15 @@ func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint
 		subPlan = b.getFreePlan()
 	}
 
+	status := messages.StatusPending
+
+	if sub != nil && subPlan != nil {
+		status = remoteSubscriptionStatusToLocal(sub.State)
+	}
+
 	return &messages.Subscription{
 		Plan:   subPlan,
-		Status: remoteSubscriptionStatusToLocal(sub.State),
+		Status: status,
 		CurrentPeriod: messages.Period{
 			Start: time.Time(sub.StartDate),
 			End:   time.Time{},
