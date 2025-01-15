@@ -218,7 +218,7 @@ func (b *BillingServiceDefault) GetPlans(ctx context.Context) ([]*messages.Subsc
 	}
 
 	if !b.paidEnabled() {
-		return []*messages.SubscriptionPlan{b.getFreePlan()}, nil
+		return []*messages.Plan{b.getFreePlan()}, nil
 	}
 
 	plans, err := b.api.Catalog.GetCatalogJSON(ctx, &catalog.GetCatalogJSONParams{})
@@ -226,7 +226,7 @@ func (b *BillingServiceDefault) GetPlans(ctx context.Context) ([]*messages.Subsc
 		return nil, err
 	}
 
-	var result []*messages.SubscriptionPlan
+	var result []*messages.Plan
 
 	if len(plans.Payload) == 0 {
 		return result, nil
@@ -259,7 +259,7 @@ func (b *BillingServiceDefault) GetPlans(ctx context.Context) ([]*messages.Subsc
 			continue
 		}
 
-		result = append(result, &messages.SubscriptionPlan{
+		result = append(result, &messages.Plan{
 			Name:       planName,
 			Identifier: basePlan.Plan,
 			Price:      basePlan.FinalPhaseRecurringPrice[0].Value,
@@ -279,17 +279,20 @@ func (b *BillingServiceDefault) GetPlans(ctx context.Context) ([]*messages.Subsc
 	return result, nil
 }
 
-func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint) (*messages.SubscriptionResponse, error) {
+func (b *BillingServiceDefault) GetSubscription(ctx context.Context, userID uint) (*messages.Subscription, error) {
 	if !b.enabled() {
 		return nil, nil
 	}
 
 	if !b.paidEnabled() {
 		freePlan := b.getFreePlan()
-		return &messages.SubscriptionResponse{
-			Plan:        freePlan,
-			BillingInfo: messages.BillingInfo{},
-			PaymentInfo: messages.PaymentInfo{},
+		return &messages.Subscription{
+			Plan:   *freePlan,
+			Status: messages.StatusActive,
+			CurrentPeriod: messages.Period{
+				Start: time.Unix(0, 0),
+				End:   time.Now().AddDate(1, 0, 0),
+			},
 		}, nil
 	}
 

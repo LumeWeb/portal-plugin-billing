@@ -172,16 +172,17 @@ func (b *BillingServiceDefault) getFreePlan() *messages.SubscriptionPlan {
 		return nil
 	}
 
-	return &messages.SubscriptionPlan{
-		Name:       b.cfg.FreePlanName,
-		Identifier: b.cfg.FreePlanID,
-		Period:     messages.SubscriptionPlanPeriodMonth,
-		Price:      0,
-		Storage:    b.cfg.FreeStorage,
-		Upload:     b.cfg.FreeUpload,
-		Download:   b.cfg.FreeDownload,
-		Status:     messages.SubscriptionPlanStatusActive,
-		IsFree:     true,
+	return &messages.Plan{
+		ID:       b.cfg.FreePlanID,
+		Name:     b.cfg.FreePlanName,
+		Period:   messages.PeriodMonthly,
+		Price:    0,
+		Resources:
+		Storage:  b.cfg.FreeStorage,
+		Upload:   b.cfg.FreeUpload,
+		Download: b.cfg.FreeDownload,
+		Status:   messages.SubscriptionPlanStatusActive,
+		IsFree:   true,
 	}
 }
 

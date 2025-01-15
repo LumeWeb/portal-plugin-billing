@@ -1,142 +1,144 @@
 package messages
 
 import (
-	"github.com/go-openapi/strfmt"
 	"time"
 )
 
+// Core types
 type (
-	SubscriptionPlanPeriod string
-	SubscriptionPlanStatus string
+	PlanPeriod string
+	PlanStatus string
 )
 
 const (
-	SubscriptionPlanPeriodMonth SubscriptionPlanPeriod = "MONTH"
-	SubscriptionPlanPeriodYear  SubscriptionPlanPeriod = "YEAR"
+	PeriodMonthly PlanPeriod = "MONTHLY"
+	PeriodYearly  PlanPeriod = "YEARLY"
+
+	StatusActive   PlanStatus = "ACTIVE"
+	StatusPending  PlanStatus = "PENDING"
+	StatusCanceled PlanStatus = "CANCELED"
 )
 
-const (
-	SubscriptionPlanStatusActive  SubscriptionPlanStatus = "ACTIVE"
-	SubscriptionPlanStatusPending SubscriptionPlanStatus = "PENDING"
-)
-
-type SubscriptionPlansResponse struct {
-	Plans []*SubscriptionPlan `json:"plans"`
+// Plan structures
+type Plan struct {
+	ID        string     `json:"id"`
+	Name      string     `json:"name"`
+	Period    PlanPeriod `json:"period"`
+	Price     float64    `json:"price"`
+	IsFree    bool       `json:"is_free"`
+	Resources Resources  `json:"resources"`
 }
 
-type SubscriptionPlan struct {
-	Name       string                 `json:"name"`
-	Identifier string                 `json:"identifier"`
-	Price      float64                `json:"price"`
-	Period     SubscriptionPlanPeriod `json:"period"`
-	Storage    uint64                 `json:"storage"`
-	Upload     uint64                 `json:"upload"`
-	Download   uint64                 `json:"download"`
-	Status     SubscriptionPlanStatus `json:"status"`
-	StartDate  *strfmt.DateTime       `json:"start_date,omitempty"`
-	IsFree     bool                   `json:"is_free,omitempty"`
-}
-type SubscriptionResponse struct {
-	Plan        *SubscriptionPlan `json:"plan"`
-	BillingInfo BillingInfo       `json:"billing_info"`
-	PaymentInfo PaymentInfo       `json:"payment_info"`
+type Resources struct {
+	StorageGB  uint64 `json:"storage_gb"`
+	UploadGB   uint64 `json:"upload_gb"`
+	DownloadGB uint64 `json:"download_gb"`
 }
 
-type BillingInfo struct {
-	Name              string `json:"name"`
-	Organization      string `json:"organization"`
-	Address           string `json:"address"`
-	DependentLocality string `json:"dependent_locality"`
-	SortingCode       string `json:"sorting_code"`
+// Subscription structures
+type Subscription struct {
+	ID            string     `json:"id"`
+	Plan          Plan       `json:"plan"`
+	Status        PlanStatus `json:"status"`
+	CurrentPeriod Period     `json:"current_period"`
+	Billing       *Billing   `json:"billing,omitempty"`
+	Payment       *Payment   `json:"payment,omitempty"`
+}
+
+type Period struct {
+	Start time.Time `json:"start"`
+	End   time.Time `json:"end"`
+}
+
+// Payment structures
+type Payment struct {
+	PaymentMethodID string    `json:"payment_method_id,omitempty"`
+	ClientSecret    string    `json:"client_secret,omitempty"`
+	PublishableKey  string    `json:"publishable_key,omitempty"`
+	ExpiresAt       time.Time `json:"expires_at,omitempty"`
+}
+
+// Billing structures
+type Billing struct {
+	Name         string  `json:"name"`
+	Organization string  `json:"organization,omitempty"`
+	Address      Address `json:"address"`
+}
+
+type Address struct {
+	Line1             string `json:"line1"`
+	Line2             string `json:"line2,omitempty"`
 	City              string `json:"city"`
 	State             string `json:"state"`
-	Zip               string `json:"zip"`
+	PostalCode        string `json:"postal_code"`
 	Country           string `json:"country"`
+	DependentLocality string `json:"dependent_locality,omitempty"`
+	SortingCode       string `json:"sorting_code,omitempty"`
 }
 
-type PaymentInfo struct {
-	PaymentID      string    `json:"payment_id,omitempty"`
-	PaymentExpires time.Time `json:"payment_expires,omitempty"`
-	ClientSecret   string    `json:"client_secret,omitempty"`
-	PublishableKey string    `json:"publishable_key,omitempty"`
+// Location reference data
+type Location struct {
+	Code string `json:"code"`
+	Name string `json:"name"`
 }
 
-type SubscriptionCreateRequest struct {
-	Plan string `json:"plan"`
+type Country struct {
+	Location
+	SupportedFields []string `json:"supported_fields,omitempty"`
 }
 
-type SubscriptionChangeRequest struct {
-	Plan string `json:"plan"`
+// API Requests
+type CreateSubscriptionRequest struct {
+	PlanID string `json:"plan_id"`
 }
 
-type SubscriptionChangeResponse struct {
-	Plan *SubscriptionPlan `json:"plan"`
+type UpdateSubscriptionRequest struct {
+	PlanID string `json:"plan_id"`
 }
 
-type SubscriptionConnectRequest struct {
+type UpdateBillingRequest struct {
+	Billing Billing `json:"billing"`
+}
+
+type UpdatePaymentRequest struct {
 	PaymentMethodID string `json:"payment_method_id"`
 }
 
-type EphemeralKeyResponse struct {
-	Key string `json:"key"`
-}
-
-type RequestPaymentMethodChangeResponse struct {
-	ClientSecret string `json:"client_secret"`
-}
-
-type UpdatePaymentMethodRequest struct {
-	PaymentMethodID string `json:"payment_method_id"`
-}
-
-type CancellationRequest struct {
+type CancelSubscriptionRequest struct {
 	Reason    string `json:"reason"`
 	EndOfTerm bool   `json:"end_of_term"`
 }
 
-type CancellationResponse struct {
-	Status        string    `json:"status"`
-	EffectiveDate time.Time `json:"effective_date"`
+// API Responses
+type GetPlansResponse struct {
+	Plans []Plan `json:"plans"`
 }
 
-type UsageData struct {
-	Date  time.Time `json:"date"`
-	Usage uint64    `json:"usage"`
+type SubscriptionResponse struct {
+	Subscription Subscription `json:"subscription"`
 }
 
-type CurrentUsageResponse struct {
-	Upload   uint64 `json:"upload"`
-	Download uint64 `json:"download"`
-	Storage  uint64 `json:"storage"`
+type LocationsResponse struct {
+	Items []Location `json:"items"`
 }
 
-type ListBillingCountriesResponse = []*ListBillingCountriesResponseItem
-
-type ListBillingCountriesResponseItem struct {
-	Name              string   `json:"name"`
-	Code              string   `json:"code"`
-	SupportedEntities []string `json:"supported_entities,omitempty"`
+type CountriesResponse struct {
+	Items []Country `json:"items"`
 }
 
-type ListBillingStatesResponse = []*ListBillingStatesResponseItem
-
-type ListBillingStatesResponseItem struct {
-	Name string `json:"name"`
-	Code string `json:"code"`
+type ErrorResponse struct {
+	Code    string            `json:"code"`
+	Message string            `json:"message"`
+	Details map[string]string `json:"details,omitempty"`
 }
 
-type ListBillingCitiesResponse = []*ListBillingCitiesResponseItem
-
-type ListBillingCitiesResponseItem struct {
-	Code string `json:"code"`
-	Name string `json:"name"`
+// Usage structures
+type Usage struct {
+	Current Resources    `json:"current"`
+	History []UsagePoint `json:"history,omitempty"`
 }
 
-type UpdateBillingInfoResponseError struct {
-	Errors []*UpdateBillingInfoResponseErrorItem `json:"errors"`
-}
-
-type UpdateBillingInfoResponseErrorItem struct {
-	Field   string `json:"field"`
-	Message string `json:"message"`
+type UsagePoint struct {
+	Timestamp time.Time `json:"timestamp"`
+	Value     uint64    `json:"value"`
 }
