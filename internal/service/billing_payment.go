@@ -235,12 +235,18 @@ func extractPaymentDetails(tx *kbmodel.PaymentTransaction) (*messages.Payment, e
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse expires_at: %w", err)
 		}
-		_payment.ExpiresAt = expiresAt
+		if !expiresAt.IsZero() {
+			_payment.ExpiresAt = expiresAt
+		}
 	}
 
 	// Validate required fields
 	if _payment.ClientSecret == "" {
 		return nil, fmt.Errorf("client_secret not found in transaction properties")
+	}
+
+	if _payment.ExpiresAt.IsZero() {
+		return nil, fmt.Errorf("expires_at not found in transaction properties")
 	}
 
 	return _payment, nil
