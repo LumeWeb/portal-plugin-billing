@@ -1,11 +1,14 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
 	"go.lumeweb.com/httputil"
 	"go.lumeweb.com/portal-plugin-billing/internal/api/messages"
+	"go.lumeweb.com/portal-plugin-billing/internal/client/hyperswitch"
 	"go.lumeweb.com/portal/core"
 	"go.lumeweb.com/portal/middleware"
+	"go.uber.org/zap"
 	"net/http"
 )
 
@@ -74,7 +77,6 @@ func (a API) createSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx.Response.WriteHeader(http.StatusCreated)
 	ctx.Encode(subscription)
 }
 
@@ -103,4 +105,18 @@ func (a API) changeSubscription(w http.ResponseWriter, r *http.Request) {
 		_ = ctx.Error(err, http.StatusInternalServerError)
 		return
 	}
+}
+
+func (a API) handlePaymentWebhook(w http.ResponseWriter, r *http.Request) {
+	// Read and parse the webhook payload
+	var event hyperswitch.WebhookEvent
+	if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
+		a.logger.Error("failed to decode webhook payload", zap.Error(err))
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	a.logger.Info("webhook received", zap.Any("event", event))
+
+	w.WriteHeader(http.StatusOK)
 }
