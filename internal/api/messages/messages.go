@@ -116,6 +116,10 @@ type SubscriptionResponse struct {
 	Subscription Subscription `json:"subscription"`
 }
 
+type BillingResponse struct {
+	Billing Billing `json:"billing"`
+}
+
 type ErrorResponse struct {
 	Code    string            `json:"code"`
 	Message string            `json:"message"`
