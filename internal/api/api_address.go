@@ -156,7 +156,7 @@ func (a API) updateBilling(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx.Encode(messages.SubscriptionResponse{
-		Subscription: *subscription,
+	ctx.Encode(messages.BillingResponse{
+		Billing: *subscription.Billing,
 	})
 }
