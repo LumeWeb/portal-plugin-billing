@@ -70,14 +70,7 @@ func (a API) createSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	subscription, err := a.billingService.GetSubscription(ctx, user)
-
-	if err != nil {
-		_ = ctx.Error(err, http.StatusInternalServerError)
-		return
-	}
-
-	ctx.Encode(subscription)
+	a.getSubscription(w, r)
 }
 
 func (a API) changeSubscription(w http.ResponseWriter, r *http.Request) {
@@ -105,6 +98,8 @@ func (a API) changeSubscription(w http.ResponseWriter, r *http.Request) {
 		_ = ctx.Error(err, http.StatusInternalServerError)
 		return
 	}
+
+	a.getSubscription(w, r)
 }
 
 func (a API) handlePaymentWebhook(w http.ResponseWriter, r *http.Request) {
