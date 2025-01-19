@@ -346,14 +346,15 @@ func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context
 	invoices = filterUnpaidInvoices(invoices)
 
 	if len(invoices) > 0 {
-		// Disable auto-invoicing first
-		if err = b.disableAutoInvoicing(ctx, sub.AccountID, true); err != nil {
+
+		// Disable overdue enforcement
+		if err = b.disableOverdueEnforcement(ctx, sub.AccountID, true); err != nil {
+			b.cleanupTags(ctx, sub.AccountID)
 			return err
 		}
 
-		// Then disable overdue enforcement
-		if err = b.disableOverdueEnforcement(ctx, sub.AccountID, true); err != nil {
-			b.cleanupTags(ctx, sub.AccountID)
+		// Disable auto-invoicing
+		if err = b.disableAutoInvoicing(ctx, sub.AccountID, true); err != nil {
 			return err
 		}
 
