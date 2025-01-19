@@ -335,19 +335,34 @@ func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context
 		return b.changeSubscriptionPlan(ctx, sub.SubscriptionID, planID)
 	}
 
-	// First ensure overdue enforcement is off to prevent state changes
+	// Log initial state
+	if err := b.logAccountTagState(ctx, sub.AccountID, "Starting subscription plan change"); err != nil {
+		return err
+	}
+
+	// Set overdue enforcement off
 	if err := b.ensureDisableOverdueEnforcement(ctx, sub.AccountID, true); err != nil {
 		b.cleanupTags(ctx, sub.AccountID)
 		return err
 	}
 
-	// Then ensure auto-invoicing is off to prevent new invoices
+	// Log after overdue enforcement
+	if err := b.logAccountTagState(ctx, sub.AccountID, "After setting overdue enforcement off"); err != nil {
+		return err
+	}
+
+	// Set auto invoicing off
 	if err := b.ensureDisableAutoInvoicing(ctx, sub.AccountID, true); err != nil {
 		b.cleanupTags(ctx, sub.AccountID)
 		return err
 	}
 
-	// Now that both controls are in place, cancel the subscription
+	// Log after auto invoicing
+	if err := b.logAccountTagState(ctx, sub.AccountID, "After setting auto invoicing off"); err != nil {
+		return err
+	}
+
+	// Cancel subscription
 	if _, err := b.api.Subscription.CancelSubscriptionPlan(ctx, &subscription.CancelSubscriptionPlanParams{
 		SubscriptionID: sub.SubscriptionID,
 	}); err != nil {
@@ -355,7 +370,12 @@ func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context
 		return err
 	}
 
-	// Handle any existing invoices
+	// Log after cancellation
+	if err := b.logAccountTagState(ctx, sub.AccountID, "After subscription cancellation"); err != nil {
+		return err
+	}
+
+	// Get invoices first to determine if we need to disable anything
 	invoices, err := b.getInvoicesForSubscription(ctx, sub.AccountID, sub.SubscriptionID)
 	if err != nil {
 		b.cleanupTags(ctx, sub.AccountID)
@@ -366,11 +386,19 @@ func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context
 	invoices = filterRecurringInvoices(invoices)
 	invoices = filterUnpaidInvoices(invoices)
 
-	for _, invoice := range invoices {
-		if err := b.voidInvoice(ctx, invoice.InvoiceID); err != nil {
-			b.cleanupTags(ctx, sub.AccountID)
-			return err
+	if len(invoices) > 0 {
+		for _, _invoice := range invoices {
+			if err := b.voidInvoice(ctx, _invoice.InvoiceID); err != nil {
+				// Cleanup both tags if voiding fails
+				b.cleanupTags(ctx, sub.AccountID)
+				return err
+			}
 		}
+	}
+
+	// Log after invoice handling
+	if err := b.logAccountTagState(ctx, sub.AccountID, "After voiding invoices"); err != nil {
+		return err
 	}
 
 	// Create new subscription
@@ -386,13 +414,57 @@ func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context
 		return err
 	}
 
+	// Log after new subscription creation
+	if err := b.logAccountTagState(ctx, sub.AccountID, "After creating new subscription"); err != nil {
+		return err
+	}
+
 	// Remove controls in reverse order
 	if err := b.ensureDisableAutoInvoicing(ctx, sub.AccountID, false); err != nil {
 		return err
 	}
+
+	// Log after removing auto invoicing
+	if err := b.logAccountTagState(ctx, sub.AccountID, "After removing auto invoicing"); err != nil {
+		return err
+	}
+
 	if err := b.ensureDisableOverdueEnforcement(ctx, sub.AccountID, false); err != nil {
 		return err
 	}
+
+	// Log final state
+	if err := b.logAccountTagState(ctx, sub.AccountID, "Completed subscription plan change"); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (b *BillingServiceDefault) logAccountTagState(ctx context.Context, accountID strfmt.UUID, msg string) error {
+	tags, err := b.api.Account.GetAccountTags(ctx, &account.GetAccountTagsParams{
+		AccountID: accountID,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to get account tags: %w", err)
+	}
+
+	// Check for specific control tags
+	var hasAutoInvoicingOff, hasOverdueEnforcementOff bool
+	for _, tag := range tags.Payload {
+		switch tag.TagDefinitionName {
+		case TagAutoInvoicingOff:
+			hasAutoInvoicingOff = true
+		case TagOverdueEnforcementOff:
+			hasOverdueEnforcementOff = true
+		}
+	}
+
+	b.logger.Info(msg,
+		zap.String("account", string(accountID)),
+		zap.Bool("autoInvoicingOff", hasAutoInvoicingOff),
+		zap.Bool("overdueEnforcementOff", hasOverdueEnforcementOff),
+		zap.Int("totalTags", len(tags.Payload)))
 
 	return nil
 }
