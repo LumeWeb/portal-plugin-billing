@@ -7,6 +7,7 @@ import (
 	"github.com/killbill/kbcli/v3/kbclient/account"
 	"github.com/killbill/kbcli/v3/kbclient/tag_definition"
 	"github.com/killbill/kbcli/v3/kbmodel"
+	"go.uber.org/zap"
 	"strconv"
 )
 
@@ -56,6 +57,7 @@ func (b *BillingServiceDefault) setControlTag(ctx context.Context, accountID str
 			AccountID: accountID,
 			Body:      []strfmt.UUID{tagDefId},
 		})
+		b.logger.Info("enabling tag", zap.String("tag", tagName), zap.String("account", string(accountID)))
 		return err
 	}
 
@@ -64,6 +66,7 @@ func (b *BillingServiceDefault) setControlTag(ctx context.Context, accountID str
 			AccountID: accountID,
 			TagDef:    []strfmt.UUID{tagDefId},
 		})
+		b.logger.Info("disabling tag", zap.String("tag", tagName), zap.String("account", string(accountID)))
 		return err
 	}
 
