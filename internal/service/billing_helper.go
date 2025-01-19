@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/Boostport/address"
+	"github.com/avast/retry-go"
 	"github.com/go-openapi/strfmt"
 	"github.com/killbill/kbcli/v3/kbclient/account"
 	"github.com/killbill/kbcli/v3/kbclient/catalog"
@@ -20,6 +21,7 @@ import (
 	"math"
 	"sort"
 	"strconv"
+	"time"
 )
 
 type SortOrder int
@@ -355,7 +357,26 @@ func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context
 		}
 
 		for _, _invoice := range invoices {
-			if _, err := b.api.Invoice.VoidInvoice(ctx, &invoice.VoidInvoiceParams{InvoiceID: _invoice.InvoiceID}); err != nil {
+			err = retry.Do(
+				func() error {
+					if _, err := b.api.Invoice.VoidInvoice(ctx, &invoice.VoidInvoiceParams{InvoiceID: _invoice.InvoiceID}); err != nil {
+						return err
+					}
+
+					return nil
+				},
+				retry.Attempts(3),
+				retry.Delay(1*time.Second),
+			)
+			if err != nil {
+				err1 := b.disableAutoInvoicing(ctx, sub.AccountID, false)
+				if err1 != nil {
+					b.logger.Error("disableAutoInvoicing failed", zap.Error(err1))
+				}
+				err1 = b.disableOverdueEnforcement(ctx, sub.AccountID, false)
+				if err1 != nil {
+					b.logger.Error("disableOverdueEnforcement failed", zap.Error(err1))
+				}
 				return err
 			}
 		}
