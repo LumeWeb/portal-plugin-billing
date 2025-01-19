@@ -193,7 +193,7 @@ func (b *BillingServiceDefault) ensureControlTags(ctx context.Context, accountID
 		}
 
 		if allCorrect {
-			b.logger.Info("all tags verified",
+			b.logger.Debug("all tags verified",
 				zap.String("account", string(accountID)),
 				zap.Strings("tags", tags),
 				zap.Bool("enabled", enabled))
