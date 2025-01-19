@@ -3,6 +3,7 @@ package service
 import (
 	"fmt"
 	"github.com/killbill/kbcli/v3/kbmodel"
+	"github.com/samber/lo"
 	"go.lumeweb.com/portal-plugin-billing/internal/api/messages"
 	"slices"
 	"strings"
@@ -120,6 +121,8 @@ func filterUnpaidInvoices(invoices []*kbmodel.Invoice) []*kbmodel.Invoice {
 
 func filterInvoicesNoCredit(invoices []*kbmodel.Invoice) []*kbmodel.Invoice {
 	return slices.DeleteFunc(slices.Clone(invoices), func(inv *kbmodel.Invoice) bool {
-		return len(inv.Credits) > 0
+		return len(lo.Filter(inv.Items, func(item *kbmodel.InvoiceItem, _ int) bool {
+			return lo.Contains([]kbmodel.InvoiceItemItemTypeEnum{kbmodel.InvoiceItemItemTypeREPAIRADJ, kbmodel.InvoiceItemItemTypeCREDITADJ}, item.ItemType)
+		})) > 0
 	})
 }
