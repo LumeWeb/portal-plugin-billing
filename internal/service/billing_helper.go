@@ -11,6 +11,7 @@ import (
 	"github.com/killbill/kbcli/v3/kbclient/catalog"
 	"github.com/killbill/kbcli/v3/kbclient/invoice"
 	"github.com/killbill/kbcli/v3/kbclient/subscription"
+	"github.com/killbill/kbcli/v3/kbcommon"
 	"github.com/killbill/kbcli/v3/kbmodel"
 	"github.com/samber/lo"
 	"go.lumeweb.com/portal-plugin-billing/internal/api/messages"
@@ -395,7 +396,11 @@ func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context
 
 					err = b.changeSubscriptionPlan(ctx, sub.SubscriptionID, planID)
 					if err != nil {
-						continue
+						if kbError, ok := err.(*kbcommon.KillbillError); ok && kbError.Code == 1021 {
+							continue
+						}
+
+						return err
 					}
 
 					return nil
