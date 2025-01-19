@@ -102,6 +102,24 @@ func (a API) changeSubscription(w http.ResponseWriter, r *http.Request) {
 	a.getSubscription(w, r)
 }
 
+func (a API) cancelSubscription(w http.ResponseWriter, r *http.Request) {
+	ctx := httputil.Context(r, w)
+
+	user, err := middleware.GetUserFromContext(ctx)
+	if err != nil {
+		_ = ctx.Error(core.NewAccountError(core.ErrKeyInvalidLogin, nil), http.StatusUnauthorized)
+		return
+	}
+
+	err = a.billingService.CancelSubscription(ctx, user)
+	if err != nil {
+		_ = ctx.Error(err, http.StatusInternalServerError)
+		return
+	}
+
+	ctx.Response.WriteHeader(http.StatusNoContent)
+}
+
 func (a API) handlePaymentWebhook(w http.ResponseWriter, r *http.Request) {
 	// Read and parse the webhook payload
 	var event hyperswitch.WebhookEvent

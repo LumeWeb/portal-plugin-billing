@@ -77,7 +77,7 @@ func (a *API) Configure(_ *mux.Router, accessSvc core.AccessService) error {
 		{mainRouter, "/api/account/subscription/plan", "PUT", a.changeSubscription, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
 		//{mainRouter, "/api/account/subscription/request-payment-method-change", "POST", a.requestPaymentMethodChange, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
 		//{mainRouter, "/api/account/subscription/update-payment-method", "POST", a.updatePaymentMethod, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
-		//{mainRouter, "/api/account/subscription/cancel", "POST", a.cancelSubscription, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
+		{mainRouter, "/api/account/subscription/cancel", "DELETE", a.cancelSubscription, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
 		{mainRouter, "/api/account/subscription/billing/countries", "GET", a.listBillingCountries, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
 		{mainRouter, "/api/account/subscription/billing/states", "GET", a.listBillingStates, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
 		{mainRouter, "/api/account/subscription/billing/cities", "GET", a.listBillingCities, []mux.MiddlewareFunc{authMw, accessMw}, core.ACCESS_USER_ROLE},
@@ -216,35 +216,6 @@ func (a API) requestPaymentMethodChange(w http.ResponseWriter, r *http.Request) 
 	ctx.Encode(response)
 }
 
-func (a API) cancelSubscription(w http.ResponseWriter, r *http.Request) {
-	ctx := httputil.Context(r, w)
-
-	user, err := middleware.GetUserFromContext(ctx)
-	if err != nil {
-		_ = ctx.Error(core.NewAccountError(core.ErrKeyInvalidLogin, nil), http.StatusUnauthorized)
-		return
-	}
-
-	var req messages.CancellationRequest
-	if err := ctx.Decode(&req); err != nil {
-		_ = ctx.Error(err, http.StatusBadRequest)
-		return
-	}
-
-	// Validate reason is provided
-	if req.Reason == "" {
-		_ = ctx.Error(fmt.Errorf("cancellation reason is required"), http.StatusBadRequest)
-		return
-	}
-
-	resp, err := a.billingService.GetSubscriptionManager().CancelSubscription(ctx, user, &req)
-	if err != nil {
-		_ = ctx.Error(err, http.StatusInternalServerError)
-		return
-	}
-
-	ctx.Encode(resp)
-}
 func (a API) getUploadUsageHistory(w http.ResponseWriter, r *http.Request) {
 	a.getUsageHistory(w, r, a.quotaService.GetUploadUsageHistory)
 }

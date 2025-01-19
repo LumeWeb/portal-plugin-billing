@@ -102,11 +102,6 @@ type UpdatePaymentRequest struct {
 	PaymentMethodID string `json:"payment_method_id"`
 }
 
-type CancelSubscriptionRequest struct {
-	Reason    string `json:"reason"`
-	EndOfTerm bool   `json:"end_of_term"`
-}
-
 // API Responses
 type GetPlansResponse struct {
 	Plans []*Plan `json:"plans"`

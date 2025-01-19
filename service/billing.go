@@ -17,7 +17,7 @@ type BillingService interface {
 	GetSubscription(ctx context.Context, userID uint) (*messages.Subscription, error)
 	CreateSubscription(ctx context.Context, userID uint, planID string) error
 	UpdateSubscription(ctx context.Context, userID uint, planID string) error
-	//CancelSubscription(ctx context.Context, userID uint, req *messages.CancellationRequest) error
+	CancelSubscription(ctx context.Context, userID uint) error
 
 	// Plan management
 	GetPlans(ctx context.Context) ([]*messages.Plan, error)
