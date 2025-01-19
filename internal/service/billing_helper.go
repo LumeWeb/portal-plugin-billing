@@ -391,11 +391,38 @@ func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context
 		},
 	}
 
+	tagHandler := func(name string) error {
+		// Verify tags are still set after the operation, unless we're in cleanup
+		if name != "cleanup_tags" {
+			if err := b.ensureControlTags(ctx, sub.AccountID, true,
+				TagAutoInvoicingOff,
+				TagOverdueEnforcementOff); err != nil {
+				b.logger.Error("tag verification failed",
+					zap.String("after_operation", name),
+					zap.Error(err))
+				b.cleanupTags(ctx, sub.AccountID)
+				return fmt.Errorf("tag verification failed after %s: %w", name, err)
+			}
+		}
+
+		return nil
+	}
+
 	// Execute each operation and verify tags after each step
 	for _, op := range operations {
 		b.logger.Info("executing operation",
 			zap.String("operation", op.name),
 			zap.String("account", string(sub.AccountID)))
+
+		// Verify tags are still set after the operation, unless we're in cleanup
+		err = tagHandler(op.name)
+		if err != nil {
+			return err
+		}
+
+		if op.name == "change_plan" {
+			time.Sleep(time.Second)
+		}
 
 		// Execute the operation
 		if err := op.execute(); err != nil {
@@ -410,19 +437,10 @@ func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context
 			return fmt.Errorf("%s failed: %w", op.name, err)
 		}
 
-		// Verify tags are still set after the operation, unless we're in cleanup
-		if op.name != "cleanup_tags" {
-			if err := b.ensureControlTags(ctx, sub.AccountID, true,
-				TagAutoInvoicingOff,
-				TagOverdueEnforcementOff); err != nil {
-				b.logger.Error("tag verification failed",
-					zap.String("after_operation", op.name),
-					zap.Error(err))
-				b.cleanupTags(ctx, sub.AccountID)
-				return fmt.Errorf("tag verification failed after %s: %w", op.name, err)
-			}
+		err = tagHandler(op.name)
+		if err != nil {
+			return err
 		}
-		time.Sleep(time.Millisecond * 100)
 	}
 
 	return nil
