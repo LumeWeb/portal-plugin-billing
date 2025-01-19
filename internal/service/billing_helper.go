@@ -335,25 +335,30 @@ func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context
 		return b.changeSubscriptionPlan(ctx, sub.SubscriptionID, planID)
 	}
 
-	_, err := b.api.Subscription.CancelSubscriptionPlan(ctx, &subscription.CancelSubscriptionPlanParams{SubscriptionID: sub.SubscriptionID})
-	if err != nil {
-		return err
-	}
-
-	if err = b.ensureDisableOverdueEnforcement(ctx, sub.AccountID, true); err != nil {
+	// First ensure overdue enforcement is off to prevent state changes
+	if err := b.ensureDisableOverdueEnforcement(ctx, sub.AccountID, true); err != nil {
 		b.cleanupTags(ctx, sub.AccountID)
 		return err
 	}
 
-	// Disable auto-invoicing
-	if err = b.ensureDisableAutoInvoicing(ctx, sub.AccountID, true); err != nil {
+	// Then ensure auto-invoicing is off to prevent new invoices
+	if err := b.ensureDisableAutoInvoicing(ctx, sub.AccountID, true); err != nil {
 		b.cleanupTags(ctx, sub.AccountID)
 		return err
 	}
 
-	// Get invoices first to determine if we need to disable anything
+	// Now that both controls are in place, cancel the subscription
+	if _, err := b.api.Subscription.CancelSubscriptionPlan(ctx, &subscription.CancelSubscriptionPlanParams{
+		SubscriptionID: sub.SubscriptionID,
+	}); err != nil {
+		b.cleanupTags(ctx, sub.AccountID)
+		return err
+	}
+
+	// Handle any existing invoices
 	invoices, err := b.getInvoicesForSubscription(ctx, sub.AccountID, sub.SubscriptionID)
 	if err != nil {
+		b.cleanupTags(ctx, sub.AccountID)
 		return err
 	}
 
@@ -361,16 +366,14 @@ func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context
 	invoices = filterRecurringInvoices(invoices)
 	invoices = filterUnpaidInvoices(invoices)
 
-	if len(invoices) > 0 {
-		for _, _invoice := range invoices {
-			if err = b.voidInvoice(ctx, _invoice.InvoiceID); err != nil {
-				// Cleanup both tags if voiding fails
-				b.cleanupTags(ctx, sub.AccountID)
-				return err
-			}
+	for _, invoice := range invoices {
+		if err := b.voidInvoice(ctx, invoice.InvoiceID); err != nil {
+			b.cleanupTags(ctx, sub.AccountID)
+			return err
 		}
 	}
 
+	// Create new subscription
 	_, err = b.api.Subscription.CreateSubscription(ctx, &subscription.CreateSubscriptionParams{
 		Body: &kbmodel.Subscription{
 			AccountID: sub.AccountID,
@@ -378,8 +381,16 @@ func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context
 			State:     kbmodel.SubscriptionStatePENDING,
 		},
 	})
-
 	if err != nil {
+		b.cleanupTags(ctx, sub.AccountID)
+		return err
+	}
+
+	// Remove controls in reverse order
+	if err := b.ensureDisableAutoInvoicing(ctx, sub.AccountID, false); err != nil {
+		return err
+	}
+	if err := b.ensureDisableOverdueEnforcement(ctx, sub.AccountID, false); err != nil {
 		return err
 	}
 
