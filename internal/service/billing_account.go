@@ -9,6 +9,7 @@ import (
 	"github.com/killbill/kbcli/v3/kbmodel"
 	"go.uber.org/zap"
 	"strconv"
+	"time"
 )
 
 const (
@@ -53,23 +54,99 @@ func (b *BillingServiceDefault) setControlTag(ctx context.Context, accountID str
 
 	// Add or remove tag based on desired state
 	if enabled && !hasTag {
+		b.logger.Debug("enabling tag", zap.String("tag", tagName), zap.String("account", string(accountID)))
 		_, err = b.api.Account.CreateAccountTags(ctx, &account.CreateAccountTagsParams{
 			AccountID: accountID,
 			Body:      []strfmt.UUID{tagDefId},
 		})
-		b.logger.Info("enabling tag", zap.String("tag", tagName), zap.String("account", string(accountID)))
 		return err
 	}
 
 	if !enabled && hasTag {
+		b.logger.Debug("disabling tag", zap.String("tag", tagName), zap.String("account", string(accountID)))
 		_, err = b.api.Account.DeleteAccountTags(ctx, &account.DeleteAccountTagsParams{
 			AccountID: accountID,
 			TagDef:    []strfmt.UUID{tagDefId},
 		})
-		b.logger.Info("disabling tag", zap.String("tag", tagName), zap.String("account", string(accountID)))
 		return err
 	}
 
+	return nil
+}
+
+func (b *BillingServiceDefault) verifyTagState(ctx context.Context, accountID strfmt.UUID, tagName string, desiredState bool) (bool, error) {
+	// Get current account tags
+	tags, err := b.api.Account.GetAccountTags(ctx, &account.GetAccountTagsParams{
+		AccountID: accountID,
+	})
+	if err != nil {
+		return false, fmt.Errorf("failed to verify tag state: %w", err)
+	}
+
+	// Check if tag exists
+	var hasTag bool
+	for _, tag := range tags.Payload {
+		if tag.TagDefinitionName == tagName {
+			hasTag = true
+			break
+		}
+	}
+
+	// Return whether current state matches desired state
+	return hasTag == desiredState, nil
+}
+
+// ensureControlTag sets a control tag and verifies the state is correct, retrying until successful
+func (b *BillingServiceDefault) ensureControlTag(ctx context.Context, accountID strfmt.UUID, tagName string, enabled bool) error {
+	// First attempt to set the tag
+	if err := b.setControlTag(ctx, accountID, tagName, enabled); err != nil {
+		return fmt.Errorf("initial tag set failed: %w", err)
+	}
+
+	// Keep trying until the state is correct
+	for {
+		// Check if the state is correct
+		matches, err := b.verifyTagState(ctx, accountID, tagName, enabled)
+		if err != nil {
+			return fmt.Errorf("failed to verify tag state: %w", err)
+		}
+
+		if matches {
+			// State is correct, we're done
+			return nil
+		}
+
+		b.logger.Warn("tag state verification failed, retrying",
+			zap.String("tag", tagName),
+			zap.String("account", string(accountID)))
+
+		// Wait a second before retry to avoid hammering the API
+		time.Sleep(time.Second)
+
+		// Retry setting the tag
+		if err := b.setControlTag(ctx, accountID, tagName, enabled); err != nil {
+			return fmt.Errorf("failed to set tag on retry: %w", err)
+		}
+	}
+}
+
+func (b *BillingServiceDefault) ensureDisableAutoInvoicing(ctx context.Context, accountID strfmt.UUID, disable bool) error {
+	b.logger.Debug("ensuring auto-invoicing is disabled",
+		zap.String("account", string(accountID)))
+
+	if err := b.ensureControlTag(ctx, accountID, TagAutoInvoicingOff, disable); err != nil {
+		return fmt.Errorf("failed to ensure auto-invoicing is disabled: %w", err)
+	}
+	return nil
+}
+
+func (b *BillingServiceDefault) ensureDisableOverdueEnforcement(ctx context.Context, accountID strfmt.UUID, disable bool) error {
+	b.logger.Debug("ensuring overdue enforcement is disabled",
+		zap.String("account", string(accountID)))
+
+	if err := b.ensureControlTag(ctx, accountID, TagOverdueEnforcementOff, disable); err != nil {
+		return fmt.Errorf("failed to ensure overdue enforcement is disabled: %w", err)
+	}
 	return nil
 }
 

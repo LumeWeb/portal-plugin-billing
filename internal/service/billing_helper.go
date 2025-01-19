@@ -340,6 +340,17 @@ func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context
 		return err
 	}
 
+	if err = b.ensureDisableOverdueEnforcement(ctx, sub.AccountID, true); err != nil {
+		b.cleanupTags(ctx, sub.AccountID)
+		return err
+	}
+
+	// Disable auto-invoicing
+	if err = b.ensureDisableAutoInvoicing(ctx, sub.AccountID, true); err != nil {
+		b.cleanupTags(ctx, sub.AccountID)
+		return err
+	}
+
 	// Get invoices first to determine if we need to disable anything
 	invoices, err := b.getInvoicesForSubscription(ctx, sub.AccountID, sub.SubscriptionID)
 	if err != nil {
@@ -431,10 +442,10 @@ func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context
 }*/
 
 func (b *BillingServiceDefault) cleanupTags(ctx context.Context, accountID strfmt.UUID) {
-	if err := b.disableAutoInvoicing(ctx, accountID, false); err != nil {
+	if err := b.ensureDisableAutoInvoicing(ctx, accountID, false); err != nil {
 		b.logger.Error("failed to cleanup auto invoicing", zap.Error(err))
 	}
-	if err := b.disableOverdueEnforcement(ctx, accountID, false); err != nil {
+	if err := b.ensureDisableAutoInvoicing(ctx, accountID, false); err != nil {
 		b.logger.Error("failed to cleanup overdue enforcement", zap.Error(err))
 	}
 }
