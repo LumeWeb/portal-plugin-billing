@@ -340,6 +340,16 @@ func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context
 		return err
 	}
 
+	// Get invoices first to determine if we need to disable anything
+	invoices, err := b.getInvoicesForSubscription(ctx, sub.AccountID, sub.SubscriptionID)
+	if err != nil {
+		return err
+	}
+
+	invoices = sortInvoices(invoices, SortDescending)
+	invoices = filterRecurringInvoices(invoices)
+	invoices = filterUnpaidInvoices(invoices)
+
 	_, err = b.api.Subscription.CreateSubscription(ctx, &subscription.CreateSubscriptionParams{
 		Body: &kbmodel.Subscription{
 			AccountID: sub.AccountID,
@@ -347,6 +357,16 @@ func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context
 			State:     kbmodel.SubscriptionStatePENDING,
 		},
 	})
+
+	if len(invoices) > 0 {
+		for _, _invoice := range invoices {
+			if err = b.voidInvoice(ctx, _invoice.InvoiceID); err != nil {
+				// Cleanup both tags if voiding fails
+				b.cleanupTags(ctx, sub.AccountID)
+				return err
+			}
+		}
+	}
 
 	if err != nil {
 		return err
