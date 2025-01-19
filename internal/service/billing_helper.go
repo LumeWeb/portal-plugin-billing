@@ -336,21 +336,21 @@ func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context
 		return b.changeSubscriptionPlan(ctx, sub.SubscriptionID, planID)
 	}
 
-	// Get invoices first to determine if we need tag management
+	/*// Get invoices first to determine if we need tag management
 	invoices, err := b.getInvoicesForSubscription(ctx, sub.AccountID, sub.SubscriptionID)
 	if err != nil {
 		return err
 	}
 
-	invoices = sortInvoices(invoices, SortDescending)
-	invoices = filterRecurringInvoices(invoices)
-	invoices = filterUnpaidInvoices(invoices)
-	invoices = filterInvoicesNoCredit(invoices)
+		invoices = sortInvoices(invoices, SortDescending)
+		invoices = filterRecurringInvoices(invoices)
+		invoices = filterUnpaidInvoices(invoices)
+		invoices = filterInvoicesNoCredit(invoices)
 
-	if len(invoices) == 0 {
-		// If no invoices to handle, just do the plan change
-		return b.changeSubscriptionPlan(ctx, sub.SubscriptionID, planID)
-	}
+		if len(invoices) == 0 {
+			// If no invoices to handle, just do the plan change
+			return b.changeSubscriptionPlan(ctx, sub.SubscriptionID, planID)
+		}*/
 
 	tagHandler := func(name string) error {
 		// Verify tags are still set after the operation, unless we're in cleanup
@@ -374,17 +374,17 @@ func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context
 		name    string
 		execute func() error
 	}{
-		{
-			name: "void_invoices",
-			execute: func() error {
-				for _, _invoice := range invoices {
-					if err := b.voidInvoice(ctx, _invoice.InvoiceID); err != nil {
-						return err
+		/*		{
+				name: "void_invoices",
+				execute: func() error {
+					for _, _invoice := range invoices {
+						if err := b.voidInvoice(ctx, _invoice.InvoiceID); err != nil {
+							return err
+						}
 					}
-				}
-				return nil
-			},
-		},
+					return nil
+				},
+			},*/
 		{
 			name: "change_plan",
 			execute: func() error {
@@ -423,7 +423,7 @@ func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context
 			zap.String("operation", op.name),
 			zap.String("account", string(sub.AccountID)))
 
-		err = tagHandler(op.name)
+		err := tagHandler(op.name)
 		if err != nil {
 			return err
 		}
