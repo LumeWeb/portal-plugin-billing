@@ -335,6 +335,31 @@ func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context
 		return b.changeSubscriptionPlan(ctx, sub.SubscriptionID, planID)
 	}
 
+	_, err := b.api.Subscription.CancelSubscriptionPlan(ctx, &subscription.CancelSubscriptionPlanParams{SubscriptionID: sub.SubscriptionID})
+	if err != nil {
+		return err
+	}
+
+	_, err = b.api.Subscription.CreateSubscription(ctx, &subscription.CreateSubscriptionParams{
+		Body: &kbmodel.Subscription{
+			AccountID: sub.AccountID,
+			PlanName:  &planID,
+			State:     kbmodel.SubscriptionStatePENDING,
+		},
+	})
+
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+/*func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context, sub *kbmodel.Subscription, planID string) error {
+	if sub.State != kbmodel.SubscriptionStateBLOCKED {
+		return b.changeSubscriptionPlan(ctx, sub.SubscriptionID, planID)
+	}
+
 	// Get invoices first to determine if we need to disable anything
 	invoices, err := b.getInvoicesForSubscription(ctx, sub.AccountID, sub.SubscriptionID)
 	if err != nil {
@@ -383,7 +408,7 @@ func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context
 	}
 
 	return nil
-}
+}*/
 
 func (b *BillingServiceDefault) cleanupTags(ctx context.Context, accountID strfmt.UUID) {
 	if err := b.disableAutoInvoicing(ctx, accountID, false); err != nil {
