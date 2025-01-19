@@ -422,6 +422,7 @@ func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context
 				return fmt.Errorf("tag verification failed after %s: %w", op.name, err)
 			}
 		}
+		time.Sleep(time.Millisecond * 100)
 	}
 
 	return nil
