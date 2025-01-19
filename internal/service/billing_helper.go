@@ -336,22 +336,6 @@ func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context
 		return b.changeSubscriptionPlan(ctx, sub.SubscriptionID, planID)
 	}
 
-	/*// Get invoices first to determine if we need tag management
-	invoices, err := b.getInvoicesForSubscription(ctx, sub.AccountID, sub.SubscriptionID)
-	if err != nil {
-		return err
-	}
-
-		invoices = sortInvoices(invoices, SortDescending)
-		invoices = filterRecurringInvoices(invoices)
-		invoices = filterUnpaidInvoices(invoices)
-		invoices = filterInvoicesNoCredit(invoices)
-
-		if len(invoices) == 0 {
-			// If no invoices to handle, just do the plan change
-			return b.changeSubscriptionPlan(ctx, sub.SubscriptionID, planID)
-		}*/
-
 	tagHandler := func(name string) error {
 		// Verify tags are still set after the operation, unless we're in cleanup
 		if name != "cleanup_tags" {
@@ -374,17 +358,6 @@ func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context
 		name    string
 		execute func() error
 	}{
-		/*		{
-				name: "void_invoices",
-				execute: func() error {
-					for _, _invoice := range invoices {
-						if err := b.voidInvoice(ctx, _invoice.InvoiceID); err != nil {
-							return err
-						}
-					}
-					return nil
-				},
-			},*/
 		{
 			name: "change_plan",
 			execute: func() error {
@@ -472,61 +445,6 @@ func (b *BillingServiceDefault) logAccountTagState(ctx context.Context, accountI
 
 	return nil
 }
-
-/*func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context, sub *kbmodel.Subscription, planID string) error {
-	if sub.State != kbmodel.SubscriptionStateBLOCKED {
-		return b.changeSubscriptionPlan(ctx, sub.SubscriptionID, planID)
-	}
-
-	// Get invoices first to determine if we need to disable anything
-	invoices, err := b.getInvoicesForSubscription(ctx, sub.AccountID, sub.SubscriptionID)
-	if err != nil {
-		return err
-	}
-
-	invoices = sortInvoices(invoices, SortDescending)
-	invoices = filterRecurringInvoices(invoices)
-	invoices = filterUnpaidInvoices(invoices)
-	invoices = filterInvoicesNoCredit(invoices)
-
-	if len(invoices) > 0 {
-
-		// Disable overdue enforcement
-		if err = b.disableOverdueEnforcement(ctx, sub.AccountID, true); err != nil {
-			b.cleanupTags(ctx, sub.AccountID)
-			return err
-		}
-
-		// Disable auto-invoicing
-		if err = b.disableAutoInvoicing(ctx, sub.AccountID, true); err != nil {
-			return err
-		}
-
-		// Void invoices
-		for _, _invoice := range invoices {
-			if err = b.voidInvoice(ctx, _invoice.InvoiceID); err != nil {
-				// Cleanup both tags if voiding fails
-				b.cleanupTags(ctx, sub.AccountID)
-				return err
-			}
-		}
-	}
-
-	// Change the plan
-	if err = b.changeSubscriptionPlan(ctx, sub.SubscriptionID, planID); err != nil {
-		if len(invoices) > 0 {
-			b.cleanupTags(ctx, sub.AccountID)
-		}
-		return err
-	}
-
-	// Cleanup tags if they were set
-	if len(invoices) > 0 {
-		b.cleanupTags(ctx, sub.AccountID)
-	}
-
-	return nil
-}*/
 
 func (b *BillingServiceDefault) cleanupTags(ctx context.Context, accountID strfmt.UUID) {
 	if err := b.ensureDisableAutoInvoicing(ctx, accountID, false); err != nil {
