@@ -335,78 +335,93 @@ func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context
 		return b.changeSubscriptionPlan(ctx, sub.SubscriptionID, planID)
 	}
 
-	// Log initial state
-	if err := b.logAccountTagState(ctx, sub.AccountID, "Starting subscription plan change"); err != nil {
-		return err
-	}
-
-	// Enable both control tags together
-	if err := b.ensureControlTags(ctx, sub.AccountID, true,
-		TagAutoInvoicingOff,
-		TagOverdueEnforcementOff); err != nil {
-		return err
-	}
-
-	// Cancel subscription
-	if _, err := b.api.Subscription.CancelSubscriptionPlan(ctx, &subscription.CancelSubscriptionPlanParams{
-		SubscriptionID: sub.SubscriptionID,
-	}); err != nil {
-		b.cleanupTags(ctx, sub.AccountID)
-		return err
-	}
-
-	// Re-verify tags after cancellation
-	if err := b.ensureControlTags(ctx, sub.AccountID, true,
-		TagAutoInvoicingOff,
-		TagOverdueEnforcementOff); err != nil {
-		return err
-	}
-
-	// Handle invoices...
+	// Get invoices first to determine if we need tag management
 	invoices, err := b.getInvoicesForSubscription(ctx, sub.AccountID, sub.SubscriptionID)
 	if err != nil {
-		b.cleanupTags(ctx, sub.AccountID)
 		return err
 	}
 
 	invoices = sortInvoices(invoices, SortDescending)
 	invoices = filterRecurringInvoices(invoices)
 	invoices = filterUnpaidInvoices(invoices)
+	invoices = filterInvoicesNoCredit(invoices)
 
-	if len(invoices) > 0 {
-		for _, _invoice := range invoices {
-			if err := b.voidInvoice(ctx, _invoice.InvoiceID); err != nil {
+	if len(invoices) == 0 {
+		// If no invoices to handle, just do the plan change
+		return b.changeSubscriptionPlan(ctx, sub.SubscriptionID, planID)
+	}
+
+	// Define operations sequence
+	operations := []struct {
+		name    string
+		execute func() error
+	}{
+		{
+			name: "initial_tag_setup",
+			execute: func() error {
+				return b.ensureControlTags(ctx, sub.AccountID, true,
+					TagAutoInvoicingOff,
+					TagOverdueEnforcementOff)
+			},
+		},
+		{
+			name: "void_invoices",
+			execute: func() error {
+				for _, _invoice := range invoices {
+					if err := b.voidInvoice(ctx, _invoice.InvoiceID); err != nil {
+						return err
+					}
+				}
+				return nil
+			},
+		},
+		{
+			name: "change_plan",
+			execute: func() error {
+				return b.changeSubscriptionPlan(ctx, sub.SubscriptionID, planID)
+			},
+		},
+		{
+			name: "cleanup_tags",
+			execute: func() error {
+				return b.ensureControlTags(ctx, sub.AccountID, false,
+					TagAutoInvoicingOff,
+					TagOverdueEnforcementOff)
+			},
+		},
+	}
+
+	// Execute each operation and verify tags after each step
+	for _, op := range operations {
+		b.logger.Info("executing operation",
+			zap.String("operation", op.name),
+			zap.String("account", string(sub.AccountID)))
+
+		// Execute the operation
+		if err := op.execute(); err != nil {
+			b.logger.Error("operation failed",
+				zap.String("operation", op.name),
+				zap.Error(err))
+
+			// Ensure tags are cleaned up on failure, unless we're already in cleanup
+			if op.name != "cleanup_tags" {
 				b.cleanupTags(ctx, sub.AccountID)
-				return err
+			}
+			return fmt.Errorf("%s failed: %w", op.name, err)
+		}
+
+		// Verify tags are still set after the operation, unless we're in cleanup
+		if op.name != "cleanup_tags" {
+			if err := b.ensureControlTags(ctx, sub.AccountID, true,
+				TagAutoInvoicingOff,
+				TagOverdueEnforcementOff); err != nil {
+				b.logger.Error("tag verification failed",
+					zap.String("after_operation", op.name),
+					zap.Error(err))
+				b.cleanupTags(ctx, sub.AccountID)
+				return fmt.Errorf("tag verification failed after %s: %w", op.name, err)
 			}
 		}
-	}
-
-	// Re-verify tags again before creating new subscription
-	if err := b.ensureControlTags(ctx, sub.AccountID, true,
-		TagAutoInvoicingOff,
-		TagOverdueEnforcementOff); err != nil {
-		return err
-	}
-
-	// Create new subscription
-	_, err = b.api.Subscription.CreateSubscription(ctx, &subscription.CreateSubscriptionParams{
-		Body: &kbmodel.Subscription{
-			AccountID: sub.AccountID,
-			PlanName:  &planID,
-			State:     kbmodel.SubscriptionStatePENDING,
-		},
-	})
-	if err != nil {
-		b.cleanupTags(ctx, sub.AccountID)
-		return err
-	}
-
-	// Remove both control tags together
-	if err := b.ensureControlTags(ctx, sub.AccountID, false,
-		TagAutoInvoicingOff,
-		TagOverdueEnforcementOff); err != nil {
-		return err
 	}
 
 	return nil
