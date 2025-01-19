@@ -351,46 +351,6 @@ func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context
 		return b.changeSubscriptionPlan(ctx, sub.SubscriptionID, planID)
 	}
 
-	// Define operations sequence
-	operations := []struct {
-		name    string
-		execute func() error
-	}{
-		{
-			name: "initial_tag_setup",
-			execute: func() error {
-				return b.ensureControlTags(ctx, sub.AccountID, true,
-					TagAutoInvoicingOff,
-					TagOverdueEnforcementOff)
-			},
-		},
-		{
-			name: "void_invoices",
-			execute: func() error {
-				for _, _invoice := range invoices {
-					if err := b.voidInvoice(ctx, _invoice.InvoiceID); err != nil {
-						return err
-					}
-				}
-				return nil
-			},
-		},
-		{
-			name: "change_plan",
-			execute: func() error {
-				return b.changeSubscriptionPlan(ctx, sub.SubscriptionID, planID)
-			},
-		},
-		{
-			name: "cleanup_tags",
-			execute: func() error {
-				return b.ensureControlTags(ctx, sub.AccountID, false,
-					TagAutoInvoicingOff,
-					TagOverdueEnforcementOff)
-			},
-		},
-	}
-
 	tagHandler := func(name string) error {
 		// Verify tags are still set after the operation, unless we're in cleanup
 		if name != "cleanup_tags" {
@@ -408,20 +368,59 @@ func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context
 		return nil
 	}
 
+	// Define operations sequence
+	operations := []struct {
+		name    string
+		execute func() error
+	}{
+		{
+			name: "void_invoices",
+			execute: func() error {
+				for _, _invoice := range invoices {
+					if err := b.voidInvoice(ctx, _invoice.InvoiceID); err != nil {
+						return err
+					}
+				}
+				return nil
+			},
+		},
+		{
+			name: "change_plan",
+			execute: func() error {
+				for {
+					err := tagHandler("")
+					if err != nil {
+						return err
+					}
+
+					err = b.changeSubscriptionPlan(ctx, sub.SubscriptionID, planID)
+					if err != nil {
+						continue
+					}
+
+					return nil
+				}
+			},
+		},
+		{
+			name: "cleanup_tags",
+			execute: func() error {
+				return b.ensureControlTags(ctx, sub.AccountID, false,
+					TagAutoInvoicingOff,
+					TagOverdueEnforcementOff)
+			},
+		},
+	}
+
 	// Execute each operation and verify tags after each step
 	for _, op := range operations {
 		b.logger.Info("executing operation",
 			zap.String("operation", op.name),
 			zap.String("account", string(sub.AccountID)))
 
-		// Verify tags are still set after the operation, unless we're in cleanup
 		err = tagHandler(op.name)
 		if err != nil {
 			return err
-		}
-
-		if op.name == "change_plan" {
-			time.Sleep(time.Second)
 		}
 
 		// Execute the operation
@@ -435,11 +434,6 @@ func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context
 				b.cleanupTags(ctx, sub.AccountID)
 			}
 			return fmt.Errorf("%s failed: %w", op.name, err)
-		}
-
-		err = tagHandler(op.name)
-		if err != nil {
-			return err
 		}
 	}
 
