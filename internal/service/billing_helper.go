@@ -331,83 +331,68 @@ func (b *BillingServiceDefault) getPlanByIdentifier(ctx context.Context, identif
 }
 
 func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context, sub *kbmodel.Subscription, planID string) error {
-	autoInvoicingDisabled := false
-	enforcementDisabled := false
-	if sub.State == kbmodel.SubscriptionStateBLOCKED {
-		invoices, err := b.getInvoicesForSubscription(ctx, sub.AccountID, sub.SubscriptionID)
-		if err != nil {
-			return err
-		}
-
-		invoices = sortInvoices(invoices, SortDescending)
-		invoices = filterRecurringInvoices(invoices)
-		invoices = filterUnpaidInvoices(invoices)
-
-		if len(invoices) > 0 {
-			err = b.disableAutoInvoicing(ctx, sub.AccountID, true)
-			if err != nil {
-				return err
-			}
-			autoInvoicingDisabled = true
-			err = b.disableOverdueEnforcement(ctx, sub.AccountID, true)
-			if err != nil {
-				return err
-			}
-			enforcementDisabled = true
-		}
-
-		for _, _invoice := range invoices {
-			err = retry.Do(
-				func() error {
-					if _, err := b.api.Invoice.VoidInvoice(ctx, &invoice.VoidInvoiceParams{InvoiceID: _invoice.InvoiceID}); err != nil {
-						return err
-					}
-
-					return nil
-				},
-				retry.Attempts(3),
-				retry.Delay(1*time.Second),
-			)
-			if err != nil {
-				err1 := b.disableAutoInvoicing(ctx, sub.AccountID, false)
-				if err1 != nil {
-					b.logger.Error("disableAutoInvoicing failed", zap.Error(err1))
-				}
-				err1 = b.disableOverdueEnforcement(ctx, sub.AccountID, false)
-				if err1 != nil {
-					b.logger.Error("disableOverdueEnforcement failed", zap.Error(err1))
-				}
-				return err
-			}
-		}
+	if sub.State != kbmodel.SubscriptionStateBLOCKED {
+		return b.changeSubscriptionPlan(ctx, sub.SubscriptionID, planID)
 	}
 
-	_, err := b.api.Subscription.ChangeSubscriptionPlan(ctx, &subscription.ChangeSubscriptionPlanParams{
-		SubscriptionID: sub.SubscriptionID,
-		Body: &kbmodel.Subscription{
-			PlanName: &planID,
-		},
-	})
-
+	// Get invoices first to determine if we need to disable anything
+	invoices, err := b.getInvoicesForSubscription(ctx, sub.AccountID, sub.SubscriptionID)
 	if err != nil {
 		return err
 	}
 
-	if autoInvoicingDisabled {
-		err = b.disableAutoInvoicing(ctx, sub.AccountID, false)
-		if err != nil {
+	invoices = sortInvoices(invoices, SortDescending)
+	invoices = filterRecurringInvoices(invoices)
+	invoices = filterUnpaidInvoices(invoices)
+
+	if len(invoices) > 0 {
+		// Disable auto-invoicing first
+		if err = b.disableAutoInvoicing(ctx, sub.AccountID, true); err != nil {
 			return err
+		}
+
+		// Then disable overdue enforcement
+		if err = b.disableOverdueEnforcement(ctx, sub.AccountID, true); err != nil {
+			// Cleanup auto-invoicing if overdue enforcement fails
+			if cleanupErr := b.disableAutoInvoicing(ctx, sub.AccountID, false); cleanupErr != nil {
+				b.logger.Error("failed to cleanup auto invoicing", zap.Error(cleanupErr))
+			}
+			return err
+		}
+
+		// Void invoices
+		for _, _invoice := range invoices {
+			if err = b.voidInvoice(ctx, _invoice.InvoiceID); err != nil {
+				// Cleanup both tags if voiding fails
+				b.cleanupTags(ctx, sub.AccountID)
+				return err
+			}
 		}
 	}
 
-	if enforcementDisabled {
-		err = b.disableOverdueEnforcement(ctx, sub.AccountID, false)
-		if err != nil {
-			return err
+	// Change the plan
+	if err = b.changeSubscriptionPlan(ctx, sub.SubscriptionID, planID); err != nil {
+		if len(invoices) > 0 {
+			b.cleanupTags(ctx, sub.AccountID)
 		}
+		return err
+	}
+
+	// Cleanup tags if they were set
+	if len(invoices) > 0 {
+		b.cleanupTags(ctx, sub.AccountID)
 	}
 
 	return nil
+}
+
+func (b *BillingServiceDefault) cleanupTags(ctx context.Context, accountID strfmt.UUID) {
+	if err := b.disableAutoInvoicing(ctx, accountID, false); err != nil {
+		b.logger.Error("failed to cleanup auto invoicing", zap.Error(err))
+	}
+	if err := b.disableOverdueEnforcement(ctx, accountID, false); err != nil {
+		b.logger.Error("failed to cleanup overdue enforcement", zap.Error(err))
+	}
 }
 
 func (b *BillingServiceDefault) getInvoicesForSubscription(ctx context.Context, accountID strfmt.UUID, subId strfmt.UUID) ([]*kbmodel.Invoice, error) {
@@ -449,4 +434,32 @@ func (b *BillingServiceDefault) getInvoicesForSubscription(ctx context.Context, 
 	}
 
 	return allInvoices, nil
+}
+
+func (b *BillingServiceDefault) changeSubscriptionPlan(ctx context.Context, subscriptionID strfmt.UUID, planID string) error {
+	_, err := b.api.Subscription.ChangeSubscriptionPlan(ctx, &subscription.ChangeSubscriptionPlanParams{
+		SubscriptionID: subscriptionID,
+		Body: &kbmodel.Subscription{
+			PlanName: &planID,
+		},
+	})
+	return err
+}
+
+func (b *BillingServiceDefault) voidInvoice(ctx context.Context, invoiceID strfmt.UUID) error {
+	return retry.Do(
+		func() error {
+			_, err := b.api.Invoice.VoidInvoice(ctx, &invoice.VoidInvoiceParams{
+				InvoiceID: invoiceID,
+			})
+			return err
+		},
+		retry.Attempts(3),
+		retry.Delay(1*time.Second),
+		retry.OnRetry(func(n uint, err error) {
+			b.logger.Warn("retrying void invoice",
+				zap.Stringer("invoiceId", invoiceID),
+				zap.Error(err))
+		}),
+	)
 }
