@@ -162,6 +162,67 @@ func (b *BillingServiceDefault) disableOverdueEnforcement(ctx context.Context, a
 	return b.setControlTag(ctx, accountID, TagOverdueEnforcementOff, disable)
 }
 
+func (b *BillingServiceDefault) ensureControlTags(ctx context.Context, accountID strfmt.UUID, enabled bool, tags ...string) error {
+
+	for {
+		// First set all tags to desired state
+		for _, tag := range tags {
+			if err := b.setControlTag(ctx, accountID, tag, enabled); err != nil {
+				return fmt.Errorf("failed to set tag %s: %w", tag, err)
+			}
+		}
+
+		// Verify all tags
+		tagStates, err := b.verifyControlTags(ctx, accountID)
+		if err != nil {
+			return fmt.Errorf("failed to verify tags: %w", err)
+		}
+
+		// Check if all tags are in desired state
+		allCorrect := true
+		for _, tag := range tags {
+			if tagStates[tag] != enabled {
+				allCorrect = false
+				b.logger.Warn("tag state mismatch",
+					zap.String("account", string(accountID)),
+					zap.String("tag", tag),
+					zap.Bool("current", tagStates[tag]),
+					zap.Bool("desired", enabled))
+				break
+			}
+		}
+
+		if allCorrect {
+			b.logger.Info("all tags verified",
+				zap.String("account", string(accountID)),
+				zap.Strings("tags", tags),
+				zap.Bool("enabled", enabled))
+			return nil
+		}
+
+		// Wait before retry
+		time.Sleep(time.Second)
+	}
+
+}
+
+func (b *BillingServiceDefault) verifyControlTags(ctx context.Context, accountID strfmt.UUID) (map[string]bool, error) {
+	tags, err := b.api.Account.GetAccountTags(ctx, &account.GetAccountTagsParams{
+		AccountID: accountID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get account tags: %w", err)
+	}
+
+	// Create map of tag states
+	tagStates := make(map[string]bool)
+	for _, tag := range tags.Payload {
+		tagStates[tag.TagDefinitionName] = true
+	}
+
+	return tagStates, nil
+}
+
 func (b *BillingServiceDefault) getAccount(ctx context.Context, userID uint) (*kbmodel.Account, error) {
 	err := b.CreateCustomerById(ctx, userID)
 	if err != nil {

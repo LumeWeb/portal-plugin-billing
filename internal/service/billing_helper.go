@@ -340,43 +340,29 @@ func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context
 		return err
 	}
 
-	// Set overdue enforcement off
-	if err := b.ensureDisableOverdueEnforcement(ctx, sub.AccountID, true); err != nil {
-		b.cleanupTags(ctx, sub.AccountID)
-		return err
-	}
-
-	// Log after overdue enforcement
-	if err := b.logAccountTagState(ctx, sub.AccountID, "After setting overdue enforcement off"); err != nil {
-		return err
-	}
-
-	// Set auto invoicing off
-	if err := b.ensureDisableAutoInvoicing(ctx, sub.AccountID, true); err != nil {
-		b.cleanupTags(ctx, sub.AccountID)
-		return err
-	}
-
-	// Log after auto invoicing
-	if err := b.logAccountTagState(ctx, sub.AccountID, "After setting auto invoicing off"); err != nil {
+	// Enable both control tags together
+	if err := b.ensureControlTags(ctx, sub.AccountID, true,
+		TagAutoInvoicingOff,
+		TagOverdueEnforcementOff); err != nil {
 		return err
 	}
 
 	// Cancel subscription
 	if _, err := b.api.Subscription.CancelSubscriptionPlan(ctx, &subscription.CancelSubscriptionPlanParams{
 		SubscriptionID: sub.SubscriptionID,
-		BillingPolicy:  lo.ToPtr("IMMEDIATE"),
 	}); err != nil {
 		b.cleanupTags(ctx, sub.AccountID)
 		return err
 	}
 
-	// Log after cancellation
-	if err := b.logAccountTagState(ctx, sub.AccountID, "After subscription cancellation"); err != nil {
+	// Re-verify tags after cancellation
+	if err := b.ensureControlTags(ctx, sub.AccountID, true,
+		TagAutoInvoicingOff,
+		TagOverdueEnforcementOff); err != nil {
 		return err
 	}
 
-	// Get invoices first to determine if we need to disable anything
+	// Handle invoices...
 	invoices, err := b.getInvoicesForSubscription(ctx, sub.AccountID, sub.SubscriptionID)
 	if err != nil {
 		b.cleanupTags(ctx, sub.AccountID)
@@ -390,15 +376,16 @@ func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context
 	if len(invoices) > 0 {
 		for _, _invoice := range invoices {
 			if err := b.voidInvoice(ctx, _invoice.InvoiceID); err != nil {
-				// Cleanup both tags if voiding fails
 				b.cleanupTags(ctx, sub.AccountID)
 				return err
 			}
 		}
 	}
 
-	// Log after invoice handling
-	if err := b.logAccountTagState(ctx, sub.AccountID, "After voiding invoices"); err != nil {
+	// Re-verify tags again before creating new subscription
+	if err := b.ensureControlTags(ctx, sub.AccountID, true,
+		TagAutoInvoicingOff,
+		TagOverdueEnforcementOff); err != nil {
 		return err
 	}
 
@@ -415,27 +402,10 @@ func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context
 		return err
 	}
 
-	// Log after new subscription creation
-	if err := b.logAccountTagState(ctx, sub.AccountID, "After creating new subscription"); err != nil {
-		return err
-	}
-
-	// Remove controls in reverse order
-	if err := b.ensureDisableAutoInvoicing(ctx, sub.AccountID, false); err != nil {
-		return err
-	}
-
-	// Log after removing auto invoicing
-	if err := b.logAccountTagState(ctx, sub.AccountID, "After removing auto invoicing"); err != nil {
-		return err
-	}
-
-	if err := b.ensureDisableOverdueEnforcement(ctx, sub.AccountID, false); err != nil {
-		return err
-	}
-
-	// Log final state
-	if err := b.logAccountTagState(ctx, sub.AccountID, "Completed subscription plan change"); err != nil {
+	// Remove both control tags together
+	if err := b.ensureControlTags(ctx, sub.AccountID, false,
+		TagAutoInvoicingOff,
+		TagOverdueEnforcementOff); err != nil {
 		return err
 	}
 
