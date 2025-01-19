@@ -120,6 +120,6 @@ func filterUnpaidInvoices(invoices []*kbmodel.Invoice) []*kbmodel.Invoice {
 
 func filterInvoicesNoCredit(invoices []*kbmodel.Invoice) []*kbmodel.Invoice {
 	return slices.DeleteFunc(slices.Clone(invoices), func(inv *kbmodel.Invoice) bool {
-		return len(inv.Credits) == 0
+		return len(inv.Credits) > 0
 	})
 }
