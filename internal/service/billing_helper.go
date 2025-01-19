@@ -344,6 +344,7 @@ func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context
 	invoices = sortInvoices(invoices, SortDescending)
 	invoices = filterRecurringInvoices(invoices)
 	invoices = filterUnpaidInvoices(invoices)
+	invoices = filterInvoicesNoCredit(invoices)
 
 	if len(invoices) > 0 {
 
