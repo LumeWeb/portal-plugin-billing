@@ -353,10 +353,7 @@ func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context
 
 		// Then disable overdue enforcement
 		if err = b.disableOverdueEnforcement(ctx, sub.AccountID, true); err != nil {
-			// Cleanup auto-invoicing if overdue enforcement fails
-			if cleanupErr := b.disableAutoInvoicing(ctx, sub.AccountID, false); cleanupErr != nil {
-				b.logger.Error("failed to cleanup auto invoicing", zap.Error(cleanupErr))
-			}
+			b.cleanupTags(ctx, sub.AccountID)
 			return err
 		}
 
