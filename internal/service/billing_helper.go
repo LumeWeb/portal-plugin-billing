@@ -383,9 +383,24 @@ func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context
 		{
 			name: "cleanup_tags",
 			execute: func() error {
-				return b.ensureControlTags(ctx, sub.AccountID, false,
+				err := b.ensureControlTags(ctx, sub.AccountID, false,
 					TagAutoInvoicingOff,
 					TagOverdueEnforcementOff)
+
+				if err != nil {
+					return err
+				}
+
+				for {
+					sub, err := b.api.Subscription.GetSubscription(ctx, &subscription.GetSubscriptionParams{SubscriptionID: sub.SubscriptionID})
+					if err != nil {
+						return err
+					}
+
+					if sub.Payload.State == kbmodel.SubscriptionStateBLOCKED {
+						return nil
+					}
+				}
 			},
 		},
 	}
