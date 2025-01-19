@@ -350,14 +350,6 @@ func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context
 	invoices = filterRecurringInvoices(invoices)
 	invoices = filterUnpaidInvoices(invoices)
 
-	_, err = b.api.Subscription.CreateSubscription(ctx, &subscription.CreateSubscriptionParams{
-		Body: &kbmodel.Subscription{
-			AccountID: sub.AccountID,
-			PlanName:  &planID,
-			State:     kbmodel.SubscriptionStatePENDING,
-		},
-	})
-
 	if len(invoices) > 0 {
 		for _, _invoice := range invoices {
 			if err = b.voidInvoice(ctx, _invoice.InvoiceID); err != nil {
@@ -367,6 +359,14 @@ func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context
 			}
 		}
 	}
+
+	_, err = b.api.Subscription.CreateSubscription(ctx, &subscription.CreateSubscriptionParams{
+		Body: &kbmodel.Subscription{
+			AccountID: sub.AccountID,
+			PlanName:  &planID,
+			State:     kbmodel.SubscriptionStatePENDING,
+		},
+	})
 
 	if err != nil {
 		return err
