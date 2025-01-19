@@ -365,6 +365,7 @@ func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context
 	// Cancel subscription
 	if _, err := b.api.Subscription.CancelSubscriptionPlan(ctx, &subscription.CancelSubscriptionPlanParams{
 		SubscriptionID: sub.SubscriptionID,
+		BillingPolicy:  lo.ToPtr("IMMEDIATE"),
 	}); err != nil {
 		b.cleanupTags(ctx, sub.AccountID)
 		return err
