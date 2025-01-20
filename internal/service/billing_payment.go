@@ -68,18 +68,20 @@ func (b *BillingServiceDefault) handleNewSubscription(ctx context.Context, accou
 	return nil
 }
 
-func (b *BillingServiceDefault) authorizePayment(ctx context.Context, accountID strfmt.UUID) error {
-	acctInvoiceResp, err := b.api.Account.GetInvoicesForAccount(ctx, &account.GetInvoicesForAccountParams{AccountID: accountID})
+func (b *BillingServiceDefault) authorizePayment(ctx context.Context, accountID strfmt.UUID, subscription strfmt.UUID) error {
+	invoices, err := b.getInvoicesForSubscription(ctx, accountID, subscription)
+	invoices = filterUnpaidInvoices(invoices)
+	invoices = filterRecurringInvoices(invoices)
 	if err != nil {
 		return err
 	}
 
-	if len(acctInvoiceResp.Payload) == 0 {
-		return fmt.Errorf("no invoices found for account")
+	if len(invoices) == 0 {
+		return fmt.Errorf("no invoices found for subscription")
 	}
 
 	invoiceResp, err := b.api.Invoice.GetInvoice(ctx, &invoice.GetInvoiceParams{
-		InvoiceID: acctInvoiceResp.Payload[0].InvoiceID,
+		InvoiceID: invoices[0].InvoiceID,
 	})
 
 	if err != nil {
