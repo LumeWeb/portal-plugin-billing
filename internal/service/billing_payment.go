@@ -270,7 +270,7 @@ func extractPaymentDetails(tx *kbmodel.PaymentTransaction) (*messages.Payment, e
 		switch prop.Key {
 		case "client_secret":
 			_payment.ClientSecret = prop.Value
-		case "expires_at":
+		case "expires_on":
 			expiresAtStr = prop.Value
 		}
 	}
@@ -292,7 +292,7 @@ func extractPaymentDetails(tx *kbmodel.PaymentTransaction) (*messages.Payment, e
 	}
 
 	if _payment.ExpiresAt.IsZero() {
-		return nil, fmt.Errorf("client_secret not found in transaction properties")
+		return nil, fmt.Errorf("expires_on not found in transaction properties")
 	}
 
 	return _payment, nil
