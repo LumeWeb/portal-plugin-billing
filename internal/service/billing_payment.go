@@ -119,19 +119,35 @@ func (b *BillingServiceDefault) authorizePayment(ctx context.Context, accountID 
 }
 
 func (b *BillingServiceDefault) setUserPaymentMethod(ctx context.Context, acctID strfmt.UUID) error {
-	_, err := b.api.Account.CreatePaymentMethod(ctx, &account.CreatePaymentMethodParams{
-		AccountID: acctID,
-		Body: &kbmodel.PaymentMethod{
-			PluginName: paymentMethodPluginName,
-			PluginInfo: &kbmodel.PaymentMethodPluginDetail{
-				IsDefaultPaymentMethod: true,
-			},
-			IsDefault: true,
-		},
-		IsDefault: lo.ToPtr(true),
-	})
+	methodsResp, err := b.api.Account.GetPaymentMethodsForAccount(ctx, &account.GetPaymentMethodsForAccountParams{AccountID: acctID})
 	if err != nil {
 		return err
+	}
+
+	found := false
+
+	for method := range methodsResp.Payload {
+		if methodsResp.Payload[method].PluginName == paymentMethodPluginName {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		_, err = b.api.Account.CreatePaymentMethod(ctx, &account.CreatePaymentMethodParams{
+			AccountID: acctID,
+			Body: &kbmodel.PaymentMethod{
+				PluginName: paymentMethodPluginName,
+				PluginInfo: &kbmodel.PaymentMethodPluginDetail{
+					IsDefaultPaymentMethod: true,
+				},
+				IsDefault: true,
+			},
+			IsDefault: lo.ToPtr(true),
+		})
+		if err != nil {
+			return err
+		}
 	}
 
 	err = b.prunePaymentMethods(ctx, acctID)
