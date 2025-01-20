@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"github.com/avast/retry-go"
 	"github.com/go-openapi/runtime"
 	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
@@ -503,6 +504,39 @@ func (b *BillingServiceDefault) CancelSubscription(ctx context.Context, userID u
 
 	_, err = b.api.Subscription.CancelSubscriptionPlan(ctx, &subscription.CancelSubscriptionPlanParams{SubscriptionID: sub.SubscriptionID})
 	if err != nil {
+		return err
+	}
+
+	invoices, err := b.getInvoicesForSubscription(ctx, acct.Payload.AccountID, sub.SubscriptionID)
+	if err != nil {
+		return err
+	}
+
+	invoices = filterRecurringInvoices(invoices)
+	invoices = filterUnpaidInvoices(invoices)
+
+	for _, _invoice := range invoices {
+		err = b.setInvoiceControlTag(ctx, _invoice.InvoiceID, TagInvoiceWrittenOff, true)
+		if err != nil {
+			return err
+		}
+	}
+
+	if err = retry.Do(
+		func() error {
+			acct, err := b.api.Account.GetOverdueAccount(ctx, &account.GetOverdueAccountParams{AccountID: acct.Payload.AccountID})
+			if err != nil {
+				return err
+			}
+
+			if acct.Payload.IsClearState {
+				return nil
+			}
+
+			return fmt.Errorf("account is overdue")
+		},
+		retry.Attempts(10),
+	); err != nil {
 		return err
 	}
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/go-openapi/strfmt"
 	"github.com/killbill/kbcli/v3/kbclient/account"
+	"github.com/killbill/kbcli/v3/kbclient/invoice"
 	"github.com/killbill/kbcli/v3/kbclient/tag_definition"
 	"github.com/killbill/kbcli/v3/kbmodel"
 	"go.uber.org/zap"
@@ -13,12 +14,16 @@ import (
 )
 
 const (
+	// Account Tags
 	TagAutoPayOff            = "AUTO_PAY_OFF"
 	TagAutoInvoicingOff      = "AUTO_INVOICING_OFF"
 	TagOverdueEnforcementOff = "OVERDUE_ENFORCEMENT_OFF"
+
+	// Invoice Tags
+	TagInvoiceWrittenOff = "WRITTEN_OFF"
 )
 
-func (b *BillingServiceDefault) setControlTag(ctx context.Context, accountID strfmt.UUID, tagName string, enabled bool) error {
+func (b *BillingServiceDefault) setAccountControlTag(ctx context.Context, accountID strfmt.UUID, tagName string, enabled bool) error {
 	// Get tag definition ID
 	tagDefs, err := b.api.TagDefinition.GetTagDefinitions(ctx, &tag_definition.GetTagDefinitionsParams{})
 	if err != nil {
@@ -74,7 +79,60 @@ func (b *BillingServiceDefault) setControlTag(ctx context.Context, accountID str
 	return nil
 }
 
-func (b *BillingServiceDefault) verifyTagState(ctx context.Context, accountID strfmt.UUID, tagName string, desiredState bool) (bool, error) {
+func (b *BillingServiceDefault) setInvoiceControlTag(ctx context.Context, invoiceID strfmt.UUID, tagName string, enabled bool) error {
+	tagDefs, err := b.api.TagDefinition.GetTagDefinitions(ctx, &tag_definition.GetTagDefinitionsParams{})
+	if err != nil {
+		return err
+	}
+
+	var tagDefId strfmt.UUID
+	for _, tagDef := range tagDefs.Payload {
+		if *tagDef.Name == tagName && tagDef.IsControlTag {
+			tagDefId = tagDef.ID
+			break
+		}
+	}
+	if tagDefId == "" {
+		return fmt.Errorf("cannot find %s tag definition", tagName)
+	}
+
+	tags, err := b.api.Invoice.GetInvoiceTags(ctx, &invoice.GetInvoiceTagsParams{
+		InvoiceID: invoiceID,
+	})
+	if err != nil {
+		return err
+	}
+
+	var hasTag bool
+	for _, tag := range tags.Payload {
+		if tag.TagDefinitionName == tagName {
+			hasTag = true
+			break
+		}
+	}
+
+	if enabled && !hasTag {
+		b.logger.Debug("enabling tag", zap.String("tag", tagName), zap.String("invoice", string(invoiceID)))
+		_, err = b.api.Invoice.CreateInvoiceTags(ctx, &invoice.CreateInvoiceTagsParams{
+			InvoiceID: invoiceID,
+			Body:      []strfmt.UUID{tagDefId},
+		})
+		return err
+	}
+
+	if !enabled && hasTag {
+		b.logger.Debug("disabling tag", zap.String("tag", tagName), zap.String("invoice", string(invoiceID)))
+		_, err = b.api.Invoice.DeleteInvoiceTags(ctx, &invoice.DeleteInvoiceTagsParams{
+			InvoiceID: invoiceID,
+			TagDef:    []strfmt.UUID{tagDefId},
+		})
+		return err
+	}
+
+	return nil
+}
+
+func (b *BillingServiceDefault) verifyAccountTagState(ctx context.Context, accountID strfmt.UUID, tagName string, desiredState bool) (bool, error) {
 	// Get current account tags
 	tags, err := b.api.Account.GetAccountTags(ctx, &account.GetAccountTagsParams{
 		AccountID: accountID,
@@ -96,17 +154,17 @@ func (b *BillingServiceDefault) verifyTagState(ctx context.Context, accountID st
 	return hasTag == desiredState, nil
 }
 
-// ensureControlTag sets a control tag and verifies the state is correct, retrying until successful
-func (b *BillingServiceDefault) ensureControlTag(ctx context.Context, accountID strfmt.UUID, tagName string, enabled bool) error {
+// ensureAccountControlTag sets a control tag and verifies the state is correct, retrying until successful
+func (b *BillingServiceDefault) ensureAccountControlTag(ctx context.Context, accountID strfmt.UUID, tagName string, enabled bool) error {
 	// First attempt to set the tag
-	if err := b.setControlTag(ctx, accountID, tagName, enabled); err != nil {
+	if err := b.setAccountControlTag(ctx, accountID, tagName, enabled); err != nil {
 		return fmt.Errorf("initial tag set failed: %w", err)
 	}
 
 	// Keep trying until the state is correct
 	for {
 		// Check if the state is correct
-		matches, err := b.verifyTagState(ctx, accountID, tagName, enabled)
+		matches, err := b.verifyAccountTagState(ctx, accountID, tagName, enabled)
 		if err != nil {
 			return fmt.Errorf("failed to verify tag state: %w", err)
 		}
@@ -124,7 +182,7 @@ func (b *BillingServiceDefault) ensureControlTag(ctx context.Context, accountID 
 		time.Sleep(time.Second)
 
 		// Retry setting the tag
-		if err := b.setControlTag(ctx, accountID, tagName, enabled); err != nil {
+		if err := b.setAccountControlTag(ctx, accountID, tagName, enabled); err != nil {
 			return fmt.Errorf("failed to set tag on retry: %w", err)
 		}
 	}
@@ -134,7 +192,7 @@ func (b *BillingServiceDefault) ensureDisableAutoInvoicing(ctx context.Context, 
 	b.logger.Debug("ensuring auto-invoicing is disabled",
 		zap.String("account", string(accountID)))
 
-	if err := b.ensureControlTag(ctx, accountID, TagAutoInvoicingOff, disable); err != nil {
+	if err := b.ensureAccountControlTag(ctx, accountID, TagAutoInvoicingOff, disable); err != nil {
 		return fmt.Errorf("failed to ensure auto-invoicing is disabled: %w", err)
 	}
 	return nil
@@ -144,22 +202,22 @@ func (b *BillingServiceDefault) ensureDisableOverdueEnforcement(ctx context.Cont
 	b.logger.Debug("ensuring overdue enforcement is disabled",
 		zap.String("account", string(accountID)))
 
-	if err := b.ensureControlTag(ctx, accountID, TagOverdueEnforcementOff, disable); err != nil {
+	if err := b.ensureAccountControlTag(ctx, accountID, TagOverdueEnforcementOff, disable); err != nil {
 		return fmt.Errorf("failed to ensure overdue enforcement is disabled: %w", err)
 	}
 	return nil
 }
 
 func (b *BillingServiceDefault) disableAutoPay(ctx context.Context, accountID strfmt.UUID, disable bool) error {
-	return b.setControlTag(ctx, accountID, TagAutoPayOff, disable)
+	return b.setAccountControlTag(ctx, accountID, TagAutoPayOff, disable)
 }
 
 func (b *BillingServiceDefault) disableAutoInvoicing(ctx context.Context, accountID strfmt.UUID, disable bool) error {
-	return b.setControlTag(ctx, accountID, TagAutoInvoicingOff, disable)
+	return b.setAccountControlTag(ctx, accountID, TagAutoInvoicingOff, disable)
 }
 
 func (b *BillingServiceDefault) disableOverdueEnforcement(ctx context.Context, accountID strfmt.UUID, disable bool) error {
-	return b.setControlTag(ctx, accountID, TagOverdueEnforcementOff, disable)
+	return b.setAccountControlTag(ctx, accountID, TagOverdueEnforcementOff, disable)
 }
 
 func (b *BillingServiceDefault) ensureControlTags(ctx context.Context, accountID strfmt.UUID, enabled bool, tags ...string) error {
@@ -167,7 +225,7 @@ func (b *BillingServiceDefault) ensureControlTags(ctx context.Context, accountID
 	for {
 		// First set all tags to desired state
 		for _, tag := range tags {
-			if err := b.setControlTag(ctx, accountID, tag, enabled); err != nil {
+			if err := b.setAccountControlTag(ctx, accountID, tag, enabled); err != nil {
 				return fmt.Errorf("failed to set tag %s: %w", tag, err)
 			}
 		}

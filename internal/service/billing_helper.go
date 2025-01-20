@@ -345,7 +345,7 @@ func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context
 				b.logger.Error("tag verification failed",
 					zap.String("after_operation", name),
 					zap.Error(err))
-				b.cleanupTags(ctx, sub.AccountID)
+				b.cleanupAccountTags(ctx, sub.AccountID)
 				return fmt.Errorf("tag verification failed after %s: %w", name, err)
 			}
 		}
@@ -424,7 +424,7 @@ func (b *BillingServiceDefault) submitSubscriptionPlanChange(ctx context.Context
 
 			// Ensure tags are cleaned up on failure, unless we're already in cleanup
 			if op.name != "cleanup_tags" {
-				b.cleanupTags(ctx, sub.AccountID)
+				b.cleanupAccountTags(ctx, sub.AccountID)
 			}
 			return fmt.Errorf("%s failed: %w", op.name, err)
 		}
@@ -461,7 +461,7 @@ func (b *BillingServiceDefault) logAccountTagState(ctx context.Context, accountI
 	return nil
 }
 
-func (b *BillingServiceDefault) cleanupTags(ctx context.Context, accountID strfmt.UUID) {
+func (b *BillingServiceDefault) cleanupAccountTags(ctx context.Context, accountID strfmt.UUID) {
 	if err := b.ensureDisableAutoInvoicing(ctx, accountID, false); err != nil {
 		b.logger.Error("failed to cleanup auto invoicing", zap.Error(err))
 	}
