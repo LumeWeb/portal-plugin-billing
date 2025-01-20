@@ -17,6 +17,8 @@ import (
 
 const paymentMethodPluginName = "hyperswitch-plugin"
 
+const paymentCreatedCustomFieldName = "PAYMENT_CREATED_AT"
+
 var (
 	errNoPaymentAuthorization = fmt.Errorf("no payment authorization found")
 )
@@ -127,6 +129,16 @@ func (b *BillingServiceDefault) authorizePayment(ctx context.Context, accountID 
 		return err
 	}
 
+	_, err = b.api.Payment.CreatePaymentCustomFields(ctx, &payment.CreatePaymentCustomFieldsParams{PaymentID: resp.Payload.PaymentID, Body: []*kbmodel.CustomField{
+		{
+			Name:  lo.ToPtr(paymentCreatedCustomFieldName),
+			Value: lo.ToPtr(time.Now().Format(time.RFC3339)),
+		},
+	}})
+	if err != nil {
+		return err
+	}
+
 	_, err = b.api.Payment.GetPayment(ctx, &payment.GetPaymentParams{
 		PaymentID:      resp.Payload.PaymentID,
 		WithPluginInfo: lo.ToPtr(true),
@@ -231,18 +243,23 @@ func (b *BillingServiceDefault) getLastSubscriptionAuthorizePaymentMethod(ctx co
 			continue
 		}
 
-		_payment, err := b.api.Payment.GetPayment(ctx, &payment.GetPaymentParams{PaymentID: _payment.PaymentID, WithPluginInfo: lo.ToPtr(true)})
+		fields, err := b.api.Payment.GetPaymentCustomFields(ctx, &payment.GetPaymentCustomFieldsParams{PaymentID: _payment.PaymentID})
 		if err != nil {
-			return nil, fmt.Errorf("failed to get payment: %w", err)
+			return nil, err
 		}
 
-		// Get the effective date of the last transaction
-		lastTx := _payment.Payload.Transactions[len(_payment.Payload.Transactions)-1]
+		for _, field := range fields.Payload {
+			if *field.Name == paymentCreatedCustomFieldName {
+				createdDate, err := time.Parse(time.RFC3339, *field.Value)
+				if err != nil {
+					return nil, err
+				}
 
-		// Update if this is the most recent authorization we've seen
-		if mostRecentAuth == nil || time.Time(lastTx.EffectiveDate).After(mostRecentDate) {
-			mostRecentAuth = _payment.Payload
-			mostRecentDate = time.Time(lastTx.EffectiveDate)
+				if mostRecentAuth == nil || createdDate.After(mostRecentDate) {
+					mostRecentAuth = _payment
+					mostRecentDate = createdDate
+				}
+			}
 		}
 	}
 
