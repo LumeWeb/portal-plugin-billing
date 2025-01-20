@@ -409,8 +409,7 @@ func (b *BillingServiceDefault) CreateSubscription(ctx context.Context, userID u
 		return nil
 	}
 
-	err := b.CreateCustomerById(ctx, userID)
-	if err != nil {
+	if err := b.CreateCustomerById(ctx, userID); err != nil {
 		return err
 	}
 
@@ -433,22 +432,17 @@ func (b *BillingServiceDefault) CreateSubscription(ctx context.Context, userID u
 		return b.handleNewSubscription(ctx, acct.Payload.AccountID, planID)
 	}
 
-	if isSubscriptionPending(sub) {
-		fullSub, err := b.GetSubscription(ctx, userID)
-		if err != nil {
-			return err
-		}
+	if !isSubscriptionPending(sub) {
+		return fmt.Errorf("subscription already exists")
+	}
 
-		if !fullSub.Payment.ExpiresAt.IsZero() {
-			if fullSub.Payment.ExpiresAt.Before(time.Now()) {
-				err = b.authorizePayment(ctx, acct.Payload.AccountID, sub.SubscriptionID)
-				if err != nil {
-					return err
-				}
+	fullSub, err := b.GetSubscription(ctx, userID)
+	if err != nil {
+		return err
+	}
 
-				return nil
-			}
-		}
+	if !fullSub.Payment.ExpiresAt.IsZero() && fullSub.Payment.ExpiresAt.Before(time.Now()) {
+		return b.authorizePayment(ctx, acct.Payload.AccountID, sub.SubscriptionID)
 	}
 
 	return fmt.Errorf("subscription already exists")
