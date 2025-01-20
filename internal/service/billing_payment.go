@@ -194,12 +194,17 @@ func (b *BillingServiceDefault) getLastSubscriptionAuthorizePaymentMethod(ctx co
 			continue
 		}
 
+		_payment, err := b.api.Payment.GetPayment(ctx, &payment.GetPaymentParams{PaymentID: _payment.PaymentID, WithPluginInfo: lo.ToPtr(true)})
+		if err != nil {
+			return nil, fmt.Errorf("failed to get payment: %w", err)
+		}
+
 		// Get the effective date of the last transaction
-		lastTx := _payment.Transactions[len(_payment.Transactions)-1]
+		lastTx := _payment.Payload.Transactions[len(_payment.Payload.Transactions)-1]
 
 		// Update if this is the most recent authorization we've seen
 		if mostRecentAuth == nil || time.Time(lastTx.EffectiveDate).After(mostRecentDate) {
-			mostRecentAuth = _payment
+			mostRecentAuth = _payment.Payload
 			mostRecentDate = time.Time(lastTx.EffectiveDate)
 		}
 	}
