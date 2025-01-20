@@ -60,7 +60,7 @@ func (b *BillingServiceDefault) handleNewSubscription(ctx context.Context, accou
 		return err
 	}
 
-	err = b.authorizePayment(ctx, accountID)
+	err = b.authorizePayment(ctx, accountID, strfmt.UUID(subID))
 	if err != nil {
 		return err
 	}
