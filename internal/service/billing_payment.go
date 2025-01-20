@@ -65,6 +65,18 @@ func (b *BillingServiceDefault) handleNewSubscription(ctx context.Context, accou
 		return err
 	}
 
+	acct, err := b.api.Account.GetAccount(ctx, &account.GetAccountParams{
+		AccountID: accountID,
+	})
+
+	if err != nil {
+		return err
+	}
+
+	if acct.Payload.AccountBalance > 0 {
+		return nil
+	}
+
 	for {
 		sub, err := b.api.Subscription.GetSubscription(ctx, &subscription.GetSubscriptionParams{
 			SubscriptionID: strfmt.UUID(subID),
