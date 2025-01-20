@@ -65,7 +65,18 @@ func (b *BillingServiceDefault) handleNewSubscription(ctx context.Context, accou
 		return err
 	}
 
-	return nil
+	for {
+		sub, err := b.api.Subscription.GetSubscription(ctx, &subscription.GetSubscriptionParams{
+			SubscriptionID: strfmt.UUID(subID),
+		})
+
+		if err != nil {
+			return err
+		}
+		if remoteSubscriptionStatusToLocal(sub.Payload.State) == messages.StatusPending {
+			return nil
+		}
+	}
 }
 
 func (b *BillingServiceDefault) authorizePayment(ctx context.Context, accountID strfmt.UUID, subscription strfmt.UUID) error {
