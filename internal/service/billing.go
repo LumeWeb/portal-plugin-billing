@@ -433,6 +433,22 @@ func (b *BillingServiceDefault) CreateSubscription(ctx context.Context, userID u
 		return b.handleNewSubscription(ctx, acct.Payload.AccountID, planID)
 	}
 
+	if isSubscriptionPending(sub) {
+		fullSub, err := b.GetSubscription(ctx, userID)
+		if err != nil {
+			return err
+		}
+
+		if !fullSub.Payment.ExpiresAt.IsZero() {
+			if fullSub.Payment.ExpiresAt.Before(time.Now()) {
+				err = b.authorizePayment(ctx, acct.Payload.AccountID, sub.SubscriptionID)
+				if err != nil {
+					return err
+				}
+			}
+		}
+	}
+
 	return fmt.Errorf("subscription already exists")
 }
 

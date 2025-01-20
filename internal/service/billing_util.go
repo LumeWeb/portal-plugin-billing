@@ -10,10 +10,17 @@ import (
 	"time"
 )
 
+func isSubscriptionPending(sub *kbmodel.Subscription) bool {
+	return lo.Contains([]kbmodel.SubscriptionStateEnum{kbmodel.SubscriptionStatePENDING, kbmodel.SubscriptionStateBLOCKED}, sub.State)
+}
+func isSubscriptionActive(sub *kbmodel.Subscription) bool {
+	return lo.Contains([]kbmodel.SubscriptionStateEnum{kbmodel.SubscriptionStateACTIVE}, sub.State)
+}
+
 func findActiveOrPendingSubscription(bundles []*kbmodel.Bundle) *kbmodel.Subscription {
 	for _, bundle := range bundles {
 		for _, sub := range bundle.Subscriptions {
-			if sub.State == kbmodel.SubscriptionStateACTIVE || sub.State == kbmodel.SubscriptionStatePENDING || sub.State == kbmodel.SubscriptionStateBLOCKED {
+			if isSubscriptionPending(sub) || isSubscriptionActive(sub) {
 				return sub
 			}
 		}
