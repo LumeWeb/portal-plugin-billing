@@ -445,6 +445,8 @@ func (b *BillingServiceDefault) CreateSubscription(ctx context.Context, userID u
 				if err != nil {
 					return err
 				}
+
+				return nil
 			}
 		}
 	}

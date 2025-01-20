@@ -136,8 +136,6 @@ func (b *BillingServiceDefault) authorizePayment(ctx context.Context, accountID 
 		return err
 	}
 
-	_ = paymentResp
-
 	return nil
 }
 
