@@ -127,7 +127,7 @@ func (b *BillingServiceDefault) authorizePayment(ctx context.Context, accountID 
 		return err
 	}
 
-	_, err := b.api.Payment.GetPayment(ctx, &payment.GetPaymentParams{
+	_, err = b.api.Payment.GetPayment(ctx, &payment.GetPaymentParams{
 		PaymentID:      resp.Payload.PaymentID,
 		WithPluginInfo: lo.ToPtr(true),
 	})
