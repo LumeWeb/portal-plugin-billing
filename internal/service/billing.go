@@ -21,7 +21,9 @@ import (
 	"go.lumeweb.com/portal-plugin-billing/internal/config"
 	"go.lumeweb.com/portal/core"
 	"go.lumeweb.com/portal/db/models"
+	"go.uber.org/zap"
 	"gorm.io/gorm"
+	"net/http"
 	"slices"
 	"strconv"
 	"time"
@@ -35,6 +37,10 @@ const (
 	StorageUsage  UsageType = "storage"
 	UploadUsage   UsageType = "upload"
 	DownloadUsage UsageType = "download"
+)
+
+const (
+	hyperswitchSignatureHeader = "x-webhook-signature-512"
 )
 
 type BillingServiceDefault struct {
@@ -555,7 +561,22 @@ func (b *BillingServiceDefault) CancelSubscription(ctx context.Context, userID u
 
 	return nil
 }
-func (b *BillingServiceDefault) HandleWebhook(ctx context.Context, event []byte) error {
+func (b *BillingServiceDefault) HandleWebhook(ctx context.Context, event []byte, headers http.Header) error {
+
+	// Get and verify the webhook signature
+	signature := headers.Get(hyperswitchSignatureHeader)
+	if signature == "" {
+		b.logger.Error("missing signature header")
+		return fmt.Errorf("missing signature header")
+	}
+
+	if err := verifyWebhookSignature(event, signature, b.cfg.Hyperswitch.WebhookSecret); err != nil {
+		b.logger.Error("signature verification failed",
+			zap.Error(err),
+			zap.String("signature", signature))
+		return fmt.Errorf("signature verification failed")
+	}
+
 	_, err := b.api.PaymentGateway.ProcessNotification(ctx, &payment_gateway.ProcessNotificationParams{Body: string(event), PluginName: paymentMethodPluginName})
 	return err
 }

@@ -1,6 +1,9 @@
 package service
 
 import (
+	"crypto/hmac"
+	"crypto/sha512"
+	"encoding/hex"
 	"fmt"
 	"github.com/killbill/kbcli/v3/kbmodel"
 	"github.com/samber/lo"
@@ -132,4 +135,17 @@ func filterInvoicesNoCredit(invoices []*kbmodel.Invoice) []*kbmodel.Invoice {
 			return lo.Contains([]kbmodel.InvoiceItemItemTypeEnum{kbmodel.InvoiceItemItemTypeREPAIRADJ, kbmodel.InvoiceItemItemTypeCREDITADJ}, item.ItemType)
 		})) > 0
 	})
+}
+
+func verifyWebhookSignature(payload []byte, signature string, secretKey string) error {
+	// Generate HMAC-SHA512 signature using the raw payload
+	mac := hmac.New(sha512.New, []byte(secretKey))
+	mac.Write(payload)
+	expectedSignature := hex.EncodeToString(mac.Sum(nil))
+
+	// Compare signatures using constant-time comparison
+	if !hmac.Equal([]byte(signature), []byte(expectedSignature)) {
+		return fmt.Errorf("signature mismatch")
+	}
+	return nil
 }
