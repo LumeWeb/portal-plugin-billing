@@ -24,6 +24,12 @@ func binaryProducer() runtime.Producer {
 			return err
 		}
 
+		// Handle string by converting to bytes
+		if s, ok := data.(string); ok {
+			_, err := writer.Write([]byte(s))
+			return err
+		}
+
 		// Handle io.Reader by copying to writer
 		if r, ok := data.(io.Reader); ok {
 			_, err := io.Copy(writer, r)
