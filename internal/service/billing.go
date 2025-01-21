@@ -69,7 +69,7 @@ func NewBillingService() (core.Service, []core.ContextBuilderOption, error) {
 
 			trp := httptransport.New(_service.cfg.KillBill.APIServer, "", nil)
 			trp.Producers["text/xml"] = runtime.TextProducer()
-			trp.Producers["*/*"] = runtime.JSONProducer()
+			trp.Producers["*/*"] = binaryProducer()
 			trp.Debug = false
 			authWriter := runtime.ClientAuthInfoWriterFunc(func(r runtime.ClientRequest, _ strfmt.Registry) error {
 				encoded := base64.StdEncoding.EncodeToString([]byte(_service.cfg.KillBill.Username + ":" + _service.cfg.KillBill.Password))
