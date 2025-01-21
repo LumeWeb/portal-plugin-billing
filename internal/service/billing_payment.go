@@ -118,7 +118,7 @@ func (b *BillingServiceDefault) authorizePayment(ctx context.Context, accountID 
 	resp, err := b.api.Account.ProcessPayment(ctx, &account.ProcessPaymentParams{
 		AccountID: accountID,
 		Body: &kbmodel.PaymentTransaction{
-			Amount:          0,
+			Amount:          latestInvoice.Balance,
 			Currency:        kbmodel.PaymentTransactionCurrencyEnum(latestInvoice.Currency),
 			Status:          kbmodel.PaymentTransactionStatusPENDING,
 			TransactionType: kbmodel.PaymentTransactionTransactionTypeAUTHORIZE,
