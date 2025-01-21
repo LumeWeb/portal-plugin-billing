@@ -577,6 +577,10 @@ func (b *BillingServiceDefault) HandleWebhook(ctx context.Context, event []byte,
 		return fmt.Errorf("signature verification failed")
 	}
 
-	_, err := b.api.PaymentGateway.ProcessNotification(ctx, &payment_gateway.ProcessNotificationParams{Body: string(event), PluginName: paymentMethodPluginName})
+	_, err := b.api.PaymentGateway.ProcessNotification(ctx, &payment_gateway.ProcessNotificationParams{
+		Body:           string(event),
+		PluginName:     paymentMethodPluginName,
+		PluginProperty: []string{fmt.Sprintf("%s=%s", hyperswitchSignatureHeader, signature)},
+	})
 	return err
 }
