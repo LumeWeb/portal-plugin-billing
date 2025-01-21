@@ -143,23 +143,17 @@ func (a *API) handlePaymentWebhook(w http.ResponseWriter, r *http.Request) {
 	// Restore the body for later use
 	r.Body = io.NopCloser(bytes.NewBuffer(body))
 
-	// Verify the webhook signature
+	// Get and verify the webhook signature
 	signature := r.Header.Get(hyperswitchSignatureHeader)
-	cfg := a.ctx.Config().GetService(service.BILLING_SERVICE).(*pluginConfig.BillingConfig)
-
-	// Verify raw payload signature
-	if err := verifyRawSignature(body, signature, cfg.Hyperswitch.WebhookSecret); err != nil {
-		a.logger.Error("raw signature verification failed",
-			zap.Error(err),
-			zap.String("signature", signature))
-
-		_ = ctx.Error(fmt.Errorf("Invalid signature: %w", err), http.StatusUnauthorized)
+	if signature == "" {
+		a.logger.Error("missing signature header")
+		_ = ctx.Error(fmt.Errorf("missing signature header"), http.StatusUnauthorized)
 		return
 	}
 
-	// Verify JSON-encoded signature
-	if err := verifyJSONSignature(body, signature, cfg.Hyperswitch.WebhookSecret); err != nil {
-		a.logger.Error("JSON signature verification failed",
+	cfg := a.ctx.Config().GetService(service.BILLING_SERVICE).(*pluginConfig.BillingConfig)
+	if err := verifyWebhookSignature(body, signature, cfg.Hyperswitch.WebhookSecret); err != nil {
+		a.logger.Error("signature verification failed",
 			zap.Error(err),
 			zap.String("signature", signature))
 		_ = ctx.Error(fmt.Errorf("Invalid signature: %w", err), http.StatusUnauthorized)
@@ -170,7 +164,7 @@ func (a *API) handlePaymentWebhook(w http.ResponseWriter, r *http.Request) {
 	var event hyperswitch.WebhookEvent
 	if err := json.Unmarshal(body, &event); err != nil {
 		a.logger.Error("failed to parse webhook payload", zap.Error(err))
-		_ = ctx.Error(fmt.Errorf("Invalid request body: %w", err), http.StatusUnauthorized)
+		_ = ctx.Error(fmt.Errorf("Invalid request body: %w", err), http.StatusBadRequest)
 		return
 	}
 
@@ -183,36 +177,15 @@ func (a *API) handlePaymentWebhook(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-func verifyRawSignature(payload []byte, signature string, secretKey string) error {
+func verifyWebhookSignature(payload []byte, signature string, secretKey string) error {
+	// Generate HMAC-SHA512 signature using the raw payload
 	mac := hmac.New(sha512.New, []byte(secretKey))
 	mac.Write(payload)
 	expectedSignature := hex.EncodeToString(mac.Sum(nil))
 
+	// Compare signatures using constant-time comparison
 	if !hmac.Equal([]byte(signature), []byte(expectedSignature)) {
-		return fmt.Errorf("raw signature mismatch")
-	}
-	return nil
-}
-
-// verifyJSONSignature verifies the signature using JSON-encoded payload
-func verifyJSONSignature(payload []byte, signature string, secretKey string) error {
-	// Parse and re-encode to get canonical JSON
-	var jsonData interface{}
-	if err := json.Unmarshal(payload, &jsonData); err != nil {
-		return fmt.Errorf("invalid JSON payload: %w", err)
-	}
-
-	canonicalJSON, err := json.Marshal(jsonData)
-	if err != nil {
-		return fmt.Errorf("failed to re-encode JSON: %w", err)
-	}
-
-	mac := hmac.New(sha512.New, []byte(secretKey))
-	mac.Write(canonicalJSON)
-	expectedSignature := hex.EncodeToString(mac.Sum(nil))
-
-	if !hmac.Equal([]byte(signature), []byte(expectedSignature)) {
-		return fmt.Errorf("JSON signature mismatch")
+		return fmt.Errorf("signature mismatch")
 	}
 	return nil
 }
