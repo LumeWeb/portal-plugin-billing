@@ -174,6 +174,12 @@ func (a *API) handlePaymentWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	err = a.billingService.HandleWebhook(body)
+	if err != nil {
+		_ = ctx.Error(err, http.StatusInternalServerError)
+		return
+	}
+
 	w.WriteHeader(http.StatusOK)
 }
 

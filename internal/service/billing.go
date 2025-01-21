@@ -12,6 +12,7 @@ import (
 	"github.com/killbill/kbcli/v3/kbclient"
 	"github.com/killbill/kbcli/v3/kbclient/account"
 	"github.com/killbill/kbcli/v3/kbclient/catalog"
+	"github.com/killbill/kbcli/v3/kbclient/payment_gateway"
 	"github.com/killbill/kbcli/v3/kbclient/subscription"
 	"github.com/killbill/kbcli/v3/kbcommon"
 	"github.com/killbill/kbcli/v3/kbmodel"
@@ -553,4 +554,8 @@ func (b *BillingServiceDefault) CancelSubscription(ctx context.Context, userID u
 	}
 
 	return nil
+}
+func (b *BillingServiceDefault) HandleWebhook(ctx context.Context, event []byte) error {
+	_, err := b.api.PaymentGateway.ProcessNotification(ctx, &payment_gateway.ProcessNotificationParams{Body: string(event), PluginName: paymentMethodPluginName})
+	return err
 }

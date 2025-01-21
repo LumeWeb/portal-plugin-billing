@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"go.lumeweb.com/portal-plugin-billing/internal/api/messages"
+	"go.lumeweb.com/portal-plugin-billing/internal/hyperswitch"
 	"go.lumeweb.com/portal-plugin-billing/internal/service"
 	"go.lumeweb.com/portal/core"
 )
@@ -30,6 +31,8 @@ type BillingService interface {
 	//GetUserMaxStorage(userID uint) (uint64, error)
 	//GetUserMaxUpload(userID uint) (uint64, error)
 	//GetUserMaxDownload(userID uint) (uint64, error)
+
+	HandleWebhook(event []byte) error
 }
 
 var _ BillingService = (*service.BillingServiceDefault)(nil)
