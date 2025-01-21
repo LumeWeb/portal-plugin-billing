@@ -1,15 +1,26 @@
 package api
 
 import (
+	"bytes"
+	"crypto/hmac"
+	"crypto/sha512"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"go.lumeweb.com/httputil"
 	"go.lumeweb.com/portal-plugin-billing/internal/api/messages"
-	"go.lumeweb.com/portal-plugin-billing/internal/client/hyperswitch"
+	pluginConfig "go.lumeweb.com/portal-plugin-billing/internal/config"
+	"go.lumeweb.com/portal-plugin-billing/internal/hyperswitch"
+	"go.lumeweb.com/portal-plugin-billing/internal/service"
 	"go.lumeweb.com/portal/core"
 	"go.lumeweb.com/portal/middleware"
 	"go.uber.org/zap"
+	"io"
 	"net/http"
+)
+
+const (
+	hyperswitchSignatureHeader = "x-webhook-signature-512"
 )
 
 func (a API) getSubscription(w http.ResponseWriter, r *http.Request) {
@@ -120,16 +131,82 @@ func (a API) cancelSubscription(w http.ResponseWriter, r *http.Request) {
 	ctx.Response.WriteHeader(http.StatusNoContent)
 }
 
-func (a API) handlePaymentWebhook(w http.ResponseWriter, r *http.Request) {
-	// Read and parse the webhook payload
-	var event hyperswitch.WebhookEvent
-	if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
-		a.logger.Error("failed to decode webhook payload", zap.Error(err))
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+func (a *API) handlePaymentWebhook(w http.ResponseWriter, r *http.Request) {
+	ctx := httputil.Context(r, w)
+	// Read the request body
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		a.logger.Error("failed to read webhook payload", zap.Error(err))
+		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+	// Restore the body for later use
+	r.Body = io.NopCloser(bytes.NewBuffer(body))
+
+	// Verify the webhook signature
+	signature := r.Header.Get(hyperswitchSignatureHeader)
+	cfg := a.ctx.Config().GetService(service.BILLING_SERVICE).(*pluginConfig.BillingConfig)
+
+	// Verify raw payload signature
+	if err := verifyRawSignature(body, signature, cfg.Hyperswitch.WebhookSecret); err != nil {
+		a.logger.Error("raw signature verification failed",
+			zap.Error(err),
+			zap.String("signature", signature))
+
+		_ = ctx.Error(fmt.Errorf("Invalid signature: %w", err), http.StatusUnauthorized)
 		return
 	}
 
-	a.logger.Info("webhook received", zap.Any("event", event))
+	// Verify JSON-encoded signature
+	if err := verifyJSONSignature(body, signature, cfg.Hyperswitch.WebhookSecret); err != nil {
+		a.logger.Error("JSON signature verification failed",
+			zap.Error(err),
+			zap.String("signature", signature))
+		_ = ctx.Error(fmt.Errorf("Invalid signature: %w", err), http.StatusUnauthorized)
+		return
+	}
+
+	// Parse the webhook payload
+	var event hyperswitch.WebhookEvent
+	if err := json.Unmarshal(body, &event); err != nil {
+		a.logger.Error("failed to parse webhook payload", zap.Error(err))
+		_ = ctx.Error(fmt.Errorf("Invalid request body: %w", err), http.StatusUnauthorized)
+		return
+	}
 
 	w.WriteHeader(http.StatusOK)
+}
+
+func verifyRawSignature(payload []byte, signature string, secretKey string) error {
+	mac := hmac.New(sha512.New, []byte(secretKey))
+	mac.Write(payload)
+	expectedSignature := hex.EncodeToString(mac.Sum(nil))
+
+	if !hmac.Equal([]byte(signature), []byte(expectedSignature)) {
+		return fmt.Errorf("raw signature mismatch")
+	}
+	return nil
+}
+
+// verifyJSONSignature verifies the signature using JSON-encoded payload
+func verifyJSONSignature(payload []byte, signature string, secretKey string) error {
+	// Parse and re-encode to get canonical JSON
+	var jsonData interface{}
+	if err := json.Unmarshal(payload, &jsonData); err != nil {
+		return fmt.Errorf("invalid JSON payload: %w", err)
+	}
+
+	canonicalJSON, err := json.Marshal(jsonData)
+	if err != nil {
+		return fmt.Errorf("failed to re-encode JSON: %w", err)
+	}
+
+	mac := hmac.New(sha512.New, []byte(secretKey))
+	mac.Write(canonicalJSON)
+	expectedSignature := hex.EncodeToString(mac.Sum(nil))
+
+	if !hmac.Equal([]byte(signature), []byte(expectedSignature)) {
+		return fmt.Errorf("JSON signature mismatch")
+	}
+	return nil
 }

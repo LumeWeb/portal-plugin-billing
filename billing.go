@@ -1,6 +1,7 @@
 package billing
 
 import (
+	"go.lumeweb.com/portal-plugin-billing/internal"
 	"go.lumeweb.com/portal-plugin-billing/internal/api"
 	pluginConfig "go.lumeweb.com/portal-plugin-billing/internal/config"
 	"go.lumeweb.com/portal-plugin-billing/internal/cron"
@@ -9,11 +10,9 @@ import (
 	"go.lumeweb.com/portal/core"
 )
 
-const pluginName = "billing"
-
 func init() {
 	core.RegisterPlugin(core.PluginInfo{
-		ID: pluginName,
+		ID: internal.PluginName,
 		Meta: func(context core.Context, builder core.PortalMetaBuilder) error {
 			quotaConfig := context.Config().GetService(service.QUOTA_SERVICE).(*pluginConfig.QuotaConfig)
 			billingConfig := context.Config().GetService(service.BILLING_SERVICE).(*pluginConfig.BillingConfig)
@@ -31,7 +30,7 @@ func init() {
 
 				if billingConfig.FreePlanEnabled {
 					builder.AddFeatureFlag("free_plan", true)
-					builder.AddPluginMeta(pluginName, "free_plan_name", billingConfig.FreePlanName)
+					builder.AddPluginMeta(internal.PluginName, "free_plan_name", billingConfig.FreePlanName)
 				}
 			}
 
