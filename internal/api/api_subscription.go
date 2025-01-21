@@ -130,7 +130,7 @@ func (a *API) handlePaymentWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = a.billingService.HandleWebhook(body)
+	err = a.billingService.HandleWebhook(ctx, body, r.Header)
 	if err != nil {
 		_ = ctx.Error(err, http.StatusBadRequest)
 		return
