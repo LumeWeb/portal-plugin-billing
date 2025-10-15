@@ -8,24 +8,6 @@ import (
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
 )
 
-// RegistryFactory creates and manages Registry instances
-type RegistryFactory interface {
-	CreateRegistry() *Registry
-}
-
-type registryFactory struct{}
-
-// NewRegistryFactory creates a new RegistryFactory instance
-func NewRegistryFactory() RegistryFactory {
-	return &registryFactory{}
-}
-
-// CreateRegistry creates a new Registry instance
-func (f *registryFactory) CreateRegistry() *Registry {
-	return &Registry{
-		gateways: make(map[string]pluginCore.PaymentGateway),
-	}
-}
 
 var (
 	registryInstance *Registry
@@ -38,11 +20,16 @@ type Registry struct {
 	mu       sync.RWMutex
 }
 
+func makeRegistry() *Registry {
+	return &Registry{
+		gateways: make(map[string]pluginCore.PaymentGateway),
+	}
+}
+
 // GetRegistry returns the singleton gateway registry instance
 func GetRegistry() *Registry {
 	registryOnce.Do(func() {
-		factory := NewRegistryFactory()
-		registryInstance = factory.CreateRegistry()
+		registryInstance = makeRegistry()
 	})
 	return registryInstance
 }
@@ -88,14 +75,6 @@ func (r *Registry) GetAll() []pluginCore.PaymentGateway {
 	return gateways
 }
 
-// Exists checks if a gateway with the given ID is registered
-func (r *Registry) Exists(id string) bool {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	_, exists := r.gateways[id]
-	return exists
-}
 
 // ValidateWebhook validates a webhook for a specific gateway
 func (r *Registry) ValidateWebhook(ctx context.Context, gatewayType string, signature string, payload []byte) error {
