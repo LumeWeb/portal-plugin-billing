@@ -98,6 +98,14 @@ func (e *APIExtension) handleWebhook(c echo.Context) error {
 	}
 
 	c.Request().Body = http.MaxBytesReader(c.Response(), c.Request().Body, maxWebhookPayload)
+	defer func() {
+		if err := c.Request().Body.Close(); err != nil {
+			e.logger.Error("failed to close request body",
+				zap.String("gateway", gatewayType),
+				zap.Error(err))
+		}
+	}()
+	
 	payload, err := io.ReadAll(c.Request().Body)
 	if err != nil {
 		var maxErr *http.MaxBytesError
@@ -112,13 +120,6 @@ func (e *APIExtension) handleWebhook(c echo.Context) error {
 			zap.Error(err))
 		return ctx.Error(fmt.Errorf("failed to read webhook payload"), http.StatusBadRequest)
 	}
-	defer func() {
-		if err := c.Request().Body.Close(); err != nil {
-			e.logger.Error("failed to close request body",
-				zap.String("gateway", gatewayType),
-				zap.Error(err))
-		}
-	}()
 
 	// Get signature header name from billing service
 	sigHeader, err := e.billingService.GetSignatureHeader(gatewayType)
