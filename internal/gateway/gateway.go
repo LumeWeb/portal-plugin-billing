@@ -53,7 +53,7 @@ func (r *Registry) Register(gateway pluginCore.PaymentGateway) error {
 	defer r.mu.Unlock()
 
 	if gateway == nil {
-		return nil
+		return fmt.Errorf("gateway cannot be nil")
 	}
 
 	id := gateway.ID()

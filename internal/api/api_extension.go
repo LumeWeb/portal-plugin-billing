@@ -73,11 +73,12 @@ func (e *APIExtension) registerWebhookHandlers(gRouter router.Router, accessSvc 
 				router.WithDescription("Handles incoming webhooks from payment gateways such as Stripe, PayPal, etc."),
 				router.WithTags("Billing"),
 				router.WithPathParam("gatewayType", "Type of payment gateway (e.g., stripe, paypal)", "stripe"),
-				router.WithRequestBody(map[string]interface{}{}, "Raw webhook payload from the payment gateway", false),
+				router.WithRequestBody(map[string]interface{}{}, "Raw webhook payload from the payment gateway", true),
 				router.WithSuccessResponse(http.StatusNoContent, "Webhook processed successfully"),
 				router.WithErrorResponses(
 					router.DefineSwaggerErrorResponses(
 						router.DefineSwaggerErrorResponse(http.StatusBadRequest, "Invalid gateway type or webhook validation failed"),
+						router.DefineSwaggerErrorResponse(http.StatusRequestEntityTooLarge, "Payload too large"),
 					),
 				),
 			),
