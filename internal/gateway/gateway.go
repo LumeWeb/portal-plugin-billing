@@ -55,7 +55,14 @@ func (r *Registry) Register(gateway pluginCore.PaymentGateway) error {
 		return nil
 	}
 
-	r.gateways[gateway.ID()] = gateway
+	id := gateway.ID()
+	if id == "" {
+		return fmt.Errorf("gateway ID cannot be empty")
+	}
+	if _, exists := r.gateways[id]; exists {
+		return fmt.Errorf("gateway %q already registered", id)
+	}
+	r.gateways[id] = gateway
 	return nil
 }
 
@@ -96,7 +103,7 @@ func (r *Registry) ValidateWebhook(ctx context.Context, gatewayType string, sign
 		return pluginCore.ErrGatewayNotFound
 	}
 
-	return gw.ValidateWebhook(ctx, gatewayType, signature, payload)
+	return gw.ValidateWebhook(ctx, signature, payload)
 }
 
 // GetSignatureHeader returns the signature header name for a gateway
@@ -115,5 +122,5 @@ func (r *Registry) HandleWebhook(ctx context.Context, gatewayType string, payloa
 		return pluginCore.ErrGatewayNotFound
 	}
 
-	return gw.HandleWebhook(ctx, gatewayType, payload)
+	return gw.HandleWebhook(ctx, payload)
 }

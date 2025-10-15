@@ -18,11 +18,11 @@ type PaymentGateway interface {
 
 	// HandleWebhook processes an incoming webhook event from the payment provider
 	// Returns an error if processing failed
-	HandleWebhook(ctx context.Context, gatewayType string, payload []byte) error
+	HandleWebhook(ctx context.Context, payload []byte) error
 
 	// ValidateWebhook verifies the authenticity of an incoming webhook request
 	// using the provider's signature verification mechanism
-	ValidateWebhook(ctx context.Context, gatewayType string, signature string, payload []byte) error
+	ValidateWebhook(ctx context.Context, signature string, payload []byte) error
 
 	// SignatureHeader returns the HTTP header name that contains the webhook signature
 	// This is provider-specific (e.g. "Stripe-Signature" for Stripe)

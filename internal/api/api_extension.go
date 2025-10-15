@@ -74,7 +74,7 @@ func (e *APIExtension) registerWebhookHandlers(gRouter router.Router, accessSvc 
 				router.WithTags("Billing"),
 				router.WithPathParam("gatewayType", "Type of payment gateway (e.g., stripe, paypal)", "stripe"),
 				router.WithRequestBody(map[string]interface{}{}, "Raw webhook payload from the payment gateway", false),
-				router.WithSuccessResponse(http.StatusOK, "Webhook processed successfully"),
+				router.WithSuccessResponse(http.StatusNoContent, "Webhook processed successfully"),
 				router.WithErrorResponses(
 					router.DefineSwaggerErrorResponses(
 						router.DefineSwaggerErrorResponse(http.StatusBadRequest, "Invalid gateway type or webhook validation failed"),
@@ -94,7 +94,7 @@ func (e *APIExtension) handleWebhook(c echo.Context) error {
 	gatewayType := c.Param("gatewayType")
 
 	if gatewayType == "" {
-		return ctx.Error(fmt.Errorf("gateway type is required"), 400)
+		return ctx.Error(fmt.Errorf("gateway type is required"), http.StatusBadRequest)
 	}
 
 	c.Request().Body = http.MaxBytesReader(c.Response(), c.Request().Body, maxWebhookPayload)
@@ -137,8 +137,8 @@ func (e *APIExtension) handleWebhook(c echo.Context) error {
 		e.logger.Error("failed to process webhook",
 			zap.String("gateway", gatewayType),
 			zap.Error(err))
-		return ctx.Error(fmt.Errorf("failed to process webhook: %w", err), 400)
+		return ctx.Error(fmt.Errorf("failed to process webhook: %w", err), http.StatusBadRequest)
 	}
 
-	return ctx.NoContent(200)
+	return ctx.NoContent(http.StatusNoContent)
 }

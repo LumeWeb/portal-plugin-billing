@@ -45,27 +45,33 @@ func (s *BillingServiceDefault) ID() string {
 }
 
 func (s *BillingServiceDefault) GetSignatureHeader(gatewayType string) (string, error) {
+	if s.gateways == nil {
+		return "", fmt.Errorf("gateway registry not initialized")
+	}
 	gw, exists := s.gateways.Get(gatewayType)
 	if !exists {
-		return "", fmt.Errorf("unknown gateway type: %s", gatewayType)
+		return "", fmt.Errorf("%w: %s", pluginCore.ErrGatewayNotFound, gatewayType)
 	}
 	return gw.SignatureHeader(), nil
 }
 
 func (s *BillingServiceDefault) ProcessWebhook(ctx context.Context, gatewayType string, signature string, payload []byte) error {
+	if s.gateways == nil {
+		return fmt.Errorf("gateway registry not initialized")
+	}
 	// Get the gateway by type
 	gw, exists := s.gateways.Get(gatewayType)
 	if !exists {
-		return fmt.Errorf("unknown gateway type: %s", gatewayType)
+		return fmt.Errorf("%w: %s", pluginCore.ErrGatewayNotFound, gatewayType)
 	}
 
 	// Validate the webhook signature
-	if err := gw.ValidateWebhook(ctx, gatewayType, signature, payload); err != nil {
+	if err := gw.ValidateWebhook(ctx, signature, payload); err != nil {
 		return fmt.Errorf("webhook validation failed: %w", err)
 	}
 
 	// Handle the webhook
-	if err := gw.HandleWebhook(ctx, gatewayType, payload); err != nil {
+	if err := gw.HandleWebhook(ctx, payload); err != nil {
 		return fmt.Errorf("failed to handle webhook: %w", err)
 	}
 
