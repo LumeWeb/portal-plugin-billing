@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,6 +13,9 @@ import (
 	"go.lumeweb.com/portal/core"
 	"go.uber.org/zap"
 )
+
+// Read the full request body with size limit (1 MiB)
+const maxWebhookPayload = 1 << 20 // 1 MiB
 
 // APIExtension extends the API with billing functionality
 type APIExtension struct {
@@ -80,7 +84,7 @@ func (e *APIExtension) registerWebhookHandlers(gRouter router.Router, accessSvc 
 		),
 	)
 
-	return router.RegisterRoutes(gRouter, accessSvc, core.GetAPI("api").Subdomain(), routes)
+	return router.RegisterRoutes(gRouter, accessSvc, core.GetAPI(e.TargetAPI()).Subdomain(), routes)
 }
 
 // handleWebhook processes incoming webhook requests from payment gateways
@@ -93,9 +97,16 @@ func (e *APIExtension) handleWebhook(c echo.Context) error {
 		return ctx.Error(fmt.Errorf("gateway type is required"), 400)
 	}
 
-	// Read the full request body
+	c.Request().Body = http.MaxBytesReader(c.Response(), c.Request().Body, maxWebhookPayload)
 	payload, err := io.ReadAll(c.Request().Body)
 	if err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			e.logger.Warn("webhook payload too large",
+				zap.String("gateway", gatewayType),
+				zap.Int64("max_size", maxWebhookPayload))
+			return ctx.Error(fmt.Errorf("payload too large"), http.StatusRequestEntityTooLarge)
+		}
 		e.logger.Error("failed to read webhook payload",
 			zap.String("gateway", gatewayType),
 			zap.Error(err))
