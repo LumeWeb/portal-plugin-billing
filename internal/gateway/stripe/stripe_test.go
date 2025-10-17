@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stripe/stripe-go/v83"
 	"github.com/stripe/stripe-go/v83/webhook"
 	quotaCore "go.lumeweb.com/portal-plugin-quota/core"
@@ -211,6 +212,9 @@ func TestStripeGateway_HandleWebhook_SubscriptionCreated(t *testing.T) {
 
 func TestStripeGateway_HandleWebhook_SubscriptionCreated_PriceNil(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockQuota := core.GetService[*quotaCore.MockQuotaService](ctx, quotaCore.QUOTA_SERVICE)
+		mockUsers := core.GetService[*coreMocks.MockUserService](ctx, core.USER_SERVICE)
+
 		// subscription with item but nil Price
 		subscription := stripe.Subscription{
 			ID: "sub_123",
@@ -225,10 +229,13 @@ func TestStripeGateway_HandleWebhook_SubscriptionCreated_PriceNil(t *testing.T) 
 		event := createTestEvent(EventTypeSubscriptionCreated, rawData)
 		payload, _ := json.Marshal(event)
 
-		gw := New(ctx.Logger(), "test_secret", nil, nil)
+		gw := New(ctx.Logger(), "test_secret", mockQuota, mockUsers)
 		err := gw.HandleWebhook(context.Background(), payload)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "subscription missing item or price")
+		// Ensure no external side effects
+		mockUsers.AssertNotCalled(t, "AccountExists", mock.Anything)
+		mockQuota.AssertNotCalled(t, "AssignUserToPlan", mock.Anything, mock.Anything)
 	})
 }
 
@@ -337,6 +344,9 @@ func TestStripeGateway_HandleWebhook_MissingPlanID(t *testing.T) {
 		// Should return error when subscription has missing items
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "subscription missing items")
+		// Ensure no external side effects
+		mockUsers.AssertNotCalled(t, "AccountExists", mock.Anything)
+		mockQuota.AssertNotCalled(t, "AssignUserToPlan", mock.Anything, mock.Anything)
 	})
 }
 
@@ -363,5 +373,6 @@ func TestStripeGateway_HandleWebhook_NilSubscriptionItems(t *testing.T) {
 		// Should return error when subscription has missing items
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "subscription missing items")
+		mockUsers.AssertNotCalled(t, "AccountExists", mock.Anything)
 	})
 }

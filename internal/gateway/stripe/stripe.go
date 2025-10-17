@@ -73,14 +73,9 @@ func (g *StripeGateway) HandleWebhook(ctx context.Context, payload []byte) error
 }
 
 func (g *StripeGateway) handleSubscriptionActivated(ctx context.Context, event stripe.Event) error {
-	var subscription stripe.Subscription
-	if err := json.Unmarshal(event.Data.Raw, &subscription); err != nil {
+	subscription, err := g.validateSubscriptionEvent(event, true)
+	if err != nil {
 		return err
-	}
-
-	// Check if there are any subscription items
-	if subscription.Items == nil || len(subscription.Items.Data) == 0 {
-		return fmt.Errorf("subscription missing items")
 	}
 
 	// Check if the first item's price is nil
@@ -89,19 +84,9 @@ func (g *StripeGateway) handleSubscriptionActivated(ctx context.Context, event s
 		return fmt.Errorf("subscription missing item or price")
 	}
 
-	// Get user ID from subscription metadata
-	userID := ""
-	if subscription.Metadata != nil {
-		userID = subscription.Metadata[UserIDMetadataKey]
-	}
-	if userID == "" {
-		return fmt.Errorf("subscription metadata missing user_id")
-	}
-
-	// Convert userID to uint
-	userIDUint, err := strconv.ParseUint(userID, 10, 64)
+	userID, err := parseUserID(subscription.Metadata)
 	if err != nil {
-		return fmt.Errorf("invalid user_id format: %w", err)
+		return err
 	}
 
 	if g.users == nil {
@@ -109,53 +94,47 @@ func (g *StripeGateway) handleSubscriptionActivated(ctx context.Context, event s
 	}
 
 	// Get user by ID
-	exists, user, err := g.users.AccountExists(uint(userIDUint))
+	exists, user, err := g.users.AccountExists(userID)
 	if err != nil {
 		return fmt.Errorf("failed to check user existence: %w", err)
 	}
 	if !exists {
-		return fmt.Errorf("user with ID %d not found", uint(userIDUint))
+		return fmt.Errorf("user with ID %d not found", userID)
 	}
 
-	// Get plan ID from price metadata
-	planID := ""
-	if price.Metadata != nil {
-		planID = price.Metadata[PlanIDMetadataKey]
+	planID, hasPlan, err := extractPlanID(price)
+	if err != nil {
+		return err
 	}
-	if planID == "" {
+
+	if !hasPlan {
 		g.logger.Warn("subscription activated but price metadata missing plan_id",
-			zap.String("user_id", userID),
+			zap.Uint("user_id", userID),
 			zap.String("price_id", price.ID),
 			zap.String("subscription_id", subscription.ID),
 			zap.String("event_id", event.ID))
 		return nil
 	}
 
-	// Convert planID to uint
-	planIDUint, err := strconv.ParseUint(planID, 10, 64)
-	if err != nil {
-		return fmt.Errorf("invalid plan_id format: %w", err)
-	}
-
 	// Validate plan exists
 	if g.quota == nil {
 		return fmt.Errorf("quota service not configured")
 	}
-	_, err = g.quota.GetQuotaPlan(uint(planIDUint))
+	_, err = g.quota.GetQuotaPlan(planID)
 	if err != nil {
-		return fmt.Errorf("plan with ID %d not found: %w", uint(planIDUint), err)
+		return fmt.Errorf("plan with ID %d not found: %w", planID, err)
 	}
 
 	// Assign user to quota plan
-	if err := g.quota.AssignUserToPlan(user.ID, uint(planIDUint)); err != nil {
+	if err := g.quota.AssignUserToPlan(user.ID, planID); err != nil {
 		return fmt.Errorf("failed to assign user to plan: %w", err)
 	}
 
 	g.logger.Debug("subscription activated - added quota plan",
-		zap.String("user_id", userID),
+		zap.Uint("user_id", userID),
 		zap.String("price_id", price.ID),
 		zap.String("subscription_id", subscription.ID),
-		zap.String("plan_id", planID),
+		zap.Uint("plan_id", planID),
 		zap.String("event_id", event.ID),
 		zap.Uint("user_db_id", user.ID))
 
@@ -163,24 +142,14 @@ func (g *StripeGateway) handleSubscriptionActivated(ctx context.Context, event s
 }
 
 func (g *StripeGateway) handleSubscriptionDeactivated(ctx context.Context, event stripe.Event) error {
-	var subscription stripe.Subscription
-	if err := json.Unmarshal(event.Data.Raw, &subscription); err != nil {
+	subscription, err := g.validateSubscriptionEvent(event, false)
+	if err != nil {
 		return err
 	}
 
-	// Get user ID from subscription metadata
-	userID := ""
-	if subscription.Metadata != nil {
-		userID = subscription.Metadata[UserIDMetadataKey]
-	}
-	if userID == "" {
-		return fmt.Errorf("subscription metadata missing user_id")
-	}
-
-	// Convert userID to uint
-	userIDUint, err := strconv.ParseUint(userID, 10, 64)
+	userID, err := parseUserID(subscription.Metadata)
 	if err != nil {
-		return fmt.Errorf("invalid user_id format: %w", err)
+		return err
 	}
 
 	if g.users == nil {
@@ -188,12 +157,12 @@ func (g *StripeGateway) handleSubscriptionDeactivated(ctx context.Context, event
 	}
 
 	// Get user by ID
-	exists, user, err := g.users.AccountExists(uint(userIDUint))
+	exists, user, err := g.users.AccountExists(userID)
 	if err != nil {
 		return fmt.Errorf("failed to check user existence: %w", err)
 	}
 	if !exists {
-		return fmt.Errorf("user with ID %d not found", uint(userIDUint))
+		return fmt.Errorf("user with ID %d not found", userID)
 	}
 
 	// Remove user from their current plan
@@ -205,7 +174,7 @@ func (g *StripeGateway) handleSubscriptionDeactivated(ctx context.Context, event
 	}
 
 	g.logger.Debug("subscription deactivated - removed quota plan",
-		zap.String("user_id", userID),
+		zap.Uint("user_id", userID),
 		zap.String("subscription_id", subscription.ID),
 		zap.String("event_id", event.ID),
 		zap.Uint("user_db_id", user.ID))
@@ -214,14 +183,9 @@ func (g *StripeGateway) handleSubscriptionDeactivated(ctx context.Context, event
 }
 
 func (g *StripeGateway) handleSubscriptionUpdated(ctx context.Context, event stripe.Event) error {
-	var subscription stripe.Subscription
-	if err := json.Unmarshal(event.Data.Raw, &subscription); err != nil {
+	subscription, err := g.validateSubscriptionEvent(event, true)
+	if err != nil {
 		return err
-	}
-
-	// Check if there are any subscription items
-	if subscription.Items == nil || len(subscription.Items.Data) == 0 {
-		return fmt.Errorf("subscription missing items")
 	}
 
 	// Get the first item's price metadata
@@ -230,13 +194,12 @@ func (g *StripeGateway) handleSubscriptionUpdated(ctx context.Context, event str
 		return fmt.Errorf("subscription missing item or price")
 	}
 
-	// Get plan ID from price metadata
-	planID := ""
-	if price.Metadata != nil {
-		planID = price.Metadata[PlanIDMetadataKey]
+	planID, hasPlan, err := extractPlanID(price)
+	if err != nil {
+		return err
 	}
 
-	if planID == "" {
+	if !hasPlan {
 		g.logger.Warn("subscription updated but price metadata missing plan_id",
 			zap.String("subscription_id", subscription.ID),
 			zap.String("price_id", price.ID),
@@ -244,19 +207,9 @@ func (g *StripeGateway) handleSubscriptionUpdated(ctx context.Context, event str
 		return nil
 	}
 
-	// Get user ID from subscription metadata
-	userID := ""
-	if subscription.Metadata != nil {
-		userID = subscription.Metadata[UserIDMetadataKey]
-	}
-	if userID == "" {
-		return fmt.Errorf("subscription metadata missing user_id")
-	}
-
-	// Convert userID to uint
-	userIDUint, err := strconv.ParseUint(userID, 10, 64)
+	userID, err := parseUserID(subscription.Metadata)
 	if err != nil {
-		return fmt.Errorf("invalid user_id format: %w", err)
+		return err
 	}
 
 	if g.users == nil {
@@ -264,40 +217,34 @@ func (g *StripeGateway) handleSubscriptionUpdated(ctx context.Context, event str
 	}
 
 	// Get user by ID
-	exists, user, err := g.users.AccountExists(uint(userIDUint))
+	exists, user, err := g.users.AccountExists(userID)
 	if err != nil {
 		return fmt.Errorf("failed to check user existence: %w", err)
 	}
 	if !exists {
-		return fmt.Errorf("user with ID %d not found", uint(userIDUint))
+		return fmt.Errorf("user with ID %d not found", userID)
 	}
 
 	g.logger.Debug("updating user quota plan",
-		zap.String("user_id", userID),
-		zap.String("plan_id", planID),
+		zap.Uint("user_id", userID),
+		zap.Uint("plan_id", planID),
 		zap.Uint("user_db_id", user.ID),
 		zap.String("subscription_id", subscription.ID),
 		zap.String("price_id", price.ID),
 		zap.String("event_id", event.ID),
 		zap.Any("event_type", event.Type))
 
-	// Convert planID to uint
-	planIDUint, err := strconv.ParseUint(planID, 10, 64)
-	if err != nil {
-		return fmt.Errorf("invalid plan_id format: %w", err)
-	}
-
 	// Validate plan exists
 	if g.quota == nil {
 		return fmt.Errorf("quota service not configured")
 	}
-	_, err = g.quota.GetQuotaPlan(uint(planIDUint))
+	_, err = g.quota.GetQuotaPlan(planID)
 	if err != nil {
-		return fmt.Errorf("plan with ID %d not found: %w", uint(planIDUint), err)
+		return fmt.Errorf("plan with ID %d not found: %w", planID, err)
 	}
 
 	// Assign user to new quota plan
-	if err := g.quota.AssignUserToPlan(user.ID, uint(planIDUint)); err != nil {
+	if err := g.quota.AssignUserToPlan(user.ID, planID); err != nil {
 		return fmt.Errorf("failed to assign user to plan: %w", err)
 	}
 
@@ -306,6 +253,66 @@ func (g *StripeGateway) handleSubscriptionUpdated(ctx context.Context, event str
 
 func (g *StripeGateway) SetQuota(quota quotaCore.QuotaService) {
 	g.quota = quota
+}
+
+// Helper function to parse user ID from metadata
+func parseUserID(meta map[string]string) (uint, error) {
+	userID := ""
+	if meta != nil {
+		userID = meta[UserIDMetadataKey]
+	}
+	if userID == "" {
+		return 0, fmt.Errorf("subscription metadata missing user_id")
+	}
+
+	userIDUint, err := strconv.ParseUint(userID, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid user_id format: %w", err)
+	}
+
+	return uint(userIDUint), nil
+}
+
+// Helper function to extract plan ID from price metadata
+func extractPlanID(price *stripe.Price) (uint, bool, error) {
+	planID := ""
+	if price.Metadata != nil {
+		planID = price.Metadata[PlanIDMetadataKey]
+	}
+
+	if planID == "" {
+		return 0, false, nil
+	}
+
+	planIDUint, err := strconv.ParseUint(planID, 10, 64)
+	if err != nil {
+		return 0, false, fmt.Errorf("invalid plan_id format: %w", err)
+	}
+
+	return uint(planIDUint), true, nil
+}
+
+// Helper function to validate subscription event data
+func (g *StripeGateway) validateSubscriptionEvent(event stripe.Event, requireItems bool) (*stripe.Subscription, error) {
+	if event.Data == nil {
+		return nil, fmt.Errorf("event data is nil")
+	}
+
+	if len(event.Data.Raw) == 0 {
+		return nil, fmt.Errorf("event data raw payload is empty")
+	}
+
+	var subscription stripe.Subscription
+	if err := json.Unmarshal(event.Data.Raw, &subscription); err != nil {
+		return nil, err
+	}
+
+	// Check if there are any subscription items when required
+	if requireItems && (subscription.Items == nil || len(subscription.Items.Data) == 0) {
+		return nil, fmt.Errorf("subscription missing items")
+	}
+
+	return &subscription, nil
 }
 
 var _ pluginCore.PaymentGateway = (*StripeGateway)(nil)
