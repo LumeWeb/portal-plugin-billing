@@ -46,19 +46,25 @@ func NewBillingServiceWithRegistry(registry *gateway.Registry) (core.Service, []
 			// Load service configuration
 			service.config = core.GetServiceConfig[*config.ServiceConfig](ctx, pluginCore.BILLING_SERVICE)
 
-			// Get quota service early
-			service.quota = core.GetService[quotaCore.QuotaService](ctx, quotaCore.QUOTA_SERVICE)
-			if service.quota == nil {
-				return fmt.Errorf("quota service is required but not available")
-			}
-
 			// Register Stripe gateway if webhook secret is configured
 			if service.config.Stripe.WebhookSecret != "" {
+				// Get quota service
+				quotaSvc := core.GetService[quotaCore.QuotaService](ctx, quotaCore.QUOTA_SERVICE)
+				if quotaSvc == nil {
+					return fmt.Errorf("quota service is required for stripe gateway but not available")
+				}
+
+				// Get user service
+				userSvc := core.GetService[core.UserService](ctx, core.USER_SERVICE)
+				if userSvc == nil {
+					return fmt.Errorf("user service is required for stripe gateway but not available")
+				}
+
 				if err := service.gateways.Register(stripe.New(
 					ctx.Logger(),
 					service.config.Stripe.WebhookSecret,
-					service.quota,
-					core.GetService[core.UserService](ctx, core.USER_SERVICE),
+					quotaSvc,
+					userSvc,
 				)); err != nil {
 					return fmt.Errorf("failed to register stripe gateway: %w", err)
 				}
