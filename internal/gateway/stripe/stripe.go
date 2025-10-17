@@ -134,6 +134,9 @@ func (g *StripeGateway) handleSubscriptionActivated(event stripe.Event) error {
 	}
 
 	// Assign user to quota plan
+	if g.quota == nil {
+		return fmt.Errorf("quota service not configured")
+	}
 	if err := g.quota.AssignUserToPlan(user.ID, uint(planIDUint)); err != nil {
 		return fmt.Errorf("failed to assign user to plan: %w", err)
 	}
@@ -180,6 +183,9 @@ func (g *StripeGateway) handleSubscriptionDeactivated(event stripe.Event) error 
 	}
 
 	// Remove user from their current plan
+	if g.quota == nil {
+		return fmt.Errorf("quota service not configured")
+	}
 	if err := g.quota.RemoveUserFromPlan(user.ID); err != nil {
 		return fmt.Errorf("failed to remove user from plan: %w", err)
 	}
@@ -260,6 +266,9 @@ func (g *StripeGateway) handleSubscriptionUpdated(event stripe.Event) error {
 	}
 
 	// Assign user to new quota plan
+	if g.quota == nil {
+		return fmt.Errorf("quota service not configured")
+	}
 	if err := g.quota.AssignUserToPlan(user.ID, uint(planIDUint)); err != nil {
 		return fmt.Errorf("failed to assign user to plan: %w", err)
 	}

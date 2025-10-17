@@ -208,6 +208,29 @@ func TestStripeGateway_HandleWebhook_SubscriptionCreated(t *testing.T) {
 	})
 }
 
+func TestStripeGateway_HandleWebhook_SubscriptionCreated_PriceNil(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		// subscription with item but nil Price
+		subscription := stripe.Subscription{
+			ID: "sub_123",
+			Metadata: map[string]string{
+				UserIDMetadataKey: "123",
+			},
+			Items: &stripe.SubscriptionItemList{
+				Data: []*stripe.SubscriptionItem{{Price: nil}},
+			},
+		}
+		rawData, _ := json.Marshal(subscription)
+		event := createTestEvent(EventTypeSubscriptionCreated, rawData)
+		payload, _ := json.Marshal(event)
+
+		gw := New(ctx.Logger(), "test_secret", nil, nil)
+		err := gw.HandleWebhook(context.Background(), payload)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "subscription missing item or price")
+	})
+}
+
 func TestStripeGateway_HandleWebhook_SubscriptionDeleted(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		mockQuota := core.GetService[*quotaCore.MockQuotaService](ctx, quotaCore.QUOTA_SERVICE)
@@ -310,7 +333,8 @@ func TestStripeGateway_HandleWebhook_MissingPlanID(t *testing.T) {
 		err := gw.HandleWebhook(context.Background(), payload)
 
 		// Should handle missing plan id gracefully
-		assert.NoError(t, err)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "subscription missing items")
 	})
 }
 
@@ -335,6 +359,7 @@ func TestStripeGateway_HandleWebhook_NilSubscriptionItems(t *testing.T) {
 		err := gw.HandleWebhook(context.Background(), payload)
 
 		// Should handle nil subscription items gracefully
-		assert.NoError(t, err)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "subscription missing items")
 	})
 }
