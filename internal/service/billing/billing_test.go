@@ -167,17 +167,10 @@ func TestBillingService_ID(t *testing.T) {
 
 func TestBillingService_GetSignatureHeader_UninitializedRegistry(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
-		// Create service with nil registry
+		// Create service with nil registry - this should return an error
 		svc, _, err := NewBillingServiceWithRegistry(nil)
-		assert.NoError(t, err)
-		service := svc.(pluginCore.BillingService)
-
-		// Test
-		header, err := service.GetSignatureHeader("stripe")
-
-		// Verify
 		assert.Error(t, err)
-		assert.Equal(t, "", header)
-		assert.Contains(t, err.Error(), "gateway registry not initialized")
+		assert.Nil(t, svc)
+		assert.Contains(t, err.Error(), "gateway registry is nil")
 	})
 }
