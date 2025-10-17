@@ -61,6 +61,14 @@ func TestStripeGateway_ValidateWebhook(t *testing.T) {
 	}
 	signedPayload := webhook.GenerateTestSignedPayload(unsignedPayload)
 
+	// Signed payload with a stale timestamp (beyond default tolerance)
+	oldUnsigned := &webhook.UnsignedPayload{
+		Payload:   payload,
+		Secret:    secret,
+		Timestamp: time.Now().Add(-10 * time.Minute),
+	}
+	oldSigned := webhook.GenerateTestSignedPayload(oldUnsigned)
+
 	tests := []struct {
 		name        string
 		signature   string
@@ -73,6 +81,20 @@ func TestStripeGateway_ValidateWebhook(t *testing.T) {
 			signature: signedPayload.Header,
 			payload:   signedPayload.Payload,
 			secret:    secret,
+		},
+		{
+			name:        "missing secret",
+			signature:   signedPayload.Header,
+			payload:     signedPayload.Payload,
+			secret:      "",
+			expectError: true,
+		},
+		{
+			name:        "stale timestamp",
+			signature:   oldSigned.Header,
+			payload:     oldSigned.Payload,
+			secret:      secret,
+			expectError: true,
 		},
 		{
 			name:        "invalid signature",
@@ -116,7 +138,7 @@ func createTestSubscription(userID string, planID string) stripe.Subscription {
 	subscription := stripe.Subscription{
 		ID: "sub_123",
 		Metadata: map[string]string{
-			"user_id": userID,
+			UserIDMetadataKey: userID,
 		},
 	}
 
@@ -127,7 +149,7 @@ func createTestSubscription(userID string, planID string) stripe.Subscription {
 					Price: &stripe.Price{
 						ID: "price_123",
 						Metadata: map[string]string{
-							"plan_id": planID,
+							PlanIDMetadataKey: planID,
 						},
 					},
 				},
