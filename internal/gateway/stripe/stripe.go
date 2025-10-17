@@ -54,11 +54,11 @@ func (g *StripeGateway) ExtractEventID(payload []byte) (string, error) {
 	if err := json.Unmarshal(payload, &event); err != nil {
 		return "", err
 	}
-	
+
 	if event.Request != nil {
 		return event.Request.IdempotencyKey, nil
 	}
-	
+
 	return event.ID, nil
 }
 
@@ -138,9 +138,12 @@ func (g *StripeGateway) handleSubscriptionActivated(ctx context.Context, event s
 	if g.quota == nil {
 		return fmt.Errorf("quota service not configured")
 	}
-	_, err = g.quota.GetQuotaPlan(planID)
+	plan, err := g.quota.GetQuotaPlan(planID)
 	if err != nil {
 		return fmt.Errorf("plan with ID %d not found: %w", planID, err)
+	}
+	if plan == nil {
+		return fmt.Errorf("plan with ID %d not found", planID)
 	}
 
 	// Assign user to quota plan
@@ -250,9 +253,12 @@ func (g *StripeGateway) handleSubscriptionUpdated(ctx context.Context, event str
 	if g.quota == nil {
 		return fmt.Errorf("quota service not configured")
 	}
-	_, err = g.quota.GetQuotaPlan(planID)
+	plan, err := g.quota.GetQuotaPlan(planID)
 	if err != nil {
 		return fmt.Errorf("plan with ID %d not found: %w", planID, err)
+	}
+	if plan == nil {
+		return fmt.Errorf("plan with ID %d not found", planID)
 	}
 
 	// Assign user to new quota plan
@@ -343,7 +349,16 @@ func findFirstPlanPrice(sub *stripe.Subscription) (*stripe.Price, uint, bool, er
 			return it.Price, pid, true, nil
 		}
 	}
-	return sub.Items.Data[0].Price, 0, false, nil
+
+	// Safe fallback: find first non-nil item with non-nil Price
+	for _, it := range sub.Items.Data {
+		if it != nil && it.Price != nil {
+			return it.Price, 0, false, nil
+		}
+	}
+
+	// If no valid item found, return nil values
+	return nil, 0, false, nil
 }
 
 var _ pluginCore.PaymentGateway = (*StripeGateway)(nil)

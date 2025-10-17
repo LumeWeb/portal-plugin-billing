@@ -15,6 +15,7 @@ import (
 	"go.lumeweb.com/portal/core"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type BillingServiceDefault struct {
@@ -123,8 +124,12 @@ func (s *BillingServiceDefault) ProcessWebhook(ctx context.Context, gatewayType 
 		return fmt.Errorf("failed to extract event type: %w", err)
 	}
 
-	// Check if event was already processed
-	if s.isWebhookEventProcessed(eventID) {
+	// Claim the event (idempotent insert); if not claimed, skip
+	claimed, claimErr := s.claimWebhookEvent(gatewayType, eventID, eventType, payload)
+	if claimErr != nil {
+		return fmt.Errorf("failed to claim webhook event: %w", claimErr)
+	}
+	if !claimed {
 		s.logger.Debug("webhook event already processed, skipping",
 			zap.String("event_id", eventID),
 			zap.String("gateway_type", gatewayType),
@@ -134,12 +139,19 @@ func (s *BillingServiceDefault) ProcessWebhook(ctx context.Context, gatewayType 
 
 	// Handle the webhook
 	if err := s.gateways.HandleWebhook(ctx, gatewayType, payload); err != nil {
+		// Release the claim so that redeliveries can retry
+		if releaseErr := s.releaseWebhookEventClaim(gatewayType, eventID); releaseErr != nil {
+			s.logger.Error("failed to release webhook event claim",
+				zap.Error(releaseErr),
+				zap.String("event_id", eventID),
+				zap.String("gateway_type", gatewayType))
+		}
 		return fmt.Errorf("failed to handle webhook: %w", err)
 	}
 
-	// Log the processed webhook event
-	if err := s.logWebhookEvent(gatewayType, eventID, eventType, payload); err != nil {
-		s.logger.Error("failed to log webhook event",
+	// Mark the event as processed
+	if err := s.markWebhookEventProcessed(gatewayType, eventID); err != nil {
+		s.logger.Error("failed to mark webhook event as processed",
 			zap.Error(err),
 			zap.String("event_id", eventID),
 			zap.String("gateway_type", gatewayType))
@@ -148,31 +160,32 @@ func (s *BillingServiceDefault) ProcessWebhook(ctx context.Context, gatewayType 
 	return nil
 }
 
-// isWebhookEventProcessed checks if a webhook event has already been processed
-func (s *BillingServiceDefault) isWebhookEventProcessed(eventID string) bool {
-	var count int64
-	s.db.Model(&models.WebhookEvent{}).Where("event_id = ?", eventID).Count(&count)
-	return count > 0
-}
-
-// logWebhookEvent logs webhook events to prevent duplicate processing
-func (s *BillingServiceDefault) logWebhookEvent(gatewayType, eventID, eventType string, payload []byte) error {
-	event := &models.WebhookEvent{
+// claimWebhookEvent tries to insert a row; returns false if it already exists.
+func (s *BillingServiceDefault) claimWebhookEvent(gatewayType, eventID, eventType string, payload []byte) (bool, error) {
+	evt := &models.WebhookEvent{
 		GatewayType: gatewayType,
 		EventID:     eventID,
 		EventType:   eventType,
-		ProcessedAt: time.Now(),
-		Payload:     payload,
+		// Optional: store payload for observability
+		Payload: payload,
+		// Leave ProcessedAt zero; mark on success.
 	}
-
-	if err := s.db.Create(event).Error; err != nil {
-		return fmt.Errorf("failed to log webhook event: %w", err)
+	res := s.db.Clauses(clause.OnConflict{DoNothing: true}).Create(evt)
+	if res.Error != nil {
+		return false, res.Error
 	}
+	// RowsAffected == 0 => duplicate (already claimed/processed)
+	return res.RowsAffected == 1, nil
+}
 
-	s.logger.Debug("webhook event processed",
-		zap.String("event_id", eventID),
-		zap.String("gateway_type", gatewayType),
-		zap.String("event_type", eventType))
+func (s *BillingServiceDefault) markWebhookEventProcessed(gatewayType, eventID string) error {
+	return s.db.Model(&models.WebhookEvent{}).
+		Where("gateway_type = ? AND event_id = ?", gatewayType, eventID).
+		Updates(map[string]any{"processed_at": time.Now().UTC()}).Error
+}
 
-	return nil
+func (s *BillingServiceDefault) releaseWebhookEventClaim(gatewayType, eventID string) error {
+	return s.db.Model(&models.WebhookEvent{}).
+		Where("gateway_type = ? AND event_id = ?", gatewayType, eventID).
+		Update("deleted_at", time.Now().UTC()).Error
 }

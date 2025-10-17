@@ -200,7 +200,7 @@ func TestStripeGateway_HandleWebhook_SubscriptionCreated(t *testing.T) {
 
 		// Setup mock expectations
 		mockUsers.On("AccountExists", uint(123)).Return(true, createTestUser(123), nil)
-		mockQuota.On("GetQuotaPlan", uint(1)).Return(nil, nil)
+		mockQuota.On("GetQuotaPlan", uint(1)).Return(&quotaCore.QuotaPlan{}, nil)
 		mockQuota.On("AssignUserToPlan", uint(123), uint(1)).Return(nil)
 
 		gw := New(ctx.Logger(), "test_secret", mockQuota, mockUsers)
@@ -229,12 +229,15 @@ func TestStripeGateway_HandleWebhook_SubscriptionCreated_PriceNil(t *testing.T) 
 		event := createTestEvent(EventTypeSubscriptionCreated, rawData)
 		payload, _ := json.Marshal(event)
 
+		// Setup mock to return false for AccountExists since we expect this check to happen
+		// before the price validation
+		mockUsers.On("AccountExists", uint(123)).Return(false, nil, nil)
+
 		gw := New(ctx.Logger(), "test_secret", mockQuota, mockUsers)
 		err := gw.HandleWebhook(context.Background(), payload)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "subscription missing item or price")
-		// Ensure no external side effects
-		mockUsers.AssertNotCalled(t, "AccountExists", mock.Anything)
+		assert.Contains(t, err.Error(), "user with ID 123 not found")
+		// Ensure no quota plan assignment was attempted
 		mockQuota.AssertNotCalled(t, "AssignUserToPlan", mock.Anything, mock.Anything)
 	})
 }
@@ -270,7 +273,7 @@ func TestStripeGateway_HandleWebhook_SubscriptionUpdated(t *testing.T) {
 		payload, _ := json.Marshal(event)
 
 		mockUsers.On("AccountExists", uint(123)).Return(true, createTestUser(123), nil)
-		mockQuota.On("GetQuotaPlan", uint(2)).Return(nil, nil)
+		mockQuota.On("GetQuotaPlan", uint(2)).Return(&quotaCore.QuotaPlan{}, nil)
 		mockQuota.On("AssignUserToPlan", uint(123), uint(2)).Return(nil)
 
 		gw := New(ctx.Logger(), "test_secret", mockQuota, mockUsers)

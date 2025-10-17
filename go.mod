@@ -11,9 +11,10 @@ require (
 	github.com/stripe/stripe-go/v83 v83.0.1
 	go.lumeweb.com/httputil v0.5.3
 	go.lumeweb.com/portal v0.4.2-0.20251016024057-ce880ca2d44d
-	go.lumeweb.com/portal-plugin-quota v0.0.0-20251016014309-0b42c1cef6e8
+	go.lumeweb.com/portal-plugin-quota v0.0.0-20251017083829-d69b87c8c21d
 	go.lumeweb.com/portal-router v0.6.8
 	go.uber.org/zap v1.27.0
+	gorm.io/gorm v1.30.1
 )
 
 require (
@@ -196,7 +197,6 @@ require (
 	gorm.io/driver/postgres v1.6.0 // indirect
 	gorm.io/driver/sqlite v1.6.0 // indirect
 	gorm.io/driver/sqlserver v1.6.0 // indirect
-	gorm.io/gorm v1.30.1 // indirect
 	gorm.io/plugin/dbresolver v1.6.0 // indirect
 	lukechampine.com/blake3 v1.4.1 // indirect
 	lukechampine.com/frand v1.5.1 // indirect
