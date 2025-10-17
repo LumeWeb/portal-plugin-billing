@@ -17,7 +17,6 @@ type BillingServiceDefault struct {
 	logger   *core.Logger
 	gateways *gateway.Registry
 	config   *config.ServiceConfig
-	quota    quotaCore.QuotaService
 }
 
 func (s *BillingServiceDefault) Config() (any, error) {
@@ -34,6 +33,9 @@ func NewBillingService() (core.Service, []core.ContextBuilderOption, error) {
 // NewBillingServiceWithRegistry creates a new billing service with custom registry
 // Useful for testing
 func NewBillingServiceWithRegistry(registry *gateway.Registry) (core.Service, []core.ContextBuilderOption, error) {
+	if registry == nil {
+		return nil, nil, fmt.Errorf("gateway registry is nil")
+	}
 	service := &BillingServiceDefault{
 		gateways: registry,
 	}
@@ -47,7 +49,7 @@ func NewBillingServiceWithRegistry(registry *gateway.Registry) (core.Service, []
 			service.config = core.GetServiceConfig[*config.ServiceConfig](ctx, pluginCore.BILLING_SERVICE)
 
 			// Register Stripe gateway if webhook secret is configured
-			if service.config.Stripe.WebhookSecret != "" {
+			if secret := strings.TrimSpace(service.config.Stripe.WebhookSecret); secret != "" {
 				// Get quota service
 				quotaSvc := core.GetService[quotaCore.QuotaService](ctx, quotaCore.QUOTA_SERVICE)
 				if quotaSvc == nil {
@@ -61,8 +63,8 @@ func NewBillingServiceWithRegistry(registry *gateway.Registry) (core.Service, []
 				}
 
 				if err := service.gateways.Register(stripe.New(
-					ctx.Logger(),
-					service.config.Stripe.WebhookSecret,
+					service.logger,
+					secret,
 					quotaSvc,
 					userSvc,
 				)); err != nil {
