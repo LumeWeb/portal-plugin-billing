@@ -199,6 +199,7 @@ func TestStripeGateway_HandleWebhook_SubscriptionCreated(t *testing.T) {
 
 		// Setup mock expectations
 		mockUsers.On("AccountExists", uint(123)).Return(true, createTestUser(123), nil)
+		mockQuota.On("GetQuotaPlan", uint(1)).Return(nil, nil)
 		mockQuota.On("AssignUserToPlan", uint(123), uint(1)).Return(nil)
 
 		gw := New(ctx.Logger(), "test_secret", mockQuota, mockUsers)
@@ -262,6 +263,7 @@ func TestStripeGateway_HandleWebhook_SubscriptionUpdated(t *testing.T) {
 		payload, _ := json.Marshal(event)
 
 		mockUsers.On("AccountExists", uint(123)).Return(true, createTestUser(123), nil)
+		mockQuota.On("GetQuotaPlan", uint(2)).Return(nil, nil)
 		mockQuota.On("AssignUserToPlan", uint(123), uint(2)).Return(nil)
 
 		gw := New(ctx.Logger(), "test_secret", mockQuota, mockUsers)

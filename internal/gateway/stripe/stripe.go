@@ -49,12 +49,12 @@ func (g *StripeGateway) SignatureHeader() string {
 	return "Stripe-Signature"
 }
 
-func (g *StripeGateway) ValidateWebhook(_ context.Context, signature string, payload []byte) error {
+func (g *StripeGateway) ValidateWebhook(ctx context.Context, signature string, payload []byte) error {
 	_, err := webhook.ConstructEvent(payload, signature, g.endpointSecret)
 	return err
 }
 
-func (g *StripeGateway) HandleWebhook(_ context.Context, payload []byte) error {
+func (g *StripeGateway) HandleWebhook(ctx context.Context, payload []byte) error {
 	var event stripe.Event
 	if err := json.Unmarshal(payload, &event); err != nil {
 		return err
@@ -62,17 +62,17 @@ func (g *StripeGateway) HandleWebhook(_ context.Context, payload []byte) error {
 
 	switch event.Type {
 	case EventTypeSubscriptionCreated, EventTypeSubscriptionResumed:
-		return g.handleSubscriptionActivated(event)
+		return g.handleSubscriptionActivated(ctx, event)
 	case EventTypeSubscriptionDeleted, EventTypeSubscriptionPaused:
-		return g.handleSubscriptionDeactivated(event)
+		return g.handleSubscriptionDeactivated(ctx, event)
 	case EventTypeSubscriptionUpdated:
-		return g.handleSubscriptionUpdated(event)
+		return g.handleSubscriptionUpdated(ctx, event)
 	default:
 		return nil // Ignore all other event types
 	}
 }
 
-func (g *StripeGateway) handleSubscriptionActivated(event stripe.Event) error {
+func (g *StripeGateway) handleSubscriptionActivated(ctx context.Context, event stripe.Event) error {
 	var subscription stripe.Subscription
 	if err := json.Unmarshal(event.Data.Raw, &subscription); err != nil {
 		return err
@@ -133,10 +133,16 @@ func (g *StripeGateway) handleSubscriptionActivated(event stripe.Event) error {
 		return fmt.Errorf("invalid plan_id format: %w", err)
 	}
 
-	// Assign user to quota plan
+	// Validate plan exists
 	if g.quota == nil {
 		return fmt.Errorf("quota service not configured")
 	}
+	_, err = g.quota.GetQuotaPlan(uint(planIDUint))
+	if err != nil {
+		return fmt.Errorf("plan with ID %d not found: %w", uint(planIDUint), err)
+	}
+
+	// Assign user to quota plan
 	if err := g.quota.AssignUserToPlan(user.ID, uint(planIDUint)); err != nil {
 		return fmt.Errorf("failed to assign user to plan: %w", err)
 	}
@@ -152,7 +158,7 @@ func (g *StripeGateway) handleSubscriptionActivated(event stripe.Event) error {
 	return nil
 }
 
-func (g *StripeGateway) handleSubscriptionDeactivated(event stripe.Event) error {
+func (g *StripeGateway) handleSubscriptionDeactivated(ctx context.Context, event stripe.Event) error {
 	var subscription stripe.Subscription
 	if err := json.Unmarshal(event.Data.Raw, &subscription); err != nil {
 		return err
@@ -199,7 +205,7 @@ func (g *StripeGateway) handleSubscriptionDeactivated(event stripe.Event) error 
 	return nil
 }
 
-func (g *StripeGateway) handleSubscriptionUpdated(event stripe.Event) error {
+func (g *StripeGateway) handleSubscriptionUpdated(ctx context.Context, event stripe.Event) error {
 	var subscription stripe.Subscription
 	if err := json.Unmarshal(event.Data.Raw, &subscription); err != nil {
 		return err
@@ -207,13 +213,13 @@ func (g *StripeGateway) handleSubscriptionUpdated(event stripe.Event) error {
 
 	// Check if there are any subscription items
 	if subscription.Items == nil || len(subscription.Items.Data) == 0 {
-		return nil
+		return fmt.Errorf("subscription missing items")
 	}
 
 	// Get the first item's price metadata
 	price := subscription.Items.Data[0].Price
 	if price == nil {
-		return nil
+		return fmt.Errorf("subscription missing item or price")
 	}
 
 	// Get plan ID from price metadata
@@ -223,6 +229,10 @@ func (g *StripeGateway) handleSubscriptionUpdated(event stripe.Event) error {
 	}
 
 	if planID == "" {
+		g.logger.Warn("subscription updated but price metadata missing plan_id",
+			zap.String("subscription_id", subscription.ID),
+			zap.String("price_id", price.ID),
+			zap.String("event_id", event.ID))
 		return nil
 	}
 
@@ -265,10 +275,16 @@ func (g *StripeGateway) handleSubscriptionUpdated(event stripe.Event) error {
 		return fmt.Errorf("invalid plan_id format: %w", err)
 	}
 
-	// Assign user to new quota plan
+	// Validate plan exists
 	if g.quota == nil {
 		return fmt.Errorf("quota service not configured")
 	}
+	_, err = g.quota.GetQuotaPlan(uint(planIDUint))
+	if err != nil {
+		return fmt.Errorf("plan with ID %d not found: %w", uint(planIDUint), err)
+	}
+
+	// Assign user to new quota plan
 	if err := g.quota.AssignUserToPlan(user.ID, uint(planIDUint)); err != nil {
 		return fmt.Errorf("failed to assign user to plan: %w", err)
 	}
