@@ -112,11 +112,11 @@ func TestStripeGateway_ValidateWebhook(t *testing.T) {
 }
 
 // Helper function to create a test subscription
-func createTestSubscription(email string, planID string) stripe.Subscription {
+func createTestSubscription(userID string, planID string) stripe.Subscription {
 	subscription := stripe.Subscription{
 		ID: "sub_123",
-		Customer: &stripe.Customer{
-			Email: email,
+		Metadata: map[string]string{
+			"user_id": userID,
 		},
 	}
 
@@ -160,13 +160,13 @@ func TestStripeGateway_HandleWebhook_SubscriptionCreated(t *testing.T) {
 		mockUsers := core.GetService[*coreMocks.MockUserService](ctx, core.USER_SERVICE)
 
 		// Setup test data
-		subscription := createTestSubscription("test@example.com", "1")
+		subscription := createTestSubscription("123", "1")
 		rawData, _ := json.Marshal(subscription)
 		event := createTestEvent(EventTypeSubscriptionCreated, rawData)
 		payload, _ := json.Marshal(event)
 
 		// Setup mock expectations
-		mockUsers.On("EmailExists", "test@example.com").Return(true, createTestUser(123), nil)
+		mockUsers.On("AccountExists", uint(123)).Return(true, createTestUser(123), nil)
 		mockQuota.On("AssignUserToPlan", uint(123), uint(1)).Return(nil)
 
 		gw := New(ctx.Logger(), "test_secret", mockQuota, mockUsers)
@@ -178,15 +178,15 @@ func TestStripeGateway_HandleWebhook_SubscriptionCreated(t *testing.T) {
 
 func TestStripeGateway_HandleWebhook_SubscriptionDeleted(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
-		mockQuota := quotaCore.NewMockQuotaService(t)
-		mockUsers := coreMocks.NewMockUserService(t)
+		mockQuota := core.GetService[*quotaCore.MockQuotaService](ctx, quotaCore.QUOTA_SERVICE)
+		mockUsers := core.GetService[*coreMocks.MockUserService](ctx, core.USER_SERVICE)
 
-		subscription := createTestSubscription("test@example.com", "")
+		subscription := createTestSubscription("123", "")
 		rawData, _ := json.Marshal(subscription)
 		event := createTestEvent(EventTypeSubscriptionDeleted, rawData)
 		payload, _ := json.Marshal(event)
 
-		mockUsers.On("EmailExists", "test@example.com").Return(true, createTestUser(123), nil)
+		mockUsers.On("AccountExists", uint(123)).Return(true, createTestUser(123), nil)
 		mockQuota.On("RemoveUserFromPlan", uint(123)).Return(nil)
 
 		gw := New(ctx.Logger(), "test_secret", mockQuota, mockUsers)
@@ -198,15 +198,15 @@ func TestStripeGateway_HandleWebhook_SubscriptionDeleted(t *testing.T) {
 
 func TestStripeGateway_HandleWebhook_SubscriptionUpdated(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
-		mockQuota := quotaCore.NewMockQuotaService(t)
-		mockUsers := coreMocks.NewMockUserService(t)
+		mockQuota := core.GetService[*quotaCore.MockQuotaService](ctx, quotaCore.QUOTA_SERVICE)
+		mockUsers := core.GetService[*coreMocks.MockUserService](ctx, core.USER_SERVICE)
 
-		subscription := createTestSubscription("test@example.com", "2")
+		subscription := createTestSubscription("123", "2")
 		rawData, _ := json.Marshal(subscription)
 		event := createTestEvent(EventTypeSubscriptionUpdated, rawData)
 		payload, _ := json.Marshal(event)
 
-		mockUsers.On("EmailExists", "test@example.com").Return(true, createTestUser(123), nil)
+		mockUsers.On("AccountExists", uint(123)).Return(true, createTestUser(123), nil)
 		mockQuota.On("AssignUserToPlan", uint(123), uint(2)).Return(nil)
 
 		gw := New(ctx.Logger(), "test_secret", mockQuota, mockUsers)
@@ -236,28 +236,28 @@ func TestStripeGateway_HandleWebhook_InvalidPayload(t *testing.T) {
 
 func TestStripeGateway_HandleWebhook_UserNotFound(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
-		mockUsers := coreMocks.NewMockUserService(t)
+		mockUsers := core.GetService[*coreMocks.MockUserService](ctx, core.USER_SERVICE)
 
-		subscription := createTestSubscription("test@example.com", "1")
+		subscription := createTestSubscription("123", "1")
 		rawData, _ := json.Marshal(subscription)
 		event := createTestEvent(EventTypeSubscriptionCreated, rawData)
 		payload, _ := json.Marshal(event)
 
-		mockUsers.On("EmailExists", "test@example.com").Return(false, nil, nil)
+		mockUsers.On("AccountExists", uint(123)).Return(false, nil, nil)
 
 		gw := New(ctx.Logger(), "test_secret", nil, mockUsers)
 		err := gw.HandleWebhook(context.Background(), payload)
 
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "user with email test@example.com not found")
+		assert.Contains(t, err.Error(), "user with ID 123 not found")
 	})
 }
 
 func TestStripeGateway_HandleWebhook_MissingPlanID(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
-		mockUsers := coreMocks.NewMockUserService(t)
+		mockUsers := core.GetService[*coreMocks.MockUserService](ctx, core.USER_SERVICE)
 
-		subscription := createTestSubscription("test@example.com", "")
+		subscription := createTestSubscription("123", "")
 		rawData, _ := json.Marshal(subscription)
 		event := createTestEvent(EventTypeSubscriptionCreated, rawData)
 		payload, _ := json.Marshal(event)
@@ -271,13 +271,13 @@ func TestStripeGateway_HandleWebhook_MissingPlanID(t *testing.T) {
 
 func TestStripeGateway_HandleWebhook_NilSubscriptionItems(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
-		mockUsers := coreMocks.NewMockUserService(t)
+		mockUsers := core.GetService[*coreMocks.MockUserService](ctx, core.USER_SERVICE)
 
 		// Create a subscription with nil Items
 		subscription := stripe.Subscription{
 			ID: "sub_123",
-			Customer: &stripe.Customer{
-				Email: "test@example.com",
+			Metadata: map[string]string{
+				"user_id": "123",
 			},
 			Items: nil, // Explicitly set to nil
 		}

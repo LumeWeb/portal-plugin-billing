@@ -22,6 +22,7 @@ const (
 	EventTypeSubscriptionResumed = "customer.subscription.resumed"
 	EventTypeSubscriptionUpdated = "customer.subscription.updated"
 	PlanIDMetadataKey            = "plan_id"
+	UserIDMetadataKey            = "user_id"
 )
 
 type StripeGateway struct {
@@ -83,15 +84,29 @@ func (g *StripeGateway) handleSubscriptionActivated(event stripe.Event) error {
 	}
 
 	price := subscription.Items.Data[0].Price
-	customerEmail := subscription.Customer.Email
 
-	// Get user by email
-	exists, user, err := g.users.EmailExists(customerEmail)
+	// Get user ID from subscription metadata
+	userID := ""
+	if subscription.Metadata != nil {
+		userID = subscription.Metadata[UserIDMetadataKey]
+	}
+	if userID == "" {
+		return fmt.Errorf("subscription metadata missing user_id")
+	}
+
+	// Convert userID to uint
+	userIDUint, err := strconv.ParseUint(userID, 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid user_id format: %w", err)
+	}
+
+	// Get user by ID
+	exists, user, err := g.users.AccountExists(uint(userIDUint))
 	if err != nil {
 		return fmt.Errorf("failed to check user existence: %w", err)
 	}
 	if !exists {
-		return fmt.Errorf("user with email %s not found", customerEmail)
+		return fmt.Errorf("user with ID %d not found", uint(userIDUint))
 	}
 
 	// Get plan ID from price metadata
@@ -115,12 +130,12 @@ func (g *StripeGateway) handleSubscriptionActivated(event stripe.Event) error {
 	}
 
 	g.logger.Debug("subscription activated - added quota plan",
-		zap.String("customer_email", customerEmail),
+		zap.String("user_id", userID),
 		zap.String("price_id", price.ID),
 		zap.String("subscription_id", subscription.ID),
 		zap.String("plan_id", planID),
 		zap.String("event_id", event.ID),
-		zap.Uint("user_id", user.ID))
+		zap.Uint("user_db_id", user.ID))
 
 	return nil
 }
@@ -131,15 +146,28 @@ func (g *StripeGateway) handleSubscriptionDeactivated(event stripe.Event) error 
 		return err
 	}
 
-	customerEmail := subscription.Customer.Email
+	// Get user ID from subscription metadata
+	userID := ""
+	if subscription.Metadata != nil {
+		userID = subscription.Metadata[UserIDMetadataKey]
+	}
+	if userID == "" {
+		return fmt.Errorf("subscription metadata missing user_id")
+	}
 
-	// Get user by email
-	exists, user, err := g.users.EmailExists(customerEmail)
+	// Convert userID to uint
+	userIDUint, err := strconv.ParseUint(userID, 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid user_id format: %w", err)
+	}
+
+	// Get user by ID
+	exists, user, err := g.users.AccountExists(uint(userIDUint))
 	if err != nil {
 		return fmt.Errorf("failed to check user existence: %w", err)
 	}
 	if !exists {
-		return fmt.Errorf("user with email %s not found", customerEmail)
+		return fmt.Errorf("user with ID %d not found", uint(userIDUint))
 	}
 
 	// Remove user from their current plan
@@ -148,10 +176,10 @@ func (g *StripeGateway) handleSubscriptionDeactivated(event stripe.Event) error 
 	}
 
 	g.logger.Debug("subscription deactivated - removed quota plan",
-		zap.String("customer_email", customerEmail),
+		zap.String("user_id", userID),
 		zap.String("subscription_id", subscription.ID),
 		zap.String("event_id", event.ID),
-		zap.Uint("user_id", user.ID))
+		zap.Uint("user_db_id", user.ID))
 
 	return nil
 }
@@ -183,21 +211,34 @@ func (g *StripeGateway) handleSubscriptionUpdated(event stripe.Event) error {
 		return nil
 	}
 
-	customerEmail := subscription.Customer.Email
+	// Get user ID from subscription metadata
+	userID := ""
+	if subscription.Metadata != nil {
+		userID = subscription.Metadata[UserIDMetadataKey]
+	}
+	if userID == "" {
+		return fmt.Errorf("subscription metadata missing user_id")
+	}
 
-	// Get user by email
-	exists, user, err := g.users.EmailExists(customerEmail)
+	// Convert userID to uint
+	userIDUint, err := strconv.ParseUint(userID, 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid user_id format: %w", err)
+	}
+
+	// Get user by ID
+	exists, user, err := g.users.AccountExists(uint(userIDUint))
 	if err != nil {
 		return fmt.Errorf("failed to check user existence: %w", err)
 	}
 	if !exists {
-		return fmt.Errorf("user with email %s not found", customerEmail)
+		return fmt.Errorf("user with ID %d not found", uint(userIDUint))
 	}
 
 	g.logger.Debug("updating user quota plan",
-		zap.String("customer_email", customerEmail),
+		zap.String("user_id", userID),
 		zap.String("plan_id", planID),
-		zap.Uint("user_id", user.ID),
+		zap.Uint("user_db_id", user.ID),
 		zap.String("subscription_id", subscription.ID),
 		zap.String("price_id", price.ID),
 		zap.String("event_id", event.ID),
