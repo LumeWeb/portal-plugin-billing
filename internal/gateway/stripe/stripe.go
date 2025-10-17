@@ -115,7 +115,12 @@ func (g *StripeGateway) handleSubscriptionActivated(event stripe.Event) error {
 		planID = price.Metadata[PlanIDMetadataKey]
 	}
 	if planID == "" {
-		return fmt.Errorf("price metadata missing plan_id")
+		g.logger.Warn("subscription activated but price metadata missing plan_id",
+			zap.String("user_id", userID),
+			zap.String("price_id", price.ID),
+			zap.String("subscription_id", subscription.ID),
+			zap.String("event_id", event.ID))
+		return nil
 	}
 
 	// Convert planID to uint

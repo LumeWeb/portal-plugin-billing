@@ -69,6 +69,15 @@ func TestStripeGateway_ValidateWebhook(t *testing.T) {
 	}
 	oldSigned := webhook.GenerateTestSignedPayload(oldUnsigned)
 
+	// Signed payload for invalid JSON: signature valid, JSON should fail to unmarshal
+	invalidJSON := []byte("invalid json")
+	invalidUnsigned := &webhook.UnsignedPayload{
+		Payload:   invalidJSON,
+		Secret:    secret,
+		Timestamp: time.Now(),
+	}
+	invalidSigned := webhook.GenerateTestSignedPayload(invalidUnsigned)
+
 	tests := []struct {
 		name        string
 		signature   string
@@ -112,8 +121,8 @@ func TestStripeGateway_ValidateWebhook(t *testing.T) {
 		},
 		{
 			name:        "invalid JSON payload",
-			signature:   "",
-			payload:     []byte("invalid json"),
+			signature:   invalidSigned.Header,
+			payload:     invalidSigned.Payload,
 			secret:      secret,
 			expectError: true,
 		},
@@ -123,19 +132,7 @@ func TestStripeGateway_ValidateWebhook(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx, _ := coreTesting.NewTestContext(t)
 			gw := New(ctx.Logger(), tt.secret, nil, nil)
-			
-			// For the invalid JSON test case, we need to generate a valid signature for the invalid payload
-			if tt.name == "invalid JSON payload" {
-				unsignedPayload := &webhook.UnsignedPayload{
-					Payload:   tt.payload,
-					Secret:    tt.secret,
-					Timestamp: time.Now(),
-				}
-				signedPayload := webhook.GenerateTestSignedPayload(unsignedPayload)
-				tt.signature = signedPayload.Header
-				tt.payload = signedPayload.Payload
-			}
-			
+
 			err := gw.ValidateWebhook(context.Background(), tt.signature, tt.payload)
 			if tt.expectError {
 				assert.Error(t, err)
@@ -265,7 +262,7 @@ func TestStripeGateway_HandleWebhook_UnknownEvent(t *testing.T) {
 func TestStripeGateway_HandleWebhook_InvalidPayload(t *testing.T) {
 	secret := "whsec_test_secret"
 	payload := []byte("invalid json")
-	
+
 	// Generate a valid signature for the invalid payload
 	unsignedPayload := &webhook.UnsignedPayload{
 		Payload:   payload,
@@ -273,7 +270,7 @@ func TestStripeGateway_HandleWebhook_InvalidPayload(t *testing.T) {
 		Timestamp: time.Now(),
 	}
 	signedPayload := webhook.GenerateTestSignedPayload(unsignedPayload)
-	
+
 	ctx, _ := coreTesting.NewTestContext(t)
 	gw := New(ctx.Logger(), secret, nil, nil)
 	err := gw.HandleWebhook(context.Background(), signedPayload.Payload)
@@ -301,13 +298,15 @@ func TestStripeGateway_HandleWebhook_UserNotFound(t *testing.T) {
 
 func TestStripeGateway_HandleWebhook_MissingPlanID(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockQuota := core.GetService[*quotaCore.MockQuotaService](ctx, quotaCore.QUOTA_SERVICE)
 		mockUsers := core.GetService[*coreMocks.MockUserService](ctx, core.USER_SERVICE)
 
 		subscription := createTestSubscription("123", "")
 		rawData, _ := json.Marshal(subscription)
 		event := createTestEvent(EventTypeSubscriptionCreated, rawData)
 		payload, _ := json.Marshal(event)
-		gw := New(ctx.Logger(), "test_secret", nil, mockUsers)
+
+		gw := New(ctx.Logger(), "test_secret", mockQuota, mockUsers)
 		err := gw.HandleWebhook(context.Background(), payload)
 
 		// Should handle missing plan id gracefully
@@ -323,7 +322,7 @@ func TestStripeGateway_HandleWebhook_NilSubscriptionItems(t *testing.T) {
 		subscription := stripe.Subscription{
 			ID: "sub_123",
 			Metadata: map[string]string{
-				"user_id": "123",
+				UserIDMetadataKey: "123",
 			},
 			Items: nil, // Explicitly set to nil
 		}
