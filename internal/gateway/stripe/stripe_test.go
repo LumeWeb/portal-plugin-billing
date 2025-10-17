@@ -112,7 +112,7 @@ func TestStripeGateway_ValidateWebhook(t *testing.T) {
 		},
 		{
 			name:        "invalid JSON payload",
-			signature:   signedPayload.Header,
+			signature:   "",
 			payload:     []byte("invalid json"),
 			secret:      secret,
 			expectError: true,
@@ -123,6 +123,19 @@ func TestStripeGateway_ValidateWebhook(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx, _ := coreTesting.NewTestContext(t)
 			gw := New(ctx.Logger(), tt.secret, nil, nil)
+			
+			// For the invalid JSON test case, we need to generate a valid signature for the invalid payload
+			if tt.name == "invalid JSON payload" {
+				unsignedPayload := &webhook.UnsignedPayload{
+					Payload:   tt.payload,
+					Secret:    tt.secret,
+					Timestamp: time.Now(),
+				}
+				signedPayload := webhook.GenerateTestSignedPayload(unsignedPayload)
+				tt.signature = signedPayload.Header
+				tt.payload = signedPayload.Payload
+			}
+			
 			err := gw.ValidateWebhook(context.Background(), tt.signature, tt.payload)
 			if tt.expectError {
 				assert.Error(t, err)
@@ -250,9 +263,20 @@ func TestStripeGateway_HandleWebhook_UnknownEvent(t *testing.T) {
 }
 
 func TestStripeGateway_HandleWebhook_InvalidPayload(t *testing.T) {
+	secret := "whsec_test_secret"
+	payload := []byte("invalid json")
+	
+	// Generate a valid signature for the invalid payload
+	unsignedPayload := &webhook.UnsignedPayload{
+		Payload:   payload,
+		Secret:    secret,
+		Timestamp: time.Now(),
+	}
+	signedPayload := webhook.GenerateTestSignedPayload(unsignedPayload)
+	
 	ctx, _ := coreTesting.NewTestContext(t)
-	gw := New(ctx.Logger(), "test_secret", nil, nil)
-	err := gw.HandleWebhook(context.Background(), []byte("invalid json"))
+	gw := New(ctx.Logger(), secret, nil, nil)
+	err := gw.HandleWebhook(context.Background(), signedPayload.Payload)
 	assert.Error(t, err)
 }
 
