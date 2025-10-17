@@ -1,0 +1,9 @@
+template: testify
+template-data:
+  unroll-variadic: true
+filename: "mock_{{.InterfaceName}}.go"
+packages:
+  go.lumeweb.com/portal-plugin-billing/core:
+    interfaces:
+      BillingService: {}
+      PaymentGateway: {}

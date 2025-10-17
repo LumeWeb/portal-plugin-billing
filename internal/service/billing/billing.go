@@ -3,14 +3,23 @@ package billing
 import (
 	"context"
 	"fmt"
+	"strings"
+	"time"
 
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
 	"go.lumeweb.com/portal-plugin-billing/internal/config"
+	"go.lumeweb.com/portal-plugin-billing/internal/db/models"
 	"go.lumeweb.com/portal-plugin-billing/internal/gateway"
+	"go.lumeweb.com/portal-plugin-billing/internal/gateway/stripe"
+	quotaCore "go.lumeweb.com/portal-plugin-quota/core"
 	"go.lumeweb.com/portal/core"
+	"go.uber.org/zap"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type BillingServiceDefault struct {
+	db       *gorm.DB
 	ctx      core.Context
 	logger   *core.Logger
 	gateways *gateway.Registry
@@ -23,17 +32,53 @@ func (s *BillingServiceDefault) Config() (any, error) {
 
 var _ pluginCore.BillingService = (*BillingServiceDefault)(nil)
 
+// NewBillingService creates a new billing service with default registry
 func NewBillingService() (core.Service, []core.ContextBuilderOption, error) {
-	service := &BillingServiceDefault{}
+	return NewBillingServiceWithRegistry(gateway.GetRegistry())
+}
+
+// NewBillingServiceWithRegistry creates a new billing service with custom registry
+// Useful for testing
+func NewBillingServiceWithRegistry(registry *gateway.Registry) (core.Service, []core.ContextBuilderOption, error) {
+	if registry == nil {
+		return nil, nil, fmt.Errorf("gateway registry is nil")
+	}
+	service := &BillingServiceDefault{
+		gateways: registry,
+	}
 
 	return service, core.ContextOptions(
 		core.ContextWithStartupFunc(func(ctx core.Context) error {
 			service.ctx = ctx
 			service.logger = ctx.ServiceLogger(service)
-			service.gateways = gateway.GetRegistry()
+			service.db = ctx.DB()
 
 			// Load service configuration
 			service.config = core.GetServiceConfig[*config.ServiceConfig](ctx, pluginCore.BILLING_SERVICE)
+
+			// Register Stripe gateway if webhook secret is configured
+			if secret := strings.TrimSpace(service.config.Stripe.WebhookSecret); secret != "" {
+				// Get quota service
+				quotaSvc := core.GetService[quotaCore.QuotaService](ctx, quotaCore.QUOTA_SERVICE)
+				if quotaSvc == nil {
+					return fmt.Errorf("quota service is required for stripe gateway but not available")
+				}
+
+				// Get user service
+				userSvc := core.GetService[core.UserService](ctx, core.USER_SERVICE)
+				if userSvc == nil {
+					return fmt.Errorf("user service is required for stripe gateway but not available")
+				}
+
+				if err := service.gateways.Register(stripe.New(
+					service.logger,
+					secret,
+					quotaSvc,
+					userSvc,
+				)); err != nil {
+					return fmt.Errorf("failed to register stripe gateway: %w", err)
+				}
+			}
 
 			return nil
 		}),
@@ -48,32 +93,99 @@ func (s *BillingServiceDefault) GetSignatureHeader(gatewayType string) (string, 
 	if s.gateways == nil {
 		return "", fmt.Errorf("gateway registry not initialized")
 	}
-	gw, exists := s.gateways.Get(gatewayType)
-	if !exists {
-		return "", fmt.Errorf("%w: %s", pluginCore.ErrGatewayNotFound, gatewayType)
+	return s.gateways.GetSignatureHeader(gatewayType)
+}
+
+func (s *BillingServiceDefault) RegisterGateway(gateway pluginCore.PaymentGateway) error {
+	if s.gateways == nil {
+		return fmt.Errorf("gateway registry not initialized")
 	}
-	return gw.SignatureHeader(), nil
+	return s.gateways.Register(gateway)
 }
 
 func (s *BillingServiceDefault) ProcessWebhook(ctx context.Context, gatewayType string, signature string, payload []byte) error {
 	if s.gateways == nil {
 		return fmt.Errorf("gateway registry not initialized")
 	}
-	// Get the gateway by type
-	gw, exists := s.gateways.Get(gatewayType)
-	if !exists {
-		return fmt.Errorf("%w: %s", pluginCore.ErrGatewayNotFound, gatewayType)
-	}
 
-	// Validate the webhook signature
-	if err := gw.ValidateWebhook(ctx, signature, payload); err != nil {
+	// Validate the webhook signature first
+	if err := s.gateways.ValidateWebhook(ctx, gatewayType, signature, payload); err != nil {
 		return fmt.Errorf("webhook validation failed: %w", err)
 	}
 
+	// Extract event ID and type for logging and deduplication
+	eventID, err := s.gateways.ExtractEventID(gatewayType, payload)
+	if err != nil {
+		return fmt.Errorf("failed to extract event ID: %w", err)
+	}
+
+	eventType, err := s.gateways.ExtractEventType(gatewayType, payload)
+	if err != nil {
+		return fmt.Errorf("failed to extract event type: %w", err)
+	}
+
+	// Claim the event (idempotent insert); if not claimed, skip
+	claimed, claimErr := s.claimWebhookEvent(gatewayType, eventID, eventType, payload)
+	if claimErr != nil {
+		return fmt.Errorf("failed to claim webhook event: %w", claimErr)
+	}
+	if !claimed {
+		s.logger.Debug("webhook event already processed, skipping",
+			zap.String("event_id", eventID),
+			zap.String("gateway_type", gatewayType),
+			zap.String("event_type", eventType))
+		return nil
+	}
+
 	// Handle the webhook
-	if err := gw.HandleWebhook(ctx, payload); err != nil {
+	if err := s.gateways.HandleWebhook(ctx, gatewayType, payload); err != nil {
+		// Release the claim so that redeliveries can retry
+		if releaseErr := s.releaseWebhookEventClaim(gatewayType, eventID); releaseErr != nil {
+			s.logger.Error("failed to release webhook event claim",
+				zap.Error(releaseErr),
+				zap.String("event_id", eventID),
+				zap.String("gateway_type", gatewayType))
+		}
 		return fmt.Errorf("failed to handle webhook: %w", err)
 	}
 
+	// Mark the event as processed
+	if err := s.markWebhookEventProcessed(gatewayType, eventID); err != nil {
+		s.logger.Error("failed to mark webhook event as processed",
+			zap.Error(err),
+			zap.String("event_id", eventID),
+			zap.String("gateway_type", gatewayType))
+	}
+
 	return nil
+}
+
+// claimWebhookEvent tries to insert a row; returns false if it already exists.
+func (s *BillingServiceDefault) claimWebhookEvent(gatewayType, eventID, eventType string, payload []byte) (bool, error) {
+	evt := &models.WebhookEvent{
+		GatewayType: gatewayType,
+		EventID:     eventID,
+		EventType:   eventType,
+		// Optional: store payload for observability
+		Payload: payload,
+		// Leave ProcessedAt zero; mark on success.
+	}
+	res := s.db.Clauses(clause.OnConflict{DoNothing: true}).Create(evt)
+	if res.Error != nil {
+		return false, res.Error
+	}
+	// RowsAffected == 0 => duplicate (already claimed/processed)
+	return res.RowsAffected == 1, nil
+}
+
+func (s *BillingServiceDefault) markWebhookEventProcessed(gatewayType, eventID string) error {
+	return s.db.Model(&models.WebhookEvent{}).
+		Where("gateway_type = ? AND event_id = ?", gatewayType, eventID).
+		Updates(map[string]any{"processed_at": time.Now().UTC()}).Error
+}
+
+func (s *BillingServiceDefault) releaseWebhookEventClaim(gatewayType, eventID string) error {
+	return s.db.Model(&models.WebhookEvent{}).
+		Where("gateway_type = ? AND event_id = ?", gatewayType, eventID).
+		Update("deleted_at", time.Now().UTC()).Error
 }

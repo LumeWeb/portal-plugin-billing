@@ -9,18 +9,14 @@ import (
 )
 
 
-var (
-	registryInstance *Registry
-	registryOnce     sync.Once
-)
-
 // Registry maintains a collection of payment gateways
 type Registry struct {
 	gateways map[string]pluginCore.PaymentGateway
 	mu       sync.RWMutex
 }
 
-func makeRegistry() *Registry {
+// NewRegistry creates a new empty gateway registry
+func NewRegistry() *Registry {
 	return &Registry{
 		gateways: make(map[string]pluginCore.PaymentGateway),
 	}
@@ -28,11 +24,20 @@ func makeRegistry() *Registry {
 
 // GetRegistry returns the singleton gateway registry instance
 func GetRegistry() *Registry {
-	registryOnce.Do(func() {
-		registryInstance = makeRegistry()
-	})
-	return registryInstance
+	return defaultRegistry
 }
+
+// Reset clears all registered gateways from the registry
+// This is useful for testing purposes
+func (r *Registry) Reset() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.gateways = make(map[string]pluginCore.PaymentGateway)
+}
+
+var (
+	defaultRegistry = NewRegistry()
+)
 
 // Register adds a payment gateway to the registry
 func (r *Registry) Register(gateway pluginCore.PaymentGateway) error {
@@ -103,4 +108,24 @@ func (r *Registry) HandleWebhook(ctx context.Context, gatewayType string, payloa
 	}
 
 	return gw.HandleWebhook(ctx, payload)
+}
+
+// ExtractEventID extracts the event ID from a webhook payload for a specific gateway
+func (r *Registry) ExtractEventID(gatewayType string, payload []byte) (string, error) {
+	gw, exists := r.Get(gatewayType)
+	if !exists {
+		return "", pluginCore.ErrGatewayNotFound
+	}
+
+	return gw.ExtractEventID(payload)
+}
+
+// ExtractEventType extracts the event type from a webhook payload for a specific gateway
+func (r *Registry) ExtractEventType(gatewayType string, payload []byte) (string, error) {
+	gw, exists := r.Get(gatewayType)
+	if !exists {
+		return "", pluginCore.ErrGatewayNotFound
+	}
+
+	return gw.ExtractEventType(payload)
 }
