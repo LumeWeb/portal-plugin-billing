@@ -334,7 +334,7 @@ func TestStripeGateway_HandleWebhook_MissingPlanID(t *testing.T) {
 		gw := New(ctx.Logger(), "test_secret", mockQuota, mockUsers)
 		err := gw.HandleWebhook(context.Background(), payload)
 
-		// Should handle missing plan id gracefully
+		// Should return error when subscription has missing items
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "subscription missing items")
 	})

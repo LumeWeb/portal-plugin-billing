@@ -104,6 +104,10 @@ func (g *StripeGateway) handleSubscriptionActivated(ctx context.Context, event s
 		return fmt.Errorf("invalid user_id format: %w", err)
 	}
 
+	if g.users == nil {
+		return fmt.Errorf("user service not configured")
+	}
+
 	// Get user by ID
 	exists, user, err := g.users.AccountExists(uint(userIDUint))
 	if err != nil {
@@ -179,6 +183,10 @@ func (g *StripeGateway) handleSubscriptionDeactivated(ctx context.Context, event
 		return fmt.Errorf("invalid user_id format: %w", err)
 	}
 
+	if g.users == nil {
+		return fmt.Errorf("user service not configured")
+	}
+
 	// Get user by ID
 	exists, user, err := g.users.AccountExists(uint(userIDUint))
 	if err != nil {
@@ -249,6 +257,10 @@ func (g *StripeGateway) handleSubscriptionUpdated(ctx context.Context, event str
 	userIDUint, err := strconv.ParseUint(userID, 10, 64)
 	if err != nil {
 		return fmt.Errorf("invalid user_id format: %w", err)
+	}
+
+	if g.users == nil {
+		return fmt.Errorf("user service not configured")
 	}
 
 	// Get user by ID
