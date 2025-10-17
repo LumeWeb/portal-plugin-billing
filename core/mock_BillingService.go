@@ -264,3 +264,54 @@ func (_c *MockBillingService_ProcessWebhook_Call) RunAndReturn(run func(ctx cont
 	_c.Call.Return(run)
 	return _c
 }
+
+// RegisterGateway provides a mock function for the type MockBillingService
+func (_mock *MockBillingService) RegisterGateway(gateway PaymentGateway) error {
+	ret := _mock.Called(gateway)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RegisterGateway")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(PaymentGateway) error); ok {
+		r0 = returnFunc(gateway)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockBillingService_RegisterGateway_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RegisterGateway'
+type MockBillingService_RegisterGateway_Call struct {
+	*mock.Call
+}
+
+// RegisterGateway is a helper method to define mock.On call
+//   - gateway PaymentGateway
+func (_e *MockBillingService_Expecter) RegisterGateway(gateway interface{}) *MockBillingService_RegisterGateway_Call {
+	return &MockBillingService_RegisterGateway_Call{Call: _e.mock.On("RegisterGateway", gateway)}
+}
+
+func (_c *MockBillingService_RegisterGateway_Call) Run(run func(gateway PaymentGateway)) *MockBillingService_RegisterGateway_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 PaymentGateway
+		if args[0] != nil {
+			arg0 = args[0].(PaymentGateway)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *MockBillingService_RegisterGateway_Call) Return(err error) *MockBillingService_RegisterGateway_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockBillingService_RegisterGateway_Call) RunAndReturn(run func(gateway PaymentGateway) error) *MockBillingService_RegisterGateway_Call {
+	_c.Call.Return(run)
+	return _c
+}

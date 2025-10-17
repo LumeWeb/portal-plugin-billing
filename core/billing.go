@@ -14,4 +14,5 @@ type BillingService interface {
 	core.Configurable
 	ProcessWebhook(ctx context.Context, gatewayType string, signature string, payload []byte) error
 	GetSignatureHeader(gatewayType string) (string, error)
+	RegisterGateway(gateway PaymentGateway) error
 }

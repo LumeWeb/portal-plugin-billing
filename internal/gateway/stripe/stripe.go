@@ -49,6 +49,22 @@ func (g *StripeGateway) SignatureHeader() string {
 	return "Stripe-Signature"
 }
 
+func (g *StripeGateway) ExtractEventID(payload []byte) (string, error) {
+	var event stripe.Event
+	if err := json.Unmarshal(payload, &event); err != nil {
+		return "", err
+	}
+	return event.ID, nil
+}
+
+func (g *StripeGateway) ExtractEventType(payload []byte) (string, error) {
+	var event stripe.Event
+	if err := json.Unmarshal(payload, &event); err != nil {
+		return "", err
+	}
+	return string(event.Type), nil
+}
+
 func (g *StripeGateway) ValidateWebhook(ctx context.Context, signature string, payload []byte) error {
 	_, err := webhook.ConstructEvent(payload, signature, g.endpointSecret)
 	return err

@@ -37,6 +37,126 @@ func (_m *MockPaymentGateway) EXPECT() *MockPaymentGateway_Expecter {
 	return &MockPaymentGateway_Expecter{mock: &_m.Mock}
 }
 
+// ExtractEventID provides a mock function for the type MockPaymentGateway
+func (_mock *MockPaymentGateway) ExtractEventID(payload []byte) (string, error) {
+	ret := _mock.Called(payload)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ExtractEventID")
+	}
+
+	var r0 string
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func([]byte) (string, error)); ok {
+		return returnFunc(payload)
+	}
+	if returnFunc, ok := ret.Get(0).(func([]byte) string); ok {
+		r0 = returnFunc(payload)
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+	if returnFunc, ok := ret.Get(1).(func([]byte) error); ok {
+		r1 = returnFunc(payload)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockPaymentGateway_ExtractEventID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ExtractEventID'
+type MockPaymentGateway_ExtractEventID_Call struct {
+	*mock.Call
+}
+
+// ExtractEventID is a helper method to define mock.On call
+//   - payload []byte
+func (_e *MockPaymentGateway_Expecter) ExtractEventID(payload interface{}) *MockPaymentGateway_ExtractEventID_Call {
+	return &MockPaymentGateway_ExtractEventID_Call{Call: _e.mock.On("ExtractEventID", payload)}
+}
+
+func (_c *MockPaymentGateway_ExtractEventID_Call) Run(run func(payload []byte)) *MockPaymentGateway_ExtractEventID_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 []byte
+		if args[0] != nil {
+			arg0 = args[0].([]byte)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *MockPaymentGateway_ExtractEventID_Call) Return(s string, err error) *MockPaymentGateway_ExtractEventID_Call {
+	_c.Call.Return(s, err)
+	return _c
+}
+
+func (_c *MockPaymentGateway_ExtractEventID_Call) RunAndReturn(run func(payload []byte) (string, error)) *MockPaymentGateway_ExtractEventID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ExtractEventType provides a mock function for the type MockPaymentGateway
+func (_mock *MockPaymentGateway) ExtractEventType(payload []byte) (string, error) {
+	ret := _mock.Called(payload)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ExtractEventType")
+	}
+
+	var r0 string
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func([]byte) (string, error)); ok {
+		return returnFunc(payload)
+	}
+	if returnFunc, ok := ret.Get(0).(func([]byte) string); ok {
+		r0 = returnFunc(payload)
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+	if returnFunc, ok := ret.Get(1).(func([]byte) error); ok {
+		r1 = returnFunc(payload)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockPaymentGateway_ExtractEventType_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ExtractEventType'
+type MockPaymentGateway_ExtractEventType_Call struct {
+	*mock.Call
+}
+
+// ExtractEventType is a helper method to define mock.On call
+//   - payload []byte
+func (_e *MockPaymentGateway_Expecter) ExtractEventType(payload interface{}) *MockPaymentGateway_ExtractEventType_Call {
+	return &MockPaymentGateway_ExtractEventType_Call{Call: _e.mock.On("ExtractEventType", payload)}
+}
+
+func (_c *MockPaymentGateway_ExtractEventType_Call) Run(run func(payload []byte)) *MockPaymentGateway_ExtractEventType_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 []byte
+		if args[0] != nil {
+			arg0 = args[0].([]byte)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *MockPaymentGateway_ExtractEventType_Call) Return(s string, err error) *MockPaymentGateway_ExtractEventType_Call {
+	_c.Call.Return(s, err)
+	return _c
+}
+
+func (_c *MockPaymentGateway_ExtractEventType_Call) RunAndReturn(run func(payload []byte) (string, error)) *MockPaymentGateway_ExtractEventType_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // HandleWebhook provides a mock function for the type MockPaymentGateway
 func (_mock *MockPaymentGateway) HandleWebhook(ctx context.Context, payload []byte) error {
 	ret := _mock.Called(ctx, payload)

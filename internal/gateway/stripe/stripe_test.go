@@ -291,6 +291,110 @@ func TestStripeGateway_HandleWebhook_UnknownEvent(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestStripeGateway_ExtractEventID(t *testing.T) {
+	tests := []struct {
+		name        string
+		payload     []byte
+		expectedID  string
+		expectError bool
+	}{
+		{
+			name: "valid event payload",
+			payload: func() []byte {
+				event := stripe.Event{
+					ID: "evt_test123",
+				}
+				payload, _ := json.Marshal(event)
+				return payload
+			}(),
+			expectedID: "evt_test123",
+		},
+		{
+			name:        "invalid json payload",
+			payload:     []byte("invalid json"),
+			expectError: true,
+		},
+		{
+			name: "event without ID",
+			payload: func() []byte {
+				event := stripe.Event{
+					Type: "test.event",
+				}
+				payload, _ := json.Marshal(event)
+				return payload
+			}(),
+			expectedID: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, _ := coreTesting.NewTestContext(t)
+			gw := New(ctx.Logger(), "test_secret", nil, nil)
+
+			eventID, err := gw.ExtractEventID(tt.payload)
+			if tt.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.expectedID, eventID)
+			}
+		})
+	}
+}
+
+func TestStripeGateway_ExtractEventType(t *testing.T) {
+	tests := []struct {
+		name         string
+		payload      []byte
+		expectedType string
+		expectError  bool
+	}{
+		{
+			name: "valid event payload",
+			payload: func() []byte {
+				event := stripe.Event{
+					Type: "customer.subscription.created",
+				}
+				payload, _ := json.Marshal(event)
+				return payload
+			}(),
+			expectedType: "customer.subscription.created",
+		},
+		{
+			name:        "invalid json payload",
+			payload:     []byte("invalid json"),
+			expectError: true,
+		},
+		{
+			name: "event without type",
+			payload: func() []byte {
+				event := stripe.Event{
+					ID: "evt_test123",
+				}
+				payload, _ := json.Marshal(event)
+				return payload
+			}(),
+			expectedType: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, _ := coreTesting.NewTestContext(t)
+			gw := New(ctx.Logger(), "test_secret", nil, nil)
+
+			eventType, err := gw.ExtractEventType(tt.payload)
+			if tt.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.expectedType, eventType)
+			}
+		})
+	}
+}
+
 func TestStripeGateway_HandleWebhook_InvalidPayload(t *testing.T) {
 	secret := "whsec_test_secret"
 	payload := []byte("invalid json")
