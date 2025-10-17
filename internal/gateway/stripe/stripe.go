@@ -54,6 +54,11 @@ func (g *StripeGateway) ExtractEventID(payload []byte) (string, error) {
 	if err := json.Unmarshal(payload, &event); err != nil {
 		return "", err
 	}
+	
+	if event.Request != nil {
+		return event.Request.IdempotencyKey, nil
+	}
+	
 	return event.ID, nil
 }
 
@@ -94,12 +99,6 @@ func (g *StripeGateway) handleSubscriptionActivated(ctx context.Context, event s
 		return err
 	}
 
-	// Check if the first item's price is nil
-	price := subscription.Items.Data[0].Price
-	if price == nil {
-		return fmt.Errorf("subscription missing item or price")
-	}
-
 	userID, err := parseUserID(subscription.Metadata)
 	if err != nil {
 		return err
@@ -118,9 +117,12 @@ func (g *StripeGateway) handleSubscriptionActivated(ctx context.Context, event s
 		return fmt.Errorf("user with ID %d not found", userID)
 	}
 
-	planID, hasPlan, err := extractPlanID(price)
+	price, planID, hasPlan, err := findFirstPlanPrice(subscription)
 	if err != nil {
 		return err
+	}
+	if price == nil {
+		return fmt.Errorf("subscription missing item or price")
 	}
 
 	if !hasPlan {
@@ -204,13 +206,7 @@ func (g *StripeGateway) handleSubscriptionUpdated(ctx context.Context, event str
 		return err
 	}
 
-	// Get the first item's price metadata
-	price := subscription.Items.Data[0].Price
-	if price == nil {
-		return fmt.Errorf("subscription missing item or price")
-	}
-
-	planID, hasPlan, err := extractPlanID(price)
+	price, planID, hasPlan, err := findFirstPlanPrice(subscription)
 	if err != nil {
 		return err
 	}
@@ -329,6 +325,25 @@ func (g *StripeGateway) validateSubscriptionEvent(event stripe.Event, requireIte
 	}
 
 	return &subscription, nil
+}
+
+func findFirstPlanPrice(sub *stripe.Subscription) (*stripe.Price, uint, bool, error) {
+	if sub.Items == nil || len(sub.Items.Data) == 0 {
+		return nil, 0, false, nil
+	}
+	for _, it := range sub.Items.Data {
+		if it == nil || it.Price == nil {
+			continue
+		}
+		pid, ok, err := extractPlanID(it.Price)
+		if err != nil {
+			return nil, 0, false, err
+		}
+		if ok {
+			return it.Price, pid, true, nil
+		}
+	}
+	return sub.Items.Data[0].Price, 0, false, nil
 }
 
 var _ pluginCore.PaymentGateway = (*StripeGateway)(nil)
