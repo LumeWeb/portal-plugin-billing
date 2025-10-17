@@ -80,10 +80,14 @@ func (g *StripeGateway) handleSubscriptionActivated(event stripe.Event) error {
 
 	// Check if there are any subscription items
 	if subscription.Items == nil || len(subscription.Items.Data) == 0 {
-		return nil
+		return fmt.Errorf("subscription missing items")
 	}
 
+	// Check if the first item's price is nil
 	price := subscription.Items.Data[0].Price
+	if price == nil {
+		return fmt.Errorf("subscription missing item or price")
+	}
 
 	// Get user ID from subscription metadata
 	userID := ""
