@@ -1,4 +1,4 @@
-package portal_plugin_billing
+package billing
 
 import (
 	"go.lumeweb.com/portal-plugin-billing/build"
@@ -12,7 +12,7 @@ func init() {
 	core.RegisterPlugin(core.PluginInfo{
 		ID:      internal.PLUGIN_NAME,
 		Version: build.GetInfo(),
-		Depends: []string{},
+		Depends: []string{"quota"},
 		Services: func() ([]core.ServiceInfo, error) {
 			return []core.ServiceInfo{
 				{ID: internal.PLUGIN_NAME, Factory: billing.NewBillingService},

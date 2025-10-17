@@ -1,0 +1,224 @@
+package stripe
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strconv"
+
+	"github.com/stripe/stripe-go/v83"
+	"github.com/stripe/stripe-go/v83/webhook"
+	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
+	quotaCore "go.lumeweb.com/portal-plugin-quota/core"
+	"go.lumeweb.com/portal/core"
+	"go.uber.org/zap"
+)
+
+const (
+	GatewayID                    = "stripe"
+	EventTypeSubscriptionCreated = "customer.subscription.created"
+	EventTypeSubscriptionDeleted = "customer.subscription.deleted"
+	EventTypeSubscriptionPaused  = "customer.subscription.paused"
+	EventTypeSubscriptionResumed = "customer.subscription.resumed"
+	EventTypeSubscriptionUpdated = "customer.subscription.updated"
+	PlanIDMetadataKey            = "plan_id"
+)
+
+type StripeGateway struct {
+	logger         *core.Logger
+	endpointSecret string
+	quota          quotaCore.QuotaService
+	users          core.UserService
+}
+
+func New(logger *core.Logger, endpointSecret string, quota quotaCore.QuotaService, users core.UserService) *StripeGateway {
+	return &StripeGateway{
+		logger:         logger,
+		endpointSecret: endpointSecret,
+		quota:          quota,
+		users:          users,
+	}
+}
+
+func (g *StripeGateway) ID() string {
+	return GatewayID
+}
+
+func (g *StripeGateway) SignatureHeader() string {
+	return "Stripe-Signature"
+}
+
+func (g *StripeGateway) ValidateWebhook(_ context.Context, signature string, payload []byte) error {
+	_, err := webhook.ConstructEvent(payload, signature, g.endpointSecret)
+	return err
+}
+
+func (g *StripeGateway) HandleWebhook(_ context.Context, payload []byte) error {
+	var event stripe.Event
+	if err := json.Unmarshal(payload, &event); err != nil {
+		return err
+	}
+
+	switch event.Type {
+	case EventTypeSubscriptionCreated, EventTypeSubscriptionResumed:
+		return g.handleSubscriptionActivated(event)
+	case EventTypeSubscriptionDeleted, EventTypeSubscriptionPaused:
+		return g.handleSubscriptionDeactivated(event)
+	case EventTypeSubscriptionUpdated:
+		return g.handleSubscriptionUpdated(event)
+	default:
+		return nil // Ignore all other event types
+	}
+}
+
+func (g *StripeGateway) handleSubscriptionActivated(event stripe.Event) error {
+	var subscription stripe.Subscription
+	if err := json.Unmarshal(event.Data.Raw, &subscription); err != nil {
+		return err
+	}
+
+	// Check if there are any subscription items
+	if subscription.Items == nil || len(subscription.Items.Data) == 0 {
+		return nil
+	}
+
+	price := subscription.Items.Data[0].Price
+	customerEmail := subscription.Customer.Email
+
+	// Get user by email
+	exists, user, err := g.users.EmailExists(customerEmail)
+	if err != nil {
+		return fmt.Errorf("failed to check user existence: %w", err)
+	}
+	if !exists {
+		return fmt.Errorf("user with email %s not found", customerEmail)
+	}
+
+	// Get plan ID from price metadata
+	planID := ""
+	if price.Metadata != nil {
+		planID = price.Metadata[PlanIDMetadataKey]
+	}
+	if planID == "" {
+		return fmt.Errorf("price metadata missing plan_id")
+	}
+
+	// Convert planID to uint
+	planIDUint, err := strconv.ParseUint(planID, 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid plan_id format: %w", err)
+	}
+
+	// Assign user to quota plan
+	if err := g.quota.AssignUserToPlan(user.ID, uint(planIDUint)); err != nil {
+		return fmt.Errorf("failed to assign user to plan: %w", err)
+	}
+
+	g.logger.Debug("subscription activated - added quota plan",
+		zap.String("customer_email", customerEmail),
+		zap.String("price_id", price.ID),
+		zap.String("subscription_id", subscription.ID),
+		zap.String("plan_id", planID),
+		zap.String("event_id", event.ID),
+		zap.Uint("user_id", user.ID))
+
+	return nil
+}
+
+func (g *StripeGateway) handleSubscriptionDeactivated(event stripe.Event) error {
+	var subscription stripe.Subscription
+	if err := json.Unmarshal(event.Data.Raw, &subscription); err != nil {
+		return err
+	}
+
+	customerEmail := subscription.Customer.Email
+
+	// Get user by email
+	exists, user, err := g.users.EmailExists(customerEmail)
+	if err != nil {
+		return fmt.Errorf("failed to check user existence: %w", err)
+	}
+	if !exists {
+		return fmt.Errorf("user with email %s not found", customerEmail)
+	}
+
+	// Remove user from their current plan
+	if err := g.quota.RemoveUserFromPlan(user.ID); err != nil {
+		return fmt.Errorf("failed to remove user from plan: %w", err)
+	}
+
+	g.logger.Debug("subscription deactivated - removed quota plan",
+		zap.String("customer_email", customerEmail),
+		zap.String("subscription_id", subscription.ID),
+		zap.String("event_id", event.ID),
+		zap.Uint("user_id", user.ID))
+
+	return nil
+}
+
+func (g *StripeGateway) handleSubscriptionUpdated(event stripe.Event) error {
+	var subscription stripe.Subscription
+	if err := json.Unmarshal(event.Data.Raw, &subscription); err != nil {
+		return err
+	}
+
+	// Check if there are any subscription items
+	if subscription.Items == nil || len(subscription.Items.Data) == 0 {
+		return nil
+	}
+
+	// Get the first item's price metadata
+	price := subscription.Items.Data[0].Price
+	if price == nil {
+		return nil
+	}
+
+	// Get plan ID from price metadata
+	planID := ""
+	if price.Metadata != nil {
+		planID = price.Metadata[PlanIDMetadataKey]
+	}
+
+	if planID == "" {
+		return nil
+	}
+
+	customerEmail := subscription.Customer.Email
+
+	// Get user by email
+	exists, user, err := g.users.EmailExists(customerEmail)
+	if err != nil {
+		return fmt.Errorf("failed to check user existence: %w", err)
+	}
+	if !exists {
+		return fmt.Errorf("user with email %s not found", customerEmail)
+	}
+
+	g.logger.Debug("updating user quota plan",
+		zap.String("customer_email", customerEmail),
+		zap.String("plan_id", planID),
+		zap.Uint("user_id", user.ID),
+		zap.String("subscription_id", subscription.ID),
+		zap.String("price_id", price.ID),
+		zap.String("event_id", event.ID),
+		zap.Any("event_type", event.Type))
+
+	// Convert planID to uint
+	planIDUint, err := strconv.ParseUint(planID, 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid plan_id format: %w", err)
+	}
+
+	// Assign user to new quota plan
+	if err := g.quota.AssignUserToPlan(user.ID, uint(planIDUint)); err != nil {
+		return fmt.Errorf("failed to assign user to plan: %w", err)
+	}
+
+	return nil
+}
+
+func (g *StripeGateway) SetQuota(quota quotaCore.QuotaService) {
+	g.quota = quota
+}
+
+var _ pluginCore.PaymentGateway = (*StripeGateway)(nil)

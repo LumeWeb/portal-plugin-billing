@@ -9,18 +9,14 @@ import (
 )
 
 
-var (
-	registryInstance *Registry
-	registryOnce     sync.Once
-)
-
 // Registry maintains a collection of payment gateways
 type Registry struct {
 	gateways map[string]pluginCore.PaymentGateway
 	mu       sync.RWMutex
 }
 
-func makeRegistry() *Registry {
+// NewRegistry creates a new empty gateway registry
+func NewRegistry() *Registry {
 	return &Registry{
 		gateways: make(map[string]pluginCore.PaymentGateway),
 	}
@@ -28,11 +24,12 @@ func makeRegistry() *Registry {
 
 // GetRegistry returns the singleton gateway registry instance
 func GetRegistry() *Registry {
-	registryOnce.Do(func() {
-		registryInstance = makeRegistry()
-	})
-	return registryInstance
+	return defaultRegistry
 }
+
+var (
+	defaultRegistry = NewRegistry()
+)
 
 // Register adds a payment gateway to the registry
 func (r *Registry) Register(gateway pluginCore.PaymentGateway) error {

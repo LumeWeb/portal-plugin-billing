@@ -7,6 +7,8 @@ import (
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
 	"go.lumeweb.com/portal-plugin-billing/internal/config"
 	"go.lumeweb.com/portal-plugin-billing/internal/gateway"
+	"go.lumeweb.com/portal-plugin-billing/internal/gateway/stripe"
+	quotaCore "go.lumeweb.com/portal-plugin-quota/core"
 	"go.lumeweb.com/portal/core"
 )
 
@@ -15,6 +17,7 @@ type BillingServiceDefault struct {
 	logger   *core.Logger
 	gateways *gateway.Registry
 	config   *config.ServiceConfig
+	quota    quotaCore.QuotaService
 }
 
 func (s *BillingServiceDefault) Config() (any, error) {
@@ -23,17 +26,39 @@ func (s *BillingServiceDefault) Config() (any, error) {
 
 var _ pluginCore.BillingService = (*BillingServiceDefault)(nil)
 
+// NewBillingService creates a new billing service with default registry
 func NewBillingService() (core.Service, []core.ContextBuilderOption, error) {
-	service := &BillingServiceDefault{}
+	return NewBillingServiceWithRegistry(gateway.GetRegistry())
+}
+
+// NewBillingServiceWithRegistry creates a new billing service with custom registry
+// Useful for testing
+func NewBillingServiceWithRegistry(registry *gateway.Registry) (core.Service, []core.ContextBuilderOption, error) {
+	service := &BillingServiceDefault{
+		gateways: registry,
+	}
 
 	return service, core.ContextOptions(
 		core.ContextWithStartupFunc(func(ctx core.Context) error {
 			service.ctx = ctx
 			service.logger = ctx.ServiceLogger(service)
-			service.gateways = gateway.GetRegistry()
 
 			// Load service configuration
 			service.config = core.GetServiceConfig[*config.ServiceConfig](ctx, pluginCore.BILLING_SERVICE)
+
+			// Register Stripe gateway if webhook secret is configured
+			if service.config.Stripe.WebhookSecret != "" {
+				if err := service.gateways.Register(stripe.New(
+					ctx.Logger(),
+					service.config.Stripe.WebhookSecret,
+					service.quota,
+					core.GetService[core.UserService](ctx, core.USER_SERVICE),
+				)); err != nil {
+					return fmt.Errorf("failed to register stripe gateway: %w", err)
+				}
+			}
+
+			service.quota = core.GetService[quotaCore.QuotaService](ctx, quotaCore.QUOTA_SERVICE)
 
 			return nil
 		}),

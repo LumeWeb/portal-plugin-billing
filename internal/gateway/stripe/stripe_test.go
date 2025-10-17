@@ -1,0 +1,295 @@
+package stripe
+
+import (
+	"context"
+	"encoding/json"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stripe/stripe-go/v83"
+	"github.com/stripe/stripe-go/v83/webhook"
+	quotaCore "go.lumeweb.com/portal-plugin-quota/core"
+	"go.lumeweb.com/portal/core"
+	coreTesting "go.lumeweb.com/portal/core/testing"
+	coreMocks "go.lumeweb.com/portal/core/testing/mocks"
+	"go.lumeweb.com/portal/db/models"
+	"gorm.io/gorm"
+)
+
+const (
+	// StripeAPIVersion is the API version that matches the stripe-go library version
+	StripeAPIVersion = "2025-09-30.clover"
+)
+
+func TestMain(m *testing.M) {
+	coreTesting.WithOptions(m,
+		coreTesting.WithMockServiceFactory(quotaCore.QUOTA_SERVICE, quotaCore.NewMockQuotaService),
+	)
+}
+
+func TestStripeGateway_ID(t *testing.T) {
+	ctx, _ := coreTesting.NewTestContext(t)
+	gw := New(ctx.Logger(), "test_secret", nil, nil)
+	assert.Equal(t, "stripe", gw.ID())
+}
+
+func TestStripeGateway_SignatureHeader(t *testing.T) {
+	ctx, _ := coreTesting.NewTestContext(t)
+	gw := New(ctx.Logger(), "test_secret", nil, nil)
+	assert.Equal(t, "Stripe-Signature", gw.SignatureHeader())
+}
+
+func TestStripeGateway_ValidateWebhook(t *testing.T) {
+	secret := "whsec_test_secret"
+
+	// Create a valid JSON payload that mimics a Stripe event
+	event := stripe.Event{
+		ID:         "evt_test123",
+		Object:     "event",
+		Type:       "test.event",
+		APIVersion: StripeAPIVersion,
+	}
+
+	payload, _ := json.Marshal(event)
+
+	// Generate a valid signature for the JSON payload
+	unsignedPayload := &webhook.UnsignedPayload{
+		Payload:   payload,
+		Secret:    secret,
+		Timestamp: time.Now(),
+	}
+	signedPayload := webhook.GenerateTestSignedPayload(unsignedPayload)
+
+	tests := []struct {
+		name        string
+		signature   string
+		payload     []byte
+		secret      string
+		expectError bool
+	}{
+		{
+			name:      "valid signature",
+			signature: signedPayload.Header,
+			payload:   signedPayload.Payload,
+			secret:    secret,
+		},
+		{
+			name:        "invalid signature",
+			signature:   "t=123,v1=invalidsignature",
+			payload:     payload,
+			secret:      secret,
+			expectError: true,
+		},
+		{
+			name:        "malformed signature header",
+			signature:   "invalid_sig",
+			payload:     payload,
+			secret:      secret,
+			expectError: true,
+		},
+		{
+			name:        "invalid JSON payload",
+			signature:   signedPayload.Header,
+			payload:     []byte("invalid json"),
+			secret:      secret,
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, _ := coreTesting.NewTestContext(t)
+			gw := New(ctx.Logger(), tt.secret, nil, nil)
+			err := gw.ValidateWebhook(context.Background(), tt.signature, tt.payload)
+			if tt.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+// Helper function to create a test subscription
+func createTestSubscription(email string, planID string) stripe.Subscription {
+	subscription := stripe.Subscription{
+		ID: "sub_123",
+		Customer: &stripe.Customer{
+			Email: email,
+		},
+	}
+
+	if planID != "" {
+		subscription.Items = &stripe.SubscriptionItemList{
+			Data: []*stripe.SubscriptionItem{
+				{
+					Price: &stripe.Price{
+						ID: "price_123",
+						Metadata: map[string]string{
+							"plan_id": planID,
+						},
+					},
+				},
+			},
+		}
+	}
+
+	return subscription
+}
+
+// Helper function to create a test event
+func createTestEvent(eventType string, data []byte) stripe.Event {
+	return stripe.Event{
+		Type:       stripe.EventType(eventType),
+		APIVersion: StripeAPIVersion,
+		Data: &stripe.EventData{
+			Raw: data,
+		},
+	}
+}
+
+// Helper function to create a test user
+func createTestUser(id uint) *models.User {
+	return &models.User{Model: gorm.Model{ID: id}}
+}
+
+func TestStripeGateway_HandleWebhook_SubscriptionCreated(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockQuota := core.GetService[*quotaCore.MockQuotaService](ctx, quotaCore.QUOTA_SERVICE)
+		mockUsers := core.GetService[*coreMocks.MockUserService](ctx, core.USER_SERVICE)
+
+		// Setup test data
+		subscription := createTestSubscription("test@example.com", "1")
+		rawData, _ := json.Marshal(subscription)
+		event := createTestEvent(EventTypeSubscriptionCreated, rawData)
+		payload, _ := json.Marshal(event)
+
+		// Setup mock expectations
+		mockUsers.On("EmailExists", "test@example.com").Return(true, createTestUser(123), nil)
+		mockQuota.On("AssignUserToPlan", uint(123), uint(1)).Return(nil)
+
+		gw := New(ctx.Logger(), "test_secret", mockQuota, mockUsers)
+		err := gw.HandleWebhook(context.Background(), payload)
+
+		assert.NoError(t, err)
+	})
+}
+
+func TestStripeGateway_HandleWebhook_SubscriptionDeleted(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockQuota := quotaCore.NewMockQuotaService(t)
+		mockUsers := coreMocks.NewMockUserService(t)
+
+		subscription := createTestSubscription("test@example.com", "")
+		rawData, _ := json.Marshal(subscription)
+		event := createTestEvent(EventTypeSubscriptionDeleted, rawData)
+		payload, _ := json.Marshal(event)
+
+		mockUsers.On("EmailExists", "test@example.com").Return(true, createTestUser(123), nil)
+		mockQuota.On("RemoveUserFromPlan", uint(123)).Return(nil)
+
+		gw := New(ctx.Logger(), "test_secret", mockQuota, mockUsers)
+		err := gw.HandleWebhook(context.Background(), payload)
+
+		assert.NoError(t, err)
+	})
+}
+
+func TestStripeGateway_HandleWebhook_SubscriptionUpdated(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockQuota := quotaCore.NewMockQuotaService(t)
+		mockUsers := coreMocks.NewMockUserService(t)
+
+		subscription := createTestSubscription("test@example.com", "2")
+		rawData, _ := json.Marshal(subscription)
+		event := createTestEvent(EventTypeSubscriptionUpdated, rawData)
+		payload, _ := json.Marshal(event)
+
+		mockUsers.On("EmailExists", "test@example.com").Return(true, createTestUser(123), nil)
+		mockQuota.On("AssignUserToPlan", uint(123), uint(2)).Return(nil)
+
+		gw := New(ctx.Logger(), "test_secret", mockQuota, mockUsers)
+		err := gw.HandleWebhook(context.Background(), payload)
+
+		assert.NoError(t, err)
+	})
+}
+
+func TestStripeGateway_HandleWebhook_UnknownEvent(t *testing.T) {
+	event := createTestEvent("unknown.event.type", nil)
+	payload, _ := json.Marshal(event)
+
+	ctx, _ := coreTesting.NewTestContext(t)
+
+	gw := New(ctx.Logger(), "test_secret", nil, nil)
+	err := gw.HandleWebhook(context.Background(), payload)
+	assert.NoError(t, err)
+}
+
+func TestStripeGateway_HandleWebhook_InvalidPayload(t *testing.T) {
+	ctx, _ := coreTesting.NewTestContext(t)
+	gw := New(ctx.Logger(), "test_secret", nil, nil)
+	err := gw.HandleWebhook(context.Background(), []byte("invalid json"))
+	assert.Error(t, err)
+}
+
+func TestStripeGateway_HandleWebhook_UserNotFound(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockUsers := coreMocks.NewMockUserService(t)
+
+		subscription := createTestSubscription("test@example.com", "1")
+		rawData, _ := json.Marshal(subscription)
+		event := createTestEvent(EventTypeSubscriptionCreated, rawData)
+		payload, _ := json.Marshal(event)
+
+		mockUsers.On("EmailExists", "test@example.com").Return(false, nil, nil)
+
+		gw := New(ctx.Logger(), "test_secret", nil, mockUsers)
+		err := gw.HandleWebhook(context.Background(), payload)
+
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "user with email test@example.com not found")
+	})
+}
+
+func TestStripeGateway_HandleWebhook_MissingPlanID(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockUsers := coreMocks.NewMockUserService(t)
+
+		subscription := createTestSubscription("test@example.com", "")
+		rawData, _ := json.Marshal(subscription)
+		event := createTestEvent(EventTypeSubscriptionCreated, rawData)
+		payload, _ := json.Marshal(event)
+		gw := New(ctx.Logger(), "test_secret", nil, mockUsers)
+		err := gw.HandleWebhook(context.Background(), payload)
+
+		// Should handle missing plan id gracefully
+		assert.NoError(t, err)
+	})
+}
+
+func TestStripeGateway_HandleWebhook_NilSubscriptionItems(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockUsers := coreMocks.NewMockUserService(t)
+
+		// Create a subscription with nil Items
+		subscription := stripe.Subscription{
+			ID: "sub_123",
+			Customer: &stripe.Customer{
+				Email: "test@example.com",
+			},
+			Items: nil, // Explicitly set to nil
+		}
+
+		rawData, _ := json.Marshal(subscription)
+		event := createTestEvent(EventTypeSubscriptionCreated, rawData)
+		payload, _ := json.Marshal(event)
+
+		gw := New(ctx.Logger(), "test_secret", nil, mockUsers)
+		err := gw.HandleWebhook(context.Background(), payload)
+
+		// Should handle nil subscription items gracefully
+		assert.NoError(t, err)
+	})
+}
