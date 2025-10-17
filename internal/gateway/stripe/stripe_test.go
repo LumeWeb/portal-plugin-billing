@@ -360,7 +360,7 @@ func TestStripeGateway_HandleWebhook_NilSubscriptionItems(t *testing.T) {
 		gw := New(ctx.Logger(), "test_secret", nil, mockUsers)
 		err := gw.HandleWebhook(context.Background(), payload)
 
-		// Should handle nil subscription items gracefully
+		// Should return error when subscription has missing items
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "subscription missing items")
 	})
