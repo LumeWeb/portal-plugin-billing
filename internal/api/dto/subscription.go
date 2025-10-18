@@ -22,21 +22,17 @@ type SubscriptionStatusResponse struct {
 
 // FromModel converts a Subscriber model to SubscriptionStatusResponse
 func (r *SubscriptionStatusResponse) FromModel(subscriber *pluginCore.Subscriber) error {
+	// Reset to zero to avoid stale fields when DTO is reused
+	*r = SubscriptionStatusResponse{}
 	if subscriber == nil {
-		r.IsSubscribed = false
 		return nil
 	}
 
 	if !subscriber.IsActive {
-		r.IsSubscribed = false
-		r.GatewayType = ""
-		r.PlanID = nil
-		r.CreatedAt = time.Time{}
-		r.UpdatedAt = time.Time{}
 		return nil
 	}
 
-	r.IsSubscribed = subscriber.IsActive
+	r.IsSubscribed = true
 	r.GatewayType = subscriber.GatewayType
 	r.PlanID = subscriber.PlanID
 	r.CreatedAt = subscriber.CreatedAt
