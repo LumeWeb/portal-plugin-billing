@@ -7,6 +7,9 @@ import (
 	"go.lumeweb.com/portal/core"
 )
 
+// Re-export the Subscriber type from internal models for external access
+type Subscriber = models.Subscriber
+
 const BILLING_SERVICE = "billing"
 
 // BillingService handles billing operations and webhook processing
@@ -26,11 +29,11 @@ type BillingService interface {
 	// DeactivateSubscriber deactivates a subscriber
 	DeactivateSubscriber(userID uint, gatewayType string) error
 	// GetActiveSubscriber returns an active subscriber for the given user and gateway
-	GetActiveSubscriber(userID uint, gatewayType string) (*models.Subscriber, error)
+	GetActiveSubscriber(userID uint, gatewayType string) (*Subscriber, error)
 	// IsUserActiveSubscriber checks if a user has an active subscription with any gateway
 	IsUserActiveSubscriber(userID uint) (bool, error)
 	// GetActiveSubscribersByGateway returns all active subscribers for a specific gateway
-	GetActiveSubscribersByGateway(gatewayType string) ([]models.Subscriber, error)
+	GetActiveSubscribersByGateway(gatewayType string) ([]Subscriber, error)
 	// GetActiveSubscription returns the first active subscription for a user across all gateways
-	GetActiveSubscription(userID uint) (*models.Subscriber, error)
+	GetActiveSubscription(userID uint) (*Subscriber, error)
 }

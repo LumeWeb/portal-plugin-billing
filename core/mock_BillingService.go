@@ -8,7 +8,6 @@ import (
 	"context"
 
 	mock "github.com/stretchr/testify/mock"
-	"go.lumeweb.com/portal-plugin-billing/internal/db/models"
 )
 
 // NewMockBillingService creates a new instance of MockBillingService. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
@@ -226,23 +225,23 @@ func (_c *MockBillingService_DeactivateSubscriber_Call) RunAndReturn(run func(us
 }
 
 // GetActiveSubscriber provides a mock function for the type MockBillingService
-func (_mock *MockBillingService) GetActiveSubscriber(userID uint, gatewayType string) (*models.Subscriber, error) {
+func (_mock *MockBillingService) GetActiveSubscriber(userID uint, gatewayType string) (*Subscriber, error) {
 	ret := _mock.Called(userID, gatewayType)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetActiveSubscriber")
 	}
 
-	var r0 *models.Subscriber
+	var r0 *Subscriber
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(uint, string) (*models.Subscriber, error)); ok {
+	if returnFunc, ok := ret.Get(0).(func(uint, string) (*Subscriber, error)); ok {
 		return returnFunc(userID, gatewayType)
 	}
-	if returnFunc, ok := ret.Get(0).(func(uint, string) *models.Subscriber); ok {
+	if returnFunc, ok := ret.Get(0).(func(uint, string) *Subscriber); ok {
 		r0 = returnFunc(userID, gatewayType)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*models.Subscriber)
+			r0 = ret.Get(0).(*Subscriber)
 		}
 	}
 	if returnFunc, ok := ret.Get(1).(func(uint, string) error); ok {
@@ -283,34 +282,34 @@ func (_c *MockBillingService_GetActiveSubscriber_Call) Run(run func(userID uint,
 	return _c
 }
 
-func (_c *MockBillingService_GetActiveSubscriber_Call) Return(subscriber *models.Subscriber, err error) *MockBillingService_GetActiveSubscriber_Call {
-	_c.Call.Return(subscriber, err)
+func (_c *MockBillingService_GetActiveSubscriber_Call) Return(v *Subscriber, err error) *MockBillingService_GetActiveSubscriber_Call {
+	_c.Call.Return(v, err)
 	return _c
 }
 
-func (_c *MockBillingService_GetActiveSubscriber_Call) RunAndReturn(run func(userID uint, gatewayType string) (*models.Subscriber, error)) *MockBillingService_GetActiveSubscriber_Call {
+func (_c *MockBillingService_GetActiveSubscriber_Call) RunAndReturn(run func(userID uint, gatewayType string) (*Subscriber, error)) *MockBillingService_GetActiveSubscriber_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // GetActiveSubscribersByGateway provides a mock function for the type MockBillingService
-func (_mock *MockBillingService) GetActiveSubscribersByGateway(gatewayType string) ([]models.Subscriber, error) {
+func (_mock *MockBillingService) GetActiveSubscribersByGateway(gatewayType string) ([]Subscriber, error) {
 	ret := _mock.Called(gatewayType)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetActiveSubscribersByGateway")
 	}
 
-	var r0 []models.Subscriber
+	var r0 []Subscriber
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(string) ([]models.Subscriber, error)); ok {
+	if returnFunc, ok := ret.Get(0).(func(string) ([]Subscriber, error)); ok {
 		return returnFunc(gatewayType)
 	}
-	if returnFunc, ok := ret.Get(0).(func(string) []models.Subscriber); ok {
+	if returnFunc, ok := ret.Get(0).(func(string) []Subscriber); ok {
 		r0 = returnFunc(gatewayType)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]models.Subscriber)
+			r0 = ret.Get(0).([]Subscriber)
 		}
 	}
 	if returnFunc, ok := ret.Get(1).(func(string) error); ok {
@@ -345,34 +344,34 @@ func (_c *MockBillingService_GetActiveSubscribersByGateway_Call) Run(run func(ga
 	return _c
 }
 
-func (_c *MockBillingService_GetActiveSubscribersByGateway_Call) Return(subscribers []models.Subscriber, err error) *MockBillingService_GetActiveSubscribersByGateway_Call {
-	_c.Call.Return(subscribers, err)
+func (_c *MockBillingService_GetActiveSubscribersByGateway_Call) Return(vs []Subscriber, err error) *MockBillingService_GetActiveSubscribersByGateway_Call {
+	_c.Call.Return(vs, err)
 	return _c
 }
 
-func (_c *MockBillingService_GetActiveSubscribersByGateway_Call) RunAndReturn(run func(gatewayType string) ([]models.Subscriber, error)) *MockBillingService_GetActiveSubscribersByGateway_Call {
+func (_c *MockBillingService_GetActiveSubscribersByGateway_Call) RunAndReturn(run func(gatewayType string) ([]Subscriber, error)) *MockBillingService_GetActiveSubscribersByGateway_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // GetActiveSubscription provides a mock function for the type MockBillingService
-func (_mock *MockBillingService) GetActiveSubscription(userID uint) (*models.Subscriber, error) {
+func (_mock *MockBillingService) GetActiveSubscription(userID uint) (*Subscriber, error) {
 	ret := _mock.Called(userID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetActiveSubscription")
 	}
 
-	var r0 *models.Subscriber
+	var r0 *Subscriber
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(uint) (*models.Subscriber, error)); ok {
+	if returnFunc, ok := ret.Get(0).(func(uint) (*Subscriber, error)); ok {
 		return returnFunc(userID)
 	}
-	if returnFunc, ok := ret.Get(0).(func(uint) *models.Subscriber); ok {
+	if returnFunc, ok := ret.Get(0).(func(uint) *Subscriber); ok {
 		r0 = returnFunc(userID)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*models.Subscriber)
+			r0 = ret.Get(0).(*Subscriber)
 		}
 	}
 	if returnFunc, ok := ret.Get(1).(func(uint) error); ok {
@@ -407,12 +406,12 @@ func (_c *MockBillingService_GetActiveSubscription_Call) Run(run func(userID uin
 	return _c
 }
 
-func (_c *MockBillingService_GetActiveSubscription_Call) Return(subscriber *models.Subscriber, err error) *MockBillingService_GetActiveSubscription_Call {
-	_c.Call.Return(subscriber, err)
+func (_c *MockBillingService_GetActiveSubscription_Call) Return(v *Subscriber, err error) *MockBillingService_GetActiveSubscription_Call {
+	_c.Call.Return(v, err)
 	return _c
 }
 
-func (_c *MockBillingService_GetActiveSubscription_Call) RunAndReturn(run func(userID uint) (*models.Subscriber, error)) *MockBillingService_GetActiveSubscription_Call {
+func (_c *MockBillingService_GetActiveSubscription_Call) RunAndReturn(run func(userID uint) (*Subscriber, error)) *MockBillingService_GetActiveSubscription_Call {
 	_c.Call.Return(run)
 	return _c
 }

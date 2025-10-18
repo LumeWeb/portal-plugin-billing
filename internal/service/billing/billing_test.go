@@ -277,7 +277,7 @@ func TestBillingService_CreateOrUpdateSubscriber_UpdateExisting(t *testing.T) {
 
 		// Verify the subscriber is no longer active
 		subscriber, err = service.GetActiveSubscriber(1, "stripe")
-		assert.Error(t, err) // Should not find active subscriber
+		assert.NoError(t, err) // Should not find active subscriber, return nil without error
 		assert.Nil(t, subscriber)
 
 		// Verify user is not active subscriber
@@ -307,7 +307,7 @@ func TestBillingService_DeactivateSubscriber(t *testing.T) {
 
 		// Verify it's no longer active
 		subscriber, err = service.GetActiveSubscriber(1, "stripe")
-		assert.Error(t, err) // Should not find active subscriber
+		assert.NoError(t, err) // Should not find active subscriber, return nil without error
 		assert.Nil(t, subscriber)
 	},
 		getBillingTestOptions())
@@ -319,7 +319,7 @@ func TestBillingService_GetActiveSubscriber(t *testing.T) {
 
 		// Test with no subscribers
 		subscriber, err := service.GetActiveSubscriber(1, "stripe")
-		assert.Error(t, err)
+		assert.NoError(t, err)
 		assert.Nil(t, subscriber)
 
 		// Create an active subscriber
@@ -340,7 +340,7 @@ func TestBillingService_GetActiveSubscriber(t *testing.T) {
 
 		// Should not find inactive subscriber
 		subscriber, err = service.GetActiveSubscriber(1, "stripe")
-		assert.Error(t, err)
+		assert.NoError(t, err)
 		assert.Nil(t, subscriber)
 	},
 		getBillingTestOptions())

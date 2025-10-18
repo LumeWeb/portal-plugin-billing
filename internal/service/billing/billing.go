@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/samber/lo"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
 	"go.lumeweb.com/portal-plugin-billing/internal/config"
 	"go.lumeweb.com/portal-plugin-billing/internal/db/models"
@@ -219,7 +220,7 @@ func (s *BillingServiceDefault) CreateOrUpdateSubscriber(userID uint, gatewayTyp
 	existing.PlanID = planID
 	existing.DeletedAt = gorm.DeletedAt{} // Restore if soft deleted
 
-	return s.db.Save(&existing).Error
+	return s.db.Unscoped().Save(&existing).Error
 }
 
 // DeactivateSubscriber deactivates a subscriber
@@ -230,14 +231,17 @@ func (s *BillingServiceDefault) DeactivateSubscriber(userID uint, gatewayType st
 }
 
 // GetActiveSubscriber returns an active subscriber for the given user and gateway
-func (s *BillingServiceDefault) GetActiveSubscriber(userID uint, gatewayType string) (*models.Subscriber, error) {
+func (s *BillingServiceDefault) GetActiveSubscriber(userID uint, gatewayType string) (*pluginCore.Subscriber, error) {
 	var subscriber models.Subscriber
 	err := s.db.Where("user_id = ? AND gateway_type = ? AND is_active = ?", userID, gatewayType, true).
 		First(&subscriber).Error
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
 		return nil, err
 	}
-	return &subscriber, nil
+	return (*pluginCore.Subscriber)(&subscriber), nil
 }
 
 // IsUserActiveSubscriber checks if a user has an active subscription with any gateway
@@ -250,15 +254,23 @@ func (s *BillingServiceDefault) IsUserActiveSubscriber(userID uint) (bool, error
 }
 
 // GetActiveSubscribersByGateway returns all active subscribers for a specific gateway
-func (s *BillingServiceDefault) GetActiveSubscribersByGateway(gatewayType string) ([]models.Subscriber, error) {
+func (s *BillingServiceDefault) GetActiveSubscribersByGateway(gatewayType string) ([]pluginCore.Subscriber, error) {
 	var subscribers []models.Subscriber
 	err := s.db.Where("gateway_type = ? AND is_active = ?", gatewayType, true).
 		Find(&subscribers).Error
-	return subscribers, err
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert to re-exported type using lo.Map
+	result := lo.Map(subscribers, func(sub models.Subscriber, _ int) pluginCore.Subscriber {
+		return pluginCore.Subscriber(sub)
+	})
+	return result, nil
 }
 
 // GetActiveSubscription returns the first active subscription for a user across all gateways
-func (s *BillingServiceDefault) GetActiveSubscription(userID uint) (*models.Subscriber, error) {
+func (s *BillingServiceDefault) GetActiveSubscription(userID uint) (*pluginCore.Subscriber, error) {
 	var subscriber models.Subscriber
 	err := s.db.Where("user_id = ? AND is_active = ?", userID, true).
 		First(&subscriber).Error
@@ -268,5 +280,5 @@ func (s *BillingServiceDefault) GetActiveSubscription(userID uint) (*models.Subs
 		}
 		return nil, err
 	}
-	return &subscriber, nil
+	return (*pluginCore.Subscriber)(&subscriber), nil
 }

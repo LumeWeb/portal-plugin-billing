@@ -17,6 +17,8 @@ CREATE INDEX IF NOT EXISTS idx_billing_webhook_events_gateway_type ON billing_we
 CREATE INDEX IF NOT EXISTS idx_billing_webhook_events_event_id ON billing_webhook_events(event_id);
 CREATE INDEX IF NOT EXISTS idx_billing_webhook_events_processed_at ON billing_webhook_events(processed_at);
 CREATE INDEX IF NOT EXISTS idx_billing_webhook_events_created_at ON billing_webhook_events(created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_billing_webhook_events_gateway_event
+  ON billing_webhook_events(gateway_type, event_id) WHERE deleted_at IS NULL;
 
 -- Subscribers Table
 CREATE TABLE IF NOT EXISTS billing_subscribers (
@@ -48,6 +50,7 @@ DROP INDEX IF EXISTS idx_billing_subscribers_gateway_type;
 DROP INDEX IF EXISTS idx_billing_subscribers_user_id;
 DROP TABLE billing_subscribers;
 
+DROP INDEX IF EXISTS uniq_billing_webhook_events_gateway_event;
 DROP INDEX IF EXISTS idx_billing_webhook_events_created_at;
 DROP INDEX IF EXISTS idx_billing_webhook_events_processed_at;
 DROP INDEX IF EXISTS idx_billing_webhook_events_event_id;

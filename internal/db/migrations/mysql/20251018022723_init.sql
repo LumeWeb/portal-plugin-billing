@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS billing_webhook_events (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at TIMESTAMP NULL DEFAULT NULL,
+    UNIQUE INDEX uniq_gateway_event (gateway_type, event_id),
     INDEX idx_gateway_type (gateway_type),
     INDEX idx_event_id (event_id),
     INDEX idx_processed_at (processed_at),

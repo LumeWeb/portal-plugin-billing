@@ -15,7 +15,6 @@ import (
 	"go.lumeweb.com/portal-plugin-billing/internal"
 	"go.lumeweb.com/portal-plugin-billing/internal/api/dto"
 	pluginConfig "go.lumeweb.com/portal-plugin-billing/internal/config"
-	billingModels "go.lumeweb.com/portal-plugin-billing/internal/db/models"
 	"go.lumeweb.com/portal/core"
 	coreTesting "go.lumeweb.com/portal/core/testing"
 	"go.lumeweb.com/portal/core/testing/mocks"
@@ -107,7 +106,7 @@ func TestHandleSubscriptionStatus_ActiveSubscription(t *testing.T) {
 
 		// Mock the billing service to return an active subscription
 		planID := uint(42)
-		mockSubscriber := &billingModels.Subscriber{
+		mockSubscriber := &pluginCore.Subscriber{
 			UserID:      1,
 			GatewayType: "stripe",
 			GatewayID:   "sub_123",
@@ -156,7 +155,7 @@ func TestHandleSubscriptionStatus_NoSubscription(t *testing.T) {
 		userSvc.On("AccountExists", uint(1)).Return(true, nil, nil)
 
 		// Mock the billing service to return no subscription
-		billingSvc.On("GetActiveSubscription", uint(1)).Return((*billingModels.Subscriber)(nil), nil)
+		billingSvc.On("GetActiveSubscription", uint(1)).Return((*pluginCore.Subscriber)(nil), nil)
 
 		// Create valid JWT token using helper
 		jwtToken, err := createTestJWT(ctx, "1")
@@ -197,7 +196,7 @@ func TestHandleSubscriptionStatus_InactiveSubscription(t *testing.T) {
 		userSvc.On("AccountExists", uint(1)).Return(true, nil, nil)
 
 		// Mock the billing service to return no subscription (inactive)
-		billingSvc.On("GetActiveSubscription", uint(1)).Return((*billingModels.Subscriber)(nil), nil)
+		billingSvc.On("GetActiveSubscription", uint(1)).Return((*pluginCore.Subscriber)(nil), nil)
 
 		// Create valid JWT token using helper
 		jwtToken, err := createTestJWT(ctx, "1")
@@ -238,7 +237,7 @@ func TestHandleSubscriptionStatus_MultipleGateways(t *testing.T) {
 
 		// Mock the billing service to return an active subscription (could be any gateway)
 		planID := uint(99)
-		mockSubscriber := &billingModels.Subscriber{
+		mockSubscriber := &pluginCore.Subscriber{
 			UserID:      1,
 			GatewayType: "paypal", // Different gateway to test multiple scenarios
 			GatewayID:   "sub_456",

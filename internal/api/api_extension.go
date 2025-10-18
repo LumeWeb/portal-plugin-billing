@@ -13,7 +13,6 @@ import (
 	"go.lumeweb.com/portal-middleware/middleware"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
 	"go.lumeweb.com/portal-plugin-billing/internal/api/dto"
-	billingModels "go.lumeweb.com/portal-plugin-billing/internal/db/models"
 	router "go.lumeweb.com/portal-router"
 	"go.lumeweb.com/portal/core"
 	"go.uber.org/zap"
@@ -120,7 +119,7 @@ func (e *APIExtension) handleSubscriptionStatus(c echo.Context) error {
 	}
 
 	var responseDto dto.SubscriptionStatusResponse
-	return httputil.EncodeResponse[*billingModels.Subscriber](ctx, sub, &responseDto)
+	return httputil.EncodeResponse[*pluginCore.Subscriber](ctx, sub, &responseDto)
 }
 
 // handleWebhook processes incoming webhook requests from payment gateways

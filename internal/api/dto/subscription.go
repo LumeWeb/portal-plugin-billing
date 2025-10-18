@@ -4,11 +4,11 @@ import (
 	"time"
 
 	"go.lumeweb.com/httputil"
-	billingModels "go.lumeweb.com/portal-plugin-billing/internal/db/models"
+	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
 )
 
 var (
-	_ httputil.DTOResponse[*billingModels.Subscriber] = (*SubscriptionStatusResponse)(nil)
+	_ httputil.DTOResponse[*pluginCore.Subscriber] = (*SubscriptionStatusResponse)(nil)
 )
 
 // SubscriptionStatusResponse represents the subscription status response
@@ -21,7 +21,7 @@ type SubscriptionStatusResponse struct {
 }
 
 // FromModel converts a Subscriber model to SubscriptionStatusResponse
-func (r *SubscriptionStatusResponse) FromModel(subscriber *billingModels.Subscriber) error {
+func (r *SubscriptionStatusResponse) FromModel(subscriber *pluginCore.Subscriber) error {
 	if subscriber == nil {
 		r.IsSubscribed = false
 		return nil
