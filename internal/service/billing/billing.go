@@ -196,34 +196,56 @@ func (s *BillingServiceDefault) releaseWebhookEventClaim(gatewayType, eventID st
 // CreateOrUpdateSubscriber creates or updates a subscriber record
 func (s *BillingServiceDefault) CreateOrUpdateSubscriber(userID uint, gatewayType, gatewayID string, isActive bool, planID *uint) error {
 	return s.db.Transaction(func(tx *gorm.DB) error {
-		// Try to find existing subscriber with row lock
-		var existing models.Subscriber
-		err := tx.Set("gorm:query_option", "FOR UPDATE").
-			Unscoped().
+		// First try to update existing record (including soft-deleted ones)
+		result := tx.Unscoped().Model(&models.Subscriber{}).
 			Where("user_id = ? AND gateway_type = ?", userID, gatewayType).
-			First(&existing).Error
+			Updates(map[string]any{
+				"gateway_id": gatewayID,
+				"is_active":  isActive,
+				"plan_id":    planID,
+				"deleted_at": nil,
+			})
 
-		if err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				// Create new subscriber
-				return tx.Create(&models.Subscriber{
-					UserID:      userID,
-					GatewayType: gatewayType,
-					GatewayID:   gatewayID,
-					IsActive:    isActive,
-					PlanID:      planID,
-				}).Error
-			}
-			return err
+		if result.Error != nil {
+			return result.Error
 		}
 
-		// Update existing subscriber (restore if soft deleted)
-		existing.GatewayID = gatewayID
-		existing.IsActive = isActive
-		existing.PlanID = planID
-		existing.DeletedAt = gorm.DeletedAt{} // Restore if soft deleted
+		// If we updated a row, we're done
+		if result.RowsAffected > 0 {
+			return nil
+		}
 
-		return tx.Unscoped().Save(&existing).Error
+		// No existing row found, try to insert
+		sub := models.Subscriber{
+			UserID:      userID,
+			GatewayType: gatewayType,
+			GatewayID:   gatewayID,
+			IsActive:    isActive,
+			PlanID:      planID,
+		}
+
+		result = tx.Create(&sub)
+		if result.Error == nil {
+			return nil
+		}
+
+		// If insert failed due to unique constraint violation, retry update
+		// This handles the race condition where another goroutine inserted between our update and create
+		if strings.Contains(result.Error.Error(), "UNIQUE constraint failed") {
+			result = tx.Unscoped().Model(&models.Subscriber{}).
+				Where("user_id = ? AND gateway_type = ?", userID, gatewayType).
+				Updates(map[string]any{
+					"gateway_id": gatewayID,
+					"is_active":  isActive,
+					"plan_id":    planID,
+					"deleted_at": nil,
+				})
+
+			return result.Error
+		}
+
+		// For any other error, return it
+		return result.Error
 	})
 }
 
