@@ -144,7 +144,7 @@ func TestHandleSubscriptionStatus_ActiveSubscription(t *testing.T) {
 	})
 }
 
-func TestHandleSubscriptionStatus_NoSubscription(t *testing.T) {
+func TestHandleSubscriptionStatus_NoActiveSubscription(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		// Retrieve necessary services and router from the context
 		billingSvc := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
@@ -154,48 +154,9 @@ func TestHandleSubscriptionStatus_NoSubscription(t *testing.T) {
 
 		userSvc.On("AccountExists", uint(1)).Return(true, nil, nil)
 
-		// Mock the billing service to return no subscription
-		billingSvc.On("GetActiveSubscription", uint(1)).Return((*pluginCore.Subscriber)(nil), nil)
-
-		// Create valid JWT token using helper
-		jwtToken, err := createTestJWT(ctx, "1")
-		assert.NoError(tb, err, "Failed to generate test JWT")
-
-		// Create authenticated request (no subscription created)
-		req := httptest.NewRequest("GET", "/api/account/billing/subscription", nil)
-		req.Host = domain
-		req.Header.Set("Authorization", "Bearer "+jwtToken)
-		w := httptest.NewRecorder()
-
-		// Execute
-		router.ServeHTTP(w, req)
-
-		// Verify
-		assert.Equal(tb, http.StatusOK, w.Code)
-
-		// Parse response using DTO
-		var response dto.SubscriptionStatusResponse
-		err = json.Unmarshal(w.Body.Bytes(), &response)
-		assert.NoError(tb, err)
-
-		assert.False(tb, response.IsSubscribed)
-		assert.Equal(tb, "", response.GatewayType)
-		assert.Nil(tb, response.PlanID)
-
-	})
-}
-
-func TestHandleSubscriptionStatus_InactiveSubscription(t *testing.T) {
-	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
-		// Retrieve necessary services and router from the context
-		billingSvc := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
-		userSvc := core.GetService[*mocks.MockUserService](ctx, core.USER_SERVICE)
-		router := ctx.Router()
-		domain := ctx.APISubdomain("dashboard", false)
-
-		userSvc.On("AccountExists", uint(1)).Return(true, nil, nil)
-
-		// Mock the billing service to return no subscription (inactive)
+		// Mock the billing service to return no active subscription
+		// This covers both scenarios: no subscription exists and inactive subscriptions
+		// (GetActiveSubscription only returns active subscriptions)
 		billingSvc.On("GetActiveSubscription", uint(1)).Return((*pluginCore.Subscriber)(nil), nil)
 
 		// Create valid JWT token using helper
@@ -219,9 +180,10 @@ func TestHandleSubscriptionStatus_InactiveSubscription(t *testing.T) {
 		err = json.Unmarshal(w.Body.Bytes(), &response)
 		assert.NoError(tb, err)
 
-		assert.False(tb, response.IsSubscribed)
-		assert.Equal(tb, "", response.GatewayType)
-		assert.Nil(tb, response.PlanID)
+		// Both no subscription and inactive subscription scenarios should return the same response
+		assert.False(tb, response.IsSubscribed, "Should return is_subscribed=false when no active subscription exists")
+		assert.Equal(tb, "", response.GatewayType, "GatewayType should be empty when no active subscription")
+		assert.Nil(tb, response.PlanID, "PlanID should be nil when no active subscription")
 	})
 }
 

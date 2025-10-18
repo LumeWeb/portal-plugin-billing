@@ -195,32 +195,36 @@ func (s *BillingServiceDefault) releaseWebhookEventClaim(gatewayType, eventID st
 
 // CreateOrUpdateSubscriber creates or updates a subscriber record
 func (s *BillingServiceDefault) CreateOrUpdateSubscriber(userID uint, gatewayType, gatewayID string, isActive bool, planID *uint) error {
-	// First try to find existing subscriber (including soft deleted)
-	var existing models.Subscriber
-	err := s.db.Unscoped().Where("user_id = ? AND gateway_type = ?", userID, gatewayType).First(&existing).Error
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		// Try to find existing subscriber with row lock
+		var existing models.Subscriber
+		err := tx.Set("gorm:query_option", "FOR UPDATE").
+			Unscoped().
+			Where("user_id = ? AND gateway_type = ?", userID, gatewayType).
+			First(&existing).Error
 
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			// Create new subscriber
-			subscriber := &models.Subscriber{
-				UserID:      userID,
-				GatewayType: gatewayType,
-				GatewayID:   gatewayID,
-				IsActive:    isActive,
-				PlanID:      planID,
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				// Create new subscriber
+				return tx.Create(&models.Subscriber{
+					UserID:      userID,
+					GatewayType: gatewayType,
+					GatewayID:   gatewayID,
+					IsActive:    isActive,
+					PlanID:      planID,
+				}).Error
 			}
-			return s.db.Create(subscriber).Error
+			return err
 		}
-		return err
-	}
 
-	// Update existing subscriber (restore if soft deleted)
-	existing.GatewayID = gatewayID
-	existing.IsActive = isActive
-	existing.PlanID = planID
-	existing.DeletedAt = gorm.DeletedAt{} // Restore if soft deleted
+		// Update existing subscriber (restore if soft deleted)
+		existing.GatewayID = gatewayID
+		existing.IsActive = isActive
+		existing.PlanID = planID
+		existing.DeletedAt = gorm.DeletedAt{} // Restore if soft deleted
 
-	return s.db.Unscoped().Save(&existing).Error
+		return tx.Unscoped().Save(&existing).Error
+	})
 }
 
 // DeactivateSubscriber deactivates a subscriber

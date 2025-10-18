@@ -128,11 +128,15 @@ func (g *StripeGateway) handleSubscriptionActivated(ctx context.Context, event s
 	}
 
 	if !hasPlan {
-		g.logger.Warn("subscription activated but price metadata missing plan_id",
+		logFields := []zap.Field{
 			zap.Uint("user_id", userID),
-			zap.String("price_id", price.ID),
 			zap.String("subscription_id", subscription.ID),
-			zap.String("event_id", event.ID))
+			zap.String("event_id", event.ID),
+		}
+		if price != nil {
+			logFields = append(logFields, zap.String("price_id", price.ID))
+		}
+		g.logger.Warn("subscription activated but price metadata missing plan_id", logFields...)
 		return nil
 	}
 
@@ -237,10 +241,14 @@ func (g *StripeGateway) handleSubscriptionUpdated(ctx context.Context, event str
 	}
 
 	if !hasPlan {
-		g.logger.Warn("subscription updated but price metadata missing plan_id",
+		logFields := []zap.Field{
 			zap.String("subscription_id", subscription.ID),
-			zap.String("price_id", price.ID),
-			zap.String("event_id", event.ID))
+			zap.String("event_id", event.ID),
+		}
+		if price != nil {
+			logFields = append(logFields, zap.String("price_id", price.ID))
+		}
+		g.logger.Warn("subscription updated but price metadata missing plan_id", logFields...)
 		return nil
 	}
 
@@ -262,14 +270,18 @@ func (g *StripeGateway) handleSubscriptionUpdated(ctx context.Context, event str
 		return fmt.Errorf("user with ID %d not found", userID)
 	}
 
-	g.logger.Debug("updating user quota plan",
+	logFields := []zap.Field{
 		zap.Uint("user_id", userID),
 		zap.Uint("plan_id", planID),
 		zap.Uint("user_db_id", user.ID),
 		zap.String("subscription_id", subscription.ID),
-		zap.String("price_id", price.ID),
 		zap.String("event_id", event.ID),
-		zap.Any("event_type", event.Type))
+		zap.Any("event_type", event.Type),
+	}
+	if price != nil {
+		logFields = append(logFields, zap.String("price_id", price.ID))
+	}
+	g.logger.Debug("updating user quota plan", logFields...)
 
 	// Validate plan exists
 	if g.quota == nil {

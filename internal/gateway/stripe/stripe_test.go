@@ -491,3 +491,87 @@ func TestStripeGateway_HandleWebhook_NilSubscriptionItems(t *testing.T) {
 		mockUsers.AssertNotCalled(t, "AccountExists", mock.Anything)
 	})
 }
+
+func TestStripeGateway_HandleWebhook_SubscriptionUpdated_AllPricesNil(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockUsers := core.GetService[*coreMocks.MockUserService](ctx, core.USER_SERVICE)
+		mockQuota := core.GetService[*quotaCore.MockQuotaService](ctx, quotaCore.QUOTA_SERVICE)
+		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+
+		// Create subscription with items but all Price fields nil
+		subscription := stripe.Subscription{
+			ID: "sub_123",
+			Metadata: map[string]string{
+				UserIDMetadataKey: "123",
+			},
+			Items: &stripe.SubscriptionItemList{
+				Data: []*stripe.SubscriptionItem{
+					{Price: nil},
+					{Price: nil},
+				},
+			},
+		}
+
+		rawData, _ := json.Marshal(subscription)
+		event := createTestEvent(EventTypeSubscriptionUpdated, rawData)
+		payload, _ := json.Marshal(event)
+
+		gw := New(ctx.Logger(), "test_secret", mockQuota, mockUsers, mockBilling)
+		err := gw.HandleWebhook(context.Background(), payload)
+
+		// Should not return error but log warning about missing plan_id
+		assert.NoError(t, err)
+		
+		// Verify no external calls were made
+		mockUsers.AssertNotCalled(t, "AccountExists", mock.Anything)
+		mockQuota.AssertNotCalled(t, "AssignUserToPlan", mock.Anything, mock.Anything)
+		mockQuota.AssertNotCalled(t, "RemoveUserFromPlan", mock.Anything)
+		mockBilling.AssertNotCalled(t, "CreateOrUpdateSubscriber", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+		mockBilling.AssertNotCalled(t, "DeactivateSubscriber", mock.Anything, mock.Anything)
+	})
+}
+
+func TestStripeGateway_HandleWebhook_SubscriptionPaused(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockQuota := core.GetService[*quotaCore.MockQuotaService](ctx, quotaCore.QUOTA_SERVICE)
+		mockUsers := core.GetService[*coreMocks.MockUserService](ctx, core.USER_SERVICE)
+		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+
+		subscription := createTestSubscription("123", "")
+		rawData, _ := json.Marshal(subscription)
+		event := createTestEvent(EventTypeSubscriptionPaused, rawData)
+		payload, _ := json.Marshal(event)
+
+		mockUsers.On("AccountExists", uint(123)).Return(true, createTestUser(123), nil)
+		mockQuota.On("RemoveUserFromPlan", uint(123)).Return(nil)
+		mockBilling.On("DeactivateSubscriber", uint(123), "stripe").Return(nil)
+
+		gw := New(ctx.Logger(), "test_secret", mockQuota, mockUsers, mockBilling)
+		err := gw.HandleWebhook(context.Background(), payload)
+
+		assert.NoError(t, err)
+	})
+}
+
+func TestStripeGateway_HandleWebhook_SubscriptionResumed(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockQuota := core.GetService[*quotaCore.MockQuotaService](ctx, quotaCore.QUOTA_SERVICE)
+		mockUsers := core.GetService[*coreMocks.MockUserService](ctx, core.USER_SERVICE)
+		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+
+		subscription := createTestSubscription("123", "1")
+		rawData, _ := json.Marshal(subscription)
+		event := createTestEvent(EventTypeSubscriptionResumed, rawData)
+		payload, _ := json.Marshal(event)
+
+		mockUsers.On("AccountExists", uint(123)).Return(true, createTestUser(123), nil)
+		mockQuota.On("GetQuotaPlan", uint(1)).Return(&quotaCore.QuotaPlan{}, nil)
+		mockQuota.On("AssignUserToPlan", uint(123), uint(1)).Return(nil)
+		mockBilling.On("CreateOrUpdateSubscriber", uint(123), "stripe", "sub_123", true, mock.AnythingOfType("*uint")).Return(nil)
+
+		gw := New(ctx.Logger(), "test_secret", mockQuota, mockUsers, mockBilling)
+		err := gw.HandleWebhook(context.Background(), payload)
+
+		assert.NoError(t, err)
+	})
+}

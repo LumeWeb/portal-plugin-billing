@@ -27,6 +27,15 @@ func (r *SubscriptionStatusResponse) FromModel(subscriber *pluginCore.Subscriber
 		return nil
 	}
 
+	if !subscriber.IsActive {
+		r.IsSubscribed = false
+		r.GatewayType = ""
+		r.PlanID = nil
+		r.CreatedAt = time.Time{}
+		r.UpdatedAt = time.Time{}
+		return nil
+	}
+
 	r.IsSubscribed = subscriber.IsActive
 	r.GatewayType = subscriber.GatewayType
 	r.PlanID = subscriber.PlanID
