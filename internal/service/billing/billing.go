@@ -2,10 +2,12 @@ package billing
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/samber/lo"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
 	"go.lumeweb.com/portal-plugin-billing/internal/config"
 	"go.lumeweb.com/portal-plugin-billing/internal/db/models"
@@ -75,6 +77,7 @@ func NewBillingServiceWithRegistry(registry *gateway.Registry) (core.Service, []
 					secret,
 					quotaSvc,
 					userSvc,
+					service,
 				)); err != nil {
 					return fmt.Errorf("failed to register stripe gateway: %w", err)
 				}
@@ -188,4 +191,120 @@ func (s *BillingServiceDefault) releaseWebhookEventClaim(gatewayType, eventID st
 	return s.db.Model(&models.WebhookEvent{}).
 		Where("gateway_type = ? AND event_id = ?", gatewayType, eventID).
 		Update("deleted_at", time.Now().UTC()).Error
+}
+
+// CreateOrUpdateSubscriber creates or updates a subscriber record
+func (s *BillingServiceDefault) CreateOrUpdateSubscriber(userID uint, gatewayType, gatewayID string, isActive bool, planID *uint) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		// First try to update existing record (including soft-deleted ones)
+		result := tx.Unscoped().Model(&models.Subscriber{}).
+			Where("user_id = ? AND gateway_type = ?", userID, gatewayType).
+			Updates(map[string]any{
+				"gateway_id": gatewayID,
+				"is_active":  isActive,
+				"plan_id":    planID,
+				"deleted_at": nil,
+			})
+
+		if result.Error != nil {
+			return result.Error
+		}
+
+		// If we updated a row, we're done
+		if result.RowsAffected > 0 {
+			return nil
+		}
+
+		// No existing row found, try to insert
+		sub := models.Subscriber{
+			UserID:      userID,
+			GatewayType: gatewayType,
+			GatewayID:   gatewayID,
+			IsActive:    isActive,
+			PlanID:      planID,
+		}
+
+		result = tx.Create(&sub)
+		if result.Error == nil {
+			return nil
+		}
+
+		// If insert failed due to unique constraint violation, retry update
+		// This handles the race condition where another goroutine inserted between our update and create
+		if strings.Contains(result.Error.Error(), "UNIQUE constraint failed") {
+			result = tx.Unscoped().Model(&models.Subscriber{}).
+				Where("user_id = ? AND gateway_type = ?", userID, gatewayType).
+				Updates(map[string]any{
+					"gateway_id": gatewayID,
+					"is_active":  isActive,
+					"plan_id":    planID,
+					"deleted_at": nil,
+				})
+
+			return result.Error
+		}
+
+		// For any other error, return it
+		return result.Error
+	})
+}
+
+// DeactivateSubscriber deactivates a subscriber
+func (s *BillingServiceDefault) DeactivateSubscriber(userID uint, gatewayType string) error {
+	return s.db.Model(&models.Subscriber{}).
+		Where("user_id = ? AND gateway_type = ?", userID, gatewayType).
+		Updates(map[string]any{"is_active": false, "plan_id": nil}).Error
+}
+
+// GetActiveSubscriber returns an active subscriber for the given user and gateway
+func (s *BillingServiceDefault) GetActiveSubscriber(userID uint, gatewayType string) (*pluginCore.Subscriber, error) {
+	var subscriber models.Subscriber
+	err := s.db.Where("user_id = ? AND gateway_type = ? AND is_active = ?", userID, gatewayType, true).
+		First(&subscriber).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return (*pluginCore.Subscriber)(&subscriber), nil
+}
+
+// IsUserActiveSubscriber checks if a user has an active subscription with any gateway
+func (s *BillingServiceDefault) IsUserActiveSubscriber(userID uint) (bool, error) {
+	var count int64
+	err := s.db.Model(&models.Subscriber{}).
+		Where("user_id = ? AND is_active = ?", userID, true).
+		Count(&count).Error
+	return count > 0, err
+}
+
+// GetActiveSubscribersByGateway returns all active subscribers for a specific gateway
+func (s *BillingServiceDefault) GetActiveSubscribersByGateway(gatewayType string) ([]pluginCore.Subscriber, error) {
+	var subscribers []models.Subscriber
+	err := s.db.Where("gateway_type = ? AND is_active = ?", gatewayType, true).
+		Find(&subscribers).Error
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert to re-exported type using lo.Map
+	result := lo.Map(subscribers, func(sub models.Subscriber, _ int) pluginCore.Subscriber {
+		return pluginCore.Subscriber(sub)
+	})
+	return result, nil
+}
+
+// GetActiveSubscription returns the first active subscription for a user across all gateways
+func (s *BillingServiceDefault) GetActiveSubscription(userID uint) (*pluginCore.Subscriber, error) {
+	var subscriber models.Subscriber
+	err := s.db.Where("user_id = ? AND is_active = ?", userID, true).
+		First(&subscriber).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return (*pluginCore.Subscriber)(&subscriber), nil
 }

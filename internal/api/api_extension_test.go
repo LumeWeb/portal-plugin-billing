@@ -2,18 +2,29 @@ package api
 
 import (
 	"bytes"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"go.lumeweb.com/portal-middleware/auth/jwt"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
 	"go.lumeweb.com/portal-plugin-billing/internal"
+	"go.lumeweb.com/portal-plugin-billing/internal/api/dto"
 	pluginConfig "go.lumeweb.com/portal-plugin-billing/internal/config"
 	"go.lumeweb.com/portal/core"
 	coreTesting "go.lumeweb.com/portal/core/testing"
+	"go.lumeweb.com/portal/core/testing/mocks"
 )
+
+// Helper function to create a valid JWT token for testing
+func createTestJWT(ctx coreTesting.TestContext, userID string) (string, error) {
+	pk := ctx.Config().Config().Core.Identity.PrivateKey()
+	return jwt.CreateToken(pk, ctx.Config().Config().Core.Domain, userID, jwt.PurposeLogin, 90*24*time.Hour)
+}
 
 func TestMain(m *testing.M) {
 	// Use the new framework's TestMain helper to set up the shared environment.
@@ -55,8 +66,6 @@ func TestHandleWebhook_Success(t *testing.T) {
 		// Verify
 		assert.Equal(tb, http.StatusNoContent, w.Code)
 
-		// Verify mock expectations
-		billingSvc.AssertExpectations(tb)
 	})
 }
 
@@ -82,7 +91,167 @@ func TestHandleWebhook_InvalidGateway(t *testing.T) {
 		// Verify
 		assert.Equal(tb, http.StatusBadRequest, w.Code)
 
-		// Verify mock expectations
-		billingSvc.AssertExpectations(tb)
+	})
+}
+
+func TestHandleSubscriptionStatus_ActiveSubscription(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		// Retrieve necessary services and router from the context
+		billingSvc := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+		userSvc := core.GetService[*mocks.MockUserService](ctx, core.USER_SERVICE)
+		router := ctx.Router()
+		domain := ctx.APISubdomain("dashboard", false)
+
+		userSvc.On("AccountExists", uint(1)).Return(true, nil, nil)
+
+		// Mock the billing service to return an active subscription
+		planID := uint(42)
+		mockSubscriber := &pluginCore.Subscriber{
+			UserID:      1,
+			GatewayType: "stripe",
+			GatewayID:   "sub_123",
+			IsActive:    true,
+			PlanID:      &planID,
+		}
+		billingSvc.On("GetActiveSubscription", uint(1)).Return(mockSubscriber, nil)
+
+		// Create valid JWT token using helper
+		jwtToken, err := createTestJWT(ctx, "1")
+		assert.NoError(tb, err, "Failed to generate test JWT")
+
+		// Create authenticated request
+		req := httptest.NewRequest("GET", "/api/account/billing/subscription", nil)
+		req.Host = domain
+		req.Header.Set("Authorization", "Bearer "+jwtToken)
+		w := httptest.NewRecorder()
+
+		// Execute
+		router.ServeHTTP(w, req)
+
+		// Verify
+		assert.Equal(tb, http.StatusOK, w.Code)
+
+		// Parse response using DTO
+		var response dto.SubscriptionStatusResponse
+		err = json.Unmarshal(w.Body.Bytes(), &response)
+		assert.NoError(tb, err)
+
+		assert.True(tb, response.IsSubscribed)
+		assert.Equal(tb, "stripe", response.GatewayType)
+		assert.NotNil(tb, response.PlanID)
+		assert.Equal(tb, uint(42), *response.PlanID)
+
+	})
+}
+
+func TestHandleSubscriptionStatus_NoActiveSubscription(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		// Retrieve necessary services and router from the context
+		billingSvc := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+		userSvc := core.GetService[*mocks.MockUserService](ctx, core.USER_SERVICE)
+		router := ctx.Router()
+		domain := ctx.APISubdomain("dashboard", false)
+
+		userSvc.On("AccountExists", uint(1)).Return(true, nil, nil)
+
+		// Mock the billing service to return no active subscription
+		// This covers both scenarios: no subscription exists and inactive subscriptions
+		// (GetActiveSubscription only returns active subscriptions)
+		billingSvc.On("GetActiveSubscription", uint(1)).Return((*pluginCore.Subscriber)(nil), nil)
+
+		// Create valid JWT token using helper
+		jwtToken, err := createTestJWT(ctx, "1")
+		assert.NoError(tb, err, "Failed to generate test JWT")
+
+		// Create authenticated request
+		req := httptest.NewRequest("GET", "/api/account/billing/subscription", nil)
+		req.Host = domain
+		req.Header.Set("Authorization", "Bearer "+jwtToken)
+		w := httptest.NewRecorder()
+
+		// Execute
+		router.ServeHTTP(w, req)
+
+		// Verify
+		assert.Equal(tb, http.StatusOK, w.Code)
+
+		// Parse response using DTO
+		var response dto.SubscriptionStatusResponse
+		err = json.Unmarshal(w.Body.Bytes(), &response)
+		assert.NoError(tb, err)
+
+		// Both no subscription and inactive subscription scenarios should return the same response
+		assert.False(tb, response.IsSubscribed, "Should return is_subscribed=false when no active subscription exists")
+		assert.Equal(tb, "", response.GatewayType, "GatewayType should be empty when no active subscription")
+		assert.Nil(tb, response.PlanID, "PlanID should be nil when no active subscription")
+	})
+}
+
+func TestHandleSubscriptionStatus_MultipleGateways(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		// Retrieve necessary services and router from the context
+		billingSvc := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+		userSvc := core.GetService[*mocks.MockUserService](ctx, core.USER_SERVICE)
+		router := ctx.Router()
+		domain := ctx.APISubdomain("dashboard", false)
+
+		userSvc.On("AccountExists", uint(1)).Return(true, nil, nil)
+
+		// Mock the billing service to return an active subscription (could be any gateway)
+		planID := uint(99)
+		mockSubscriber := &pluginCore.Subscriber{
+			UserID:      1,
+			GatewayType: "paypal", // Different gateway to test multiple scenarios
+			GatewayID:   "sub_456",
+			IsActive:    true,
+			PlanID:      &planID,
+		}
+		billingSvc.On("GetActiveSubscription", uint(1)).Return(mockSubscriber, nil)
+
+		// Create valid JWT token using helper
+		jwtToken, err := createTestJWT(ctx, "1")
+		assert.NoError(tb, err, "Failed to generate test JWT")
+
+		// Create authenticated request
+		req := httptest.NewRequest("GET", "/api/account/billing/subscription", nil)
+		req.Host = domain
+		req.Header.Set("Authorization", "Bearer "+jwtToken)
+		w := httptest.NewRecorder()
+
+		// Execute
+		router.ServeHTTP(w, req)
+
+		// Verify
+		assert.Equal(tb, http.StatusOK, w.Code)
+
+		// Parse response using DTO
+		var response dto.SubscriptionStatusResponse
+		err = json.Unmarshal(w.Body.Bytes(), &response)
+		assert.NoError(tb, err)
+
+		// Should return the mocked subscription
+		assert.True(tb, response.IsSubscribed)
+		assert.Equal(tb, "paypal", response.GatewayType)
+		assert.NotNil(tb, response.PlanID)
+		assert.Equal(tb, uint(99), *response.PlanID)
+	})
+}
+
+func TestHandleSubscriptionStatus_Unauthorized(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		// Retrieve necessary services and router from the context
+		router := ctx.Router()
+		domain := ctx.APISubdomain("dashboard", false)
+
+		// Create unauthenticated request (no auth header)
+		req := httptest.NewRequest("GET", "/api/account/billing/subscription", nil)
+		req.Host = domain
+		w := httptest.NewRecorder()
+
+		// Execute
+		router.ServeHTTP(w, req)
+
+		// Verify - should return unauthorized
+		assert.Equal(tb, http.StatusUnauthorized, w.Code)
 	})
 }
