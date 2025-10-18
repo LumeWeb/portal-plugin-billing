@@ -13,11 +13,11 @@ var (
 
 // SubscriptionStatusResponse represents the subscription status response
 type SubscriptionStatusResponse struct {
-	IsSubscribed bool      `json:"is_subscribed"`
-	GatewayType  string    `json:"gateway_type,omitempty"`
-	PlanID       *uint     `json:"plan_id,omitempty"`
-	CreatedAt    time.Time `json:"created_at,omitempty"`
-	UpdatedAt    time.Time `json:"updated_at,omitempty"`
+	IsSubscribed bool       `json:"is_subscribed"`
+	GatewayType  string     `json:"gateway_type,omitempty"`
+	PlanID       *uint      `json:"plan_id,omitempty"`
+	CreatedAt    *time.Time `json:"created_at,omitempty"`
+	UpdatedAt    *time.Time `json:"updated_at,omitempty"`
 }
 
 // FromModel converts a Subscriber model to SubscriptionStatusResponse
@@ -35,8 +35,8 @@ func (r *SubscriptionStatusResponse) FromModel(subscriber *pluginCore.Subscriber
 	r.IsSubscribed = true
 	r.GatewayType = subscriber.GatewayType
 	r.PlanID = subscriber.PlanID
-	r.CreatedAt = subscriber.CreatedAt
-	r.UpdatedAt = subscriber.UpdatedAt
+	r.CreatedAt = &subscriber.CreatedAt
+	r.UpdatedAt = &subscriber.UpdatedAt
 
 	return nil
 }
