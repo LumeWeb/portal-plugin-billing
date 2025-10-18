@@ -8,7 +8,12 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"go.lumeweb.com/httputil"
+	"go.lumeweb.com/portal-middleware/auth/jwt"
+	mcontext "go.lumeweb.com/portal-middleware/context"
+	"go.lumeweb.com/portal-middleware/middleware"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
+	"go.lumeweb.com/portal-plugin-billing/internal/api/dto"
+	billingModels "go.lumeweb.com/portal-plugin-billing/internal/db/models"
 	router "go.lumeweb.com/portal-router"
 	"go.lumeweb.com/portal/core"
 	"go.uber.org/zap"
@@ -50,24 +55,13 @@ func (e *APIExtension) TargetAPI() string {
 
 // Configure is called to set up routes on the API router
 func (e *APIExtension) Configure(gRouter router.Router, accessSvc core.AccessService) error {
-	// Create a subrouter for billing
-	billingRouter, err := gRouter.Group("/api/account/billing")
-	if err != nil {
-		return err
-	}
-
-	// Register all route handlers
-	if err = e.registerWebhookHandlers(billingRouter, accessSvc); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// registerWebhookHandlers sets up the webhook routes
-func (e *APIExtension) registerWebhookHandlers(gRouter router.Router, accessSvc core.AccessService) error {
+	// Create middleware instances once
+	authMw := middleware.AuthMiddleware(e.ctx, middleware.WithAuthPurpose(jwt.PurposeLogin))
+	accessMw := middleware.AccessMiddleware(e.ctx)
+	// Define billing routes using DefineRoutes helper
 	routes := router.DefineRoutes(
-		router.NewRoute(http.MethodPost, "/webhooks/:gatewayType", e.handleWebhook,
+		// Webhook endpoint
+		router.NewRoute(http.MethodPost, "/api/account/billing/webhooks/:gatewayType", e.handleWebhook,
 			router.WithSwagger(
 				router.WithSummary("Process payment gateway webhook"),
 				router.WithDescription("Handles incoming webhooks from payment gateways such as Stripe, PayPal, etc."),
@@ -82,10 +76,51 @@ func (e *APIExtension) registerWebhookHandlers(gRouter router.Router, accessSvc 
 					),
 				),
 			),
+			router.WithAccess(""),
+		),
+		// Subscription status endpoint
+		router.NewRoute(http.MethodGet, "/api/account/billing/subscription", e.handleSubscriptionStatus,
+			router.WithSwagger(
+				router.WithSummary("Get subscription status"),
+				router.WithDescription("Returns the subscription status for the authenticated user"),
+				router.WithTags("Billing"),
+				router.WithSuccessResponse(http.StatusOK, "Subscription status retrieved successfully",
+					router.WithJSONContent(dto.SubscriptionStatusResponse{})),
+				router.WithErrorResponses(
+					router.DefineSwaggerErrorResponses(
+						router.DefineSwaggerErrorResponse(http.StatusUnauthorized, "Authentication required"),
+						router.DefineSwaggerErrorResponse(http.StatusInternalServerError, "Failed to check subscription status"),
+					),
+				),
+			),
+			router.WithAccess(core.ACCESS_USER_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
 		),
 	)
 
+	// Register all routes
 	return router.RegisterRoutes(gRouter, accessSvc, core.GetAPI(e.TargetAPI()).Subdomain(), routes)
+}
+
+// handleSubscriptionStatus returns the subscription status for the authenticated user
+func (e *APIExtension) handleSubscriptionStatus(c echo.Context) error {
+	ctx := httputil.Context(c)
+	userID, ok := e.getUser(ctx)
+	if !ok {
+		return ctx.Error(fmt.Errorf("failed to get user ID"), http.StatusUnauthorized)
+	}
+
+	// Get active subscription if any
+	sub, err := e.billingService.GetActiveSubscription(userID)
+	if err != nil {
+		e.logger.Error("failed to check subscription status",
+			zap.Uint("user_id", userID),
+			zap.Error(err))
+		return ctx.Error(fmt.Errorf("failed to check subscription status"), http.StatusInternalServerError)
+	}
+
+	var responseDto dto.SubscriptionStatusResponse
+	return httputil.EncodeResponse[*billingModels.Subscriber](ctx, sub, &responseDto)
 }
 
 // handleWebhook processes incoming webhook requests from payment gateways
@@ -106,7 +141,7 @@ func (e *APIExtension) handleWebhook(c echo.Context) error {
 				zap.Error(err))
 		}
 	}()
-	
+
 	payload, err := io.ReadAll(c.Request().Body)
 	if err != nil {
 		var maxErr *http.MaxBytesError
@@ -143,4 +178,13 @@ func (e *APIExtension) handleWebhook(c echo.Context) error {
 	}
 
 	return ctx.NoContent(http.StatusNoContent)
+}
+
+// getUser extracts the user ID from the request context
+func (e *APIExtension) getUser(ctx httputil.RequestContext) (uint, bool) {
+	user, err := mcontext.GetUserID(ctx.Context)
+	if err != nil {
+		return 0, false
+	}
+	return user, true
 }

@@ -30,14 +30,16 @@ type StripeGateway struct {
 	endpointSecret string
 	quota          quotaCore.QuotaService
 	users          core.UserService
+	billing        pluginCore.BillingService
 }
 
-func New(logger *core.Logger, endpointSecret string, quota quotaCore.QuotaService, users core.UserService) *StripeGateway {
+func New(logger *core.Logger, endpointSecret string, quota quotaCore.QuotaService, users core.UserService, billing pluginCore.BillingService) *StripeGateway {
 	return &StripeGateway{
 		logger:         logger,
 		endpointSecret: endpointSecret,
 		quota:          quota,
 		users:          users,
+		billing:        billing,
 	}
 }
 
@@ -151,6 +153,16 @@ func (g *StripeGateway) handleSubscriptionActivated(ctx context.Context, event s
 		return fmt.Errorf("failed to assign user to plan: %w", err)
 	}
 
+	// Track subscriber in billing service
+	if g.billing != nil {
+		if err := g.createOrUpdateSubscriber(user.ID, subscription.ID, true, &planID); err != nil {
+			g.logger.Error("failed to track subscriber",
+				zap.Error(err),
+				zap.Uint("user_id", userID),
+				zap.String("subscription_id", subscription.ID))
+		}
+	}
+
 	g.logger.Debug("subscription activated - added quota plan",
 		zap.Uint("user_id", userID),
 		zap.String("price_id", price.ID),
@@ -192,6 +204,16 @@ func (g *StripeGateway) handleSubscriptionDeactivated(ctx context.Context, event
 	}
 	if err := g.quota.RemoveUserFromPlan(user.ID); err != nil {
 		return fmt.Errorf("failed to remove user from plan: %w", err)
+	}
+
+	// Update subscriber status in billing service
+	if g.billing != nil {
+		if err := g.deactivateSubscriber(user.ID); err != nil {
+			g.logger.Error("failed to deactivate subscriber",
+				zap.Error(err),
+				zap.Uint("user_id", userID),
+				zap.String("subscription_id", subscription.ID))
+		}
 	}
 
 	g.logger.Debug("subscription deactivated - removed quota plan",
@@ -266,11 +288,31 @@ func (g *StripeGateway) handleSubscriptionUpdated(ctx context.Context, event str
 		return fmt.Errorf("failed to assign user to plan: %w", err)
 	}
 
+	// Update subscriber in billing service
+	if g.billing != nil {
+		if err := g.createOrUpdateSubscriber(user.ID, subscription.ID, true, &planID); err != nil {
+			g.logger.Error("failed to update subscriber",
+				zap.Error(err),
+				zap.Uint("user_id", userID),
+				zap.String("subscription_id", subscription.ID))
+		}
+	}
+
 	return nil
 }
 
 func (g *StripeGateway) SetQuota(quota quotaCore.QuotaService) {
 	g.quota = quota
+}
+
+// createOrUpdateSubscriber creates or updates a subscriber record
+func (g *StripeGateway) createOrUpdateSubscriber(userID uint, subscriptionID string, isActive bool, planID *uint) error {
+	return g.billing.CreateOrUpdateSubscriber(userID, GatewayID, subscriptionID, isActive, planID)
+}
+
+// deactivateSubscriber deactivates a subscriber record
+func (g *StripeGateway) deactivateSubscriber(userID uint) error {
+	return g.billing.DeactivateSubscriber(userID, GatewayID)
 }
 
 // Helper function to parse user ID from metadata

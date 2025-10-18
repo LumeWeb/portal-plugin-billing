@@ -27,6 +27,7 @@ func init() {
 		},
 		Models: []any{
 			&models.WebhookEvent{},
+			&models.Subscriber{},
 		},
 		Migrations: core.DBMigration{
 			core.DB_TYPE_MYSQL:  migrations.GetMySQL(),

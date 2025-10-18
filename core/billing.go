@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 
+	"go.lumeweb.com/portal-plugin-billing/internal/db/models"
 	"go.lumeweb.com/portal/core"
 )
 
@@ -18,4 +19,18 @@ type BillingService interface {
 	GetSignatureHeader(gatewayType string) (string, error)
 	// RegisterGateway registers a PaymentGateway with the billing service and returns an error if registration fails.
 	RegisterGateway(gateway PaymentGateway) error
+
+	// Subscriber management methods
+	// CreateOrUpdateSubscriber creates or updates a subscriber record
+	CreateOrUpdateSubscriber(userID uint, gatewayType, gatewayID string, isActive bool, planID *uint) error
+	// DeactivateSubscriber deactivates a subscriber
+	DeactivateSubscriber(userID uint, gatewayType string) error
+	// GetActiveSubscriber returns an active subscriber for the given user and gateway
+	GetActiveSubscriber(userID uint, gatewayType string) (*models.Subscriber, error)
+	// IsUserActiveSubscriber checks if a user has an active subscription with any gateway
+	IsUserActiveSubscriber(userID uint) (bool, error)
+	// GetActiveSubscribersByGateway returns all active subscribers for a specific gateway
+	GetActiveSubscribersByGateway(gatewayType string) ([]models.Subscriber, error)
+	// GetActiveSubscription returns the first active subscription for a user across all gateways
+	GetActiveSubscription(userID uint) (*models.Subscriber, error)
 }

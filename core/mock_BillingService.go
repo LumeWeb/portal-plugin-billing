@@ -8,6 +8,7 @@ import (
 	"context"
 
 	mock "github.com/stretchr/testify/mock"
+	"go.lumeweb.com/portal-plugin-billing/internal/db/models"
 )
 
 // NewMockBillingService creates a new instance of MockBillingService. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
@@ -88,6 +89,330 @@ func (_c *MockBillingService_Config_Call) Return(v any, err error) *MockBillingS
 }
 
 func (_c *MockBillingService_Config_Call) RunAndReturn(run func() (any, error)) *MockBillingService_Config_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// CreateOrUpdateSubscriber provides a mock function for the type MockBillingService
+func (_mock *MockBillingService) CreateOrUpdateSubscriber(userID uint, gatewayType string, gatewayID string, isActive bool, planID *uint) error {
+	ret := _mock.Called(userID, gatewayType, gatewayID, isActive, planID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CreateOrUpdateSubscriber")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(uint, string, string, bool, *uint) error); ok {
+		r0 = returnFunc(userID, gatewayType, gatewayID, isActive, planID)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockBillingService_CreateOrUpdateSubscriber_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CreateOrUpdateSubscriber'
+type MockBillingService_CreateOrUpdateSubscriber_Call struct {
+	*mock.Call
+}
+
+// CreateOrUpdateSubscriber is a helper method to define mock.On call
+//   - userID uint
+//   - gatewayType string
+//   - gatewayID string
+//   - isActive bool
+//   - planID *uint
+func (_e *MockBillingService_Expecter) CreateOrUpdateSubscriber(userID interface{}, gatewayType interface{}, gatewayID interface{}, isActive interface{}, planID interface{}) *MockBillingService_CreateOrUpdateSubscriber_Call {
+	return &MockBillingService_CreateOrUpdateSubscriber_Call{Call: _e.mock.On("CreateOrUpdateSubscriber", userID, gatewayType, gatewayID, isActive, planID)}
+}
+
+func (_c *MockBillingService_CreateOrUpdateSubscriber_Call) Run(run func(userID uint, gatewayType string, gatewayID string, isActive bool, planID *uint)) *MockBillingService_CreateOrUpdateSubscriber_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 uint
+		if args[0] != nil {
+			arg0 = args[0].(uint)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		var arg2 string
+		if args[2] != nil {
+			arg2 = args[2].(string)
+		}
+		var arg3 bool
+		if args[3] != nil {
+			arg3 = args[3].(bool)
+		}
+		var arg4 *uint
+		if args[4] != nil {
+			arg4 = args[4].(*uint)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+			arg3,
+			arg4,
+		)
+	})
+	return _c
+}
+
+func (_c *MockBillingService_CreateOrUpdateSubscriber_Call) Return(err error) *MockBillingService_CreateOrUpdateSubscriber_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockBillingService_CreateOrUpdateSubscriber_Call) RunAndReturn(run func(userID uint, gatewayType string, gatewayID string, isActive bool, planID *uint) error) *MockBillingService_CreateOrUpdateSubscriber_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// DeactivateSubscriber provides a mock function for the type MockBillingService
+func (_mock *MockBillingService) DeactivateSubscriber(userID uint, gatewayType string) error {
+	ret := _mock.Called(userID, gatewayType)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeactivateSubscriber")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(uint, string) error); ok {
+		r0 = returnFunc(userID, gatewayType)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockBillingService_DeactivateSubscriber_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeactivateSubscriber'
+type MockBillingService_DeactivateSubscriber_Call struct {
+	*mock.Call
+}
+
+// DeactivateSubscriber is a helper method to define mock.On call
+//   - userID uint
+//   - gatewayType string
+func (_e *MockBillingService_Expecter) DeactivateSubscriber(userID interface{}, gatewayType interface{}) *MockBillingService_DeactivateSubscriber_Call {
+	return &MockBillingService_DeactivateSubscriber_Call{Call: _e.mock.On("DeactivateSubscriber", userID, gatewayType)}
+}
+
+func (_c *MockBillingService_DeactivateSubscriber_Call) Run(run func(userID uint, gatewayType string)) *MockBillingService_DeactivateSubscriber_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 uint
+		if args[0] != nil {
+			arg0 = args[0].(uint)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockBillingService_DeactivateSubscriber_Call) Return(err error) *MockBillingService_DeactivateSubscriber_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockBillingService_DeactivateSubscriber_Call) RunAndReturn(run func(userID uint, gatewayType string) error) *MockBillingService_DeactivateSubscriber_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetActiveSubscriber provides a mock function for the type MockBillingService
+func (_mock *MockBillingService) GetActiveSubscriber(userID uint, gatewayType string) (*models.Subscriber, error) {
+	ret := _mock.Called(userID, gatewayType)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetActiveSubscriber")
+	}
+
+	var r0 *models.Subscriber
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(uint, string) (*models.Subscriber, error)); ok {
+		return returnFunc(userID, gatewayType)
+	}
+	if returnFunc, ok := ret.Get(0).(func(uint, string) *models.Subscriber); ok {
+		r0 = returnFunc(userID, gatewayType)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*models.Subscriber)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(uint, string) error); ok {
+		r1 = returnFunc(userID, gatewayType)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockBillingService_GetActiveSubscriber_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetActiveSubscriber'
+type MockBillingService_GetActiveSubscriber_Call struct {
+	*mock.Call
+}
+
+// GetActiveSubscriber is a helper method to define mock.On call
+//   - userID uint
+//   - gatewayType string
+func (_e *MockBillingService_Expecter) GetActiveSubscriber(userID interface{}, gatewayType interface{}) *MockBillingService_GetActiveSubscriber_Call {
+	return &MockBillingService_GetActiveSubscriber_Call{Call: _e.mock.On("GetActiveSubscriber", userID, gatewayType)}
+}
+
+func (_c *MockBillingService_GetActiveSubscriber_Call) Run(run func(userID uint, gatewayType string)) *MockBillingService_GetActiveSubscriber_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 uint
+		if args[0] != nil {
+			arg0 = args[0].(uint)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockBillingService_GetActiveSubscriber_Call) Return(subscriber *models.Subscriber, err error) *MockBillingService_GetActiveSubscriber_Call {
+	_c.Call.Return(subscriber, err)
+	return _c
+}
+
+func (_c *MockBillingService_GetActiveSubscriber_Call) RunAndReturn(run func(userID uint, gatewayType string) (*models.Subscriber, error)) *MockBillingService_GetActiveSubscriber_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetActiveSubscribersByGateway provides a mock function for the type MockBillingService
+func (_mock *MockBillingService) GetActiveSubscribersByGateway(gatewayType string) ([]models.Subscriber, error) {
+	ret := _mock.Called(gatewayType)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetActiveSubscribersByGateway")
+	}
+
+	var r0 []models.Subscriber
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(string) ([]models.Subscriber, error)); ok {
+		return returnFunc(gatewayType)
+	}
+	if returnFunc, ok := ret.Get(0).(func(string) []models.Subscriber); ok {
+		r0 = returnFunc(gatewayType)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]models.Subscriber)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(string) error); ok {
+		r1 = returnFunc(gatewayType)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockBillingService_GetActiveSubscribersByGateway_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetActiveSubscribersByGateway'
+type MockBillingService_GetActiveSubscribersByGateway_Call struct {
+	*mock.Call
+}
+
+// GetActiveSubscribersByGateway is a helper method to define mock.On call
+//   - gatewayType string
+func (_e *MockBillingService_Expecter) GetActiveSubscribersByGateway(gatewayType interface{}) *MockBillingService_GetActiveSubscribersByGateway_Call {
+	return &MockBillingService_GetActiveSubscribersByGateway_Call{Call: _e.mock.On("GetActiveSubscribersByGateway", gatewayType)}
+}
+
+func (_c *MockBillingService_GetActiveSubscribersByGateway_Call) Run(run func(gatewayType string)) *MockBillingService_GetActiveSubscribersByGateway_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 string
+		if args[0] != nil {
+			arg0 = args[0].(string)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *MockBillingService_GetActiveSubscribersByGateway_Call) Return(subscribers []models.Subscriber, err error) *MockBillingService_GetActiveSubscribersByGateway_Call {
+	_c.Call.Return(subscribers, err)
+	return _c
+}
+
+func (_c *MockBillingService_GetActiveSubscribersByGateway_Call) RunAndReturn(run func(gatewayType string) ([]models.Subscriber, error)) *MockBillingService_GetActiveSubscribersByGateway_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetActiveSubscription provides a mock function for the type MockBillingService
+func (_mock *MockBillingService) GetActiveSubscription(userID uint) (*models.Subscriber, error) {
+	ret := _mock.Called(userID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetActiveSubscription")
+	}
+
+	var r0 *models.Subscriber
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(uint) (*models.Subscriber, error)); ok {
+		return returnFunc(userID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(uint) *models.Subscriber); ok {
+		r0 = returnFunc(userID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*models.Subscriber)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(uint) error); ok {
+		r1 = returnFunc(userID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockBillingService_GetActiveSubscription_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetActiveSubscription'
+type MockBillingService_GetActiveSubscription_Call struct {
+	*mock.Call
+}
+
+// GetActiveSubscription is a helper method to define mock.On call
+//   - userID uint
+func (_e *MockBillingService_Expecter) GetActiveSubscription(userID interface{}) *MockBillingService_GetActiveSubscription_Call {
+	return &MockBillingService_GetActiveSubscription_Call{Call: _e.mock.On("GetActiveSubscription", userID)}
+}
+
+func (_c *MockBillingService_GetActiveSubscription_Call) Run(run func(userID uint)) *MockBillingService_GetActiveSubscription_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 uint
+		if args[0] != nil {
+			arg0 = args[0].(uint)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *MockBillingService_GetActiveSubscription_Call) Return(subscriber *models.Subscriber, err error) *MockBillingService_GetActiveSubscription_Call {
+	_c.Call.Return(subscriber, err)
+	return _c
+}
+
+func (_c *MockBillingService_GetActiveSubscription_Call) RunAndReturn(run func(userID uint) (*models.Subscriber, error)) *MockBillingService_GetActiveSubscription_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -192,6 +517,66 @@ func (_c *MockBillingService_ID_Call) Return(s string) *MockBillingService_ID_Ca
 }
 
 func (_c *MockBillingService_ID_Call) RunAndReturn(run func() string) *MockBillingService_ID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// IsUserActiveSubscriber provides a mock function for the type MockBillingService
+func (_mock *MockBillingService) IsUserActiveSubscriber(userID uint) (bool, error) {
+	ret := _mock.Called(userID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for IsUserActiveSubscriber")
+	}
+
+	var r0 bool
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(uint) (bool, error)); ok {
+		return returnFunc(userID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(uint) bool); ok {
+		r0 = returnFunc(userID)
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+	if returnFunc, ok := ret.Get(1).(func(uint) error); ok {
+		r1 = returnFunc(userID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockBillingService_IsUserActiveSubscriber_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IsUserActiveSubscriber'
+type MockBillingService_IsUserActiveSubscriber_Call struct {
+	*mock.Call
+}
+
+// IsUserActiveSubscriber is a helper method to define mock.On call
+//   - userID uint
+func (_e *MockBillingService_Expecter) IsUserActiveSubscriber(userID interface{}) *MockBillingService_IsUserActiveSubscriber_Call {
+	return &MockBillingService_IsUserActiveSubscriber_Call{Call: _e.mock.On("IsUserActiveSubscriber", userID)}
+}
+
+func (_c *MockBillingService_IsUserActiveSubscriber_Call) Run(run func(userID uint)) *MockBillingService_IsUserActiveSubscriber_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 uint
+		if args[0] != nil {
+			arg0 = args[0].(uint)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *MockBillingService_IsUserActiveSubscriber_Call) Return(b bool, err error) *MockBillingService_IsUserActiveSubscriber_Call {
+	_c.Call.Return(b, err)
+	return _c
+}
+
+func (_c *MockBillingService_IsUserActiveSubscriber_Call) RunAndReturn(run func(userID uint) (bool, error)) *MockBillingService_IsUserActiveSubscriber_Call {
 	_c.Call.Return(run)
 	return _c
 }

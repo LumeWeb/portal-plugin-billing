@@ -16,6 +16,17 @@ import (
 	coreTesting "go.lumeweb.com/portal/core/testing"
 )
 
+// Helper function to reduce duplication in test setup
+func getBillingTestOptions() coreTesting.TestContextBuilderOption {
+	return coreTesting.CombineOptions(
+		coreTesting.NewMockPluginBuilder(internal.PLUGIN_NAME).
+			WithMigrations(core.DBMigration{core.DB_TYPE_SQLITE: migrations.GetSQLite()}).
+			WithService(pluginCore.BILLING_SERVICE, NewBillingService).
+			BuilderOption(),
+		coreTesting.WithServiceConfig(internal.PLUGIN_NAME, pluginCore.BILLING_SERVICE, &config.ServiceConfig{}),
+	)
+}
+
 func TestBillingService_GetSignatureHeader(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		// Setup
@@ -190,4 +201,278 @@ func TestBillingService_GetSignatureHeader_UninitializedRegistry(t *testing.T) {
 		assert.Nil(t, svc)
 		assert.Contains(t, err.Error(), "gateway registry is nil")
 	})
+}
+
+// Tests for new subscriber management methods
+
+func TestBillingService_CreateOrUpdateSubscriber(t *testing.T) {
+	coreTesting.RunTestCaseWithDB(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		service := core.GetService[pluginCore.BillingService](ctx, pluginCore.BILLING_SERVICE)
+
+		// Test creating a new subscriber
+		err := service.CreateOrUpdateSubscriber(1, "stripe", "sub_123", true, nil)
+		assert.NoError(t, err)
+
+		// Verify the subscriber was created
+		subscriber, err := service.GetActiveSubscriber(1, "stripe")
+		assert.NoError(t, err)
+		assert.NotNil(t, subscriber)
+		assert.Equal(t, uint(1), subscriber.UserID)
+		assert.Equal(t, "stripe", subscriber.GatewayType)
+		assert.Equal(t, "sub_123", subscriber.GatewayID)
+		assert.True(t, subscriber.IsActive)
+		assert.Nil(t, subscriber.PlanID)
+	},
+		getBillingTestOptions())
+}
+
+func TestBillingService_CreateOrUpdateSubscriber_WithPlanID(t *testing.T) {
+	coreTesting.RunTestCaseWithDB(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		service := core.GetService[pluginCore.BillingService](ctx, pluginCore.BILLING_SERVICE)
+
+		planID := uint(42)
+		err := service.CreateOrUpdateSubscriber(1, "stripe", "sub_123", true, &planID)
+		assert.NoError(t, err)
+
+		// Verify the subscriber was created with plan ID
+		subscriber, err := service.GetActiveSubscriber(1, "stripe")
+		assert.NoError(t, err)
+		assert.NotNil(t, subscriber)
+		assert.NotNil(t, subscriber.PlanID)
+		assert.Equal(t, planID, *subscriber.PlanID)
+	},
+		getBillingTestOptions())
+}
+
+func TestBillingService_CreateOrUpdateSubscriber_UpdateExisting(t *testing.T) {
+	coreTesting.RunTestCaseWithDB(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		service := core.GetService[pluginCore.BillingService](ctx, pluginCore.BILLING_SERVICE)
+
+		// Create initial subscriber
+		err := service.CreateOrUpdateSubscriber(1, "stripe", "sub_123", true, nil)
+		assert.NoError(t, err)
+
+		// Verify initial state
+		subscriber, err := service.GetActiveSubscriber(1, "stripe")
+		assert.NoError(t, err)
+		assert.NotNil(t, subscriber)
+		assert.True(t, subscriber.IsActive)
+
+		// Update the subscriber (change gateway ID and plan, keep active)
+		planID := uint(99)
+		err = service.CreateOrUpdateSubscriber(1, "stripe", "sub_456", true, &planID)
+		assert.NoError(t, err)
+
+		// Verify the subscriber was updated and is still active
+		subscriber, err = service.GetActiveSubscriber(1, "stripe")
+		assert.NoError(t, err)
+		assert.NotNil(t, subscriber)
+		assert.Equal(t, "sub_456", subscriber.GatewayID)
+		assert.True(t, subscriber.IsActive)
+		assert.Equal(t, planID, *subscriber.PlanID)
+
+		// Now test deactivation
+		err = service.CreateOrUpdateSubscriber(1, "stripe", "sub_456", false, &planID)
+		assert.NoError(t, err)
+
+		// Verify the subscriber is no longer active
+		subscriber, err = service.GetActiveSubscriber(1, "stripe")
+		assert.Error(t, err) // Should not find active subscriber
+		assert.Nil(t, subscriber)
+
+		// Verify user is not active subscriber
+		isActive, err := service.IsUserActiveSubscriber(1)
+		assert.NoError(t, err)
+		assert.False(t, isActive)
+	},
+		getBillingTestOptions())
+}
+
+func TestBillingService_DeactivateSubscriber(t *testing.T) {
+	coreTesting.RunTestCaseWithDB(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		service := core.GetService[pluginCore.BillingService](ctx, pluginCore.BILLING_SERVICE)
+
+		// Create active subscriber
+		err := service.CreateOrUpdateSubscriber(1, "stripe", "sub_123", true, nil)
+		assert.NoError(t, err)
+
+		// Verify it's active
+		subscriber, err := service.GetActiveSubscriber(1, "stripe")
+		assert.NoError(t, err)
+		assert.True(t, subscriber.IsActive)
+
+		// Deactivate the subscriber
+		err = service.DeactivateSubscriber(1, "stripe")
+		assert.NoError(t, err)
+
+		// Verify it's no longer active
+		subscriber, err = service.GetActiveSubscriber(1, "stripe")
+		assert.Error(t, err) // Should not find active subscriber
+		assert.Nil(t, subscriber)
+	},
+		getBillingTestOptions())
+}
+
+func TestBillingService_GetActiveSubscriber(t *testing.T) {
+	coreTesting.RunTestCaseWithDB(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		service := core.GetService[pluginCore.BillingService](ctx, pluginCore.BILLING_SERVICE)
+
+		// Test with no subscribers
+		subscriber, err := service.GetActiveSubscriber(1, "stripe")
+		assert.Error(t, err)
+		assert.Nil(t, subscriber)
+
+		// Create an active subscriber
+		err = service.CreateOrUpdateSubscriber(1, "stripe", "sub_123", true, nil)
+		assert.NoError(t, err)
+
+		// Should find the active subscriber
+		subscriber, err = service.GetActiveSubscriber(1, "stripe")
+		assert.NoError(t, err)
+		assert.NotNil(t, subscriber)
+		assert.Equal(t, uint(1), subscriber.UserID)
+		assert.Equal(t, "stripe", subscriber.GatewayType)
+		assert.True(t, subscriber.IsActive)
+
+		// Test with inactive subscriber
+		err = service.DeactivateSubscriber(1, "stripe")
+		assert.NoError(t, err)
+
+		// Should not find inactive subscriber
+		subscriber, err = service.GetActiveSubscriber(1, "stripe")
+		assert.Error(t, err)
+		assert.Nil(t, subscriber)
+	},
+		getBillingTestOptions())
+}
+
+func TestBillingService_IsUserActiveSubscriber(t *testing.T) {
+	coreTesting.RunTestCaseWithDB(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		service := core.GetService[pluginCore.BillingService](ctx, pluginCore.BILLING_SERVICE)
+
+		// Test with no subscribers
+		isActive, err := service.IsUserActiveSubscriber(1)
+		assert.NoError(t, err)
+		assert.False(t, isActive)
+
+		// Create an active subscriber
+		err = service.CreateOrUpdateSubscriber(1, "stripe", "sub_123", true, nil)
+		assert.NoError(t, err)
+
+		// Should be active
+		isActive, err = service.IsUserActiveSubscriber(1)
+		assert.NoError(t, err)
+		assert.True(t, isActive)
+
+		// Test with different user
+		isActive, err = service.IsUserActiveSubscriber(2)
+		assert.NoError(t, err)
+		assert.False(t, isActive)
+
+		// Deactivate subscriber
+		err = service.DeactivateSubscriber(1, "stripe")
+		assert.NoError(t, err)
+
+		// Should no longer be active
+		isActive, err = service.IsUserActiveSubscriber(1)
+		assert.NoError(t, err)
+		assert.False(t, isActive)
+	},
+		getBillingTestOptions())
+}
+
+func TestBillingService_GetActiveSubscribersByGateway(t *testing.T) {
+	coreTesting.RunTestCaseWithDB(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		service := core.GetService[pluginCore.BillingService](ctx, pluginCore.BILLING_SERVICE)
+
+		// Test with no subscribers
+		subscribers, err := service.GetActiveSubscribersByGateway("stripe")
+		assert.NoError(t, err)
+		assert.Empty(t, subscribers)
+
+		// Create multiple active subscribers for stripe
+		err = service.CreateOrUpdateSubscriber(1, "stripe", "sub_123", true, nil)
+		assert.NoError(t, err)
+		err = service.CreateOrUpdateSubscriber(2, "stripe", "sub_456", true, nil)
+		assert.NoError(t, err)
+
+		// Create subscriber for different gateway
+		err = service.CreateOrUpdateSubscriber(3, "paypal", "sub_789", true, nil)
+		assert.NoError(t, err)
+
+		// Should find only stripe subscribers
+		subscribers, err = service.GetActiveSubscribersByGateway("stripe")
+		assert.NoError(t, err)
+		assert.Len(t, subscribers, 2)
+
+		// Create inactive subscriber
+		err = service.CreateOrUpdateSubscriber(4, "stripe", "sub_999", false, nil)
+		assert.NoError(t, err)
+
+		// Should still only find active ones
+		subscribers, err = service.GetActiveSubscribersByGateway("stripe")
+		assert.NoError(t, err)
+		assert.Len(t, subscribers, 2)
+	},
+		getBillingTestOptions())
+}
+
+func TestBillingService_GetActiveSubscription(t *testing.T) {
+	coreTesting.RunTestCaseWithDB(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		service := core.GetService[pluginCore.BillingService](ctx, pluginCore.BILLING_SERVICE)
+
+		// Test with no subscriptions
+		subscription, err := service.GetActiveSubscription(1)
+		assert.NoError(t, err)
+		assert.Nil(t, subscription)
+
+		// Create active subscription for stripe
+		err = service.CreateOrUpdateSubscriber(1, "stripe", "sub_123", true, nil)
+		assert.NoError(t, err)
+
+		// Should find the subscription
+		subscription, err = service.GetActiveSubscription(1)
+		assert.NoError(t, err)
+		assert.NotNil(t, subscription)
+		assert.Equal(t, "stripe", subscription.GatewayType)
+
+		// Create active subscription for paypal (different user)
+		err = service.CreateOrUpdateSubscriber(2, "paypal", "sub_456", true, nil)
+		assert.NoError(t, err)
+
+		// Should still find stripe subscription for user 1
+		subscription, err = service.GetActiveSubscription(1)
+		assert.NoError(t, err)
+		assert.Equal(t, "stripe", subscription.GatewayType)
+
+		// Create multiple active subscriptions for same user (different gateways)
+		err = service.CreateOrUpdateSubscriber(1, "paypal", "sub_789", true, nil)
+		assert.NoError(t, err)
+
+		// Should find one of them (order not guaranteed)
+		subscription, err = service.GetActiveSubscription(1)
+		assert.NoError(t, err)
+		assert.NotNil(t, subscription)
+		assert.Equal(t, uint(1), subscription.UserID)
+		assert.True(t, subscription.IsActive)
+
+		// Deactivate stripe subscription
+		err = service.DeactivateSubscriber(1, "stripe")
+		assert.NoError(t, err)
+
+		// Should find paypal subscription
+		subscription, err = service.GetActiveSubscription(1)
+		assert.NoError(t, err)
+		assert.Equal(t, "paypal", subscription.GatewayType)
+
+		// Deactivate paypal subscription
+		err = service.DeactivateSubscriber(1, "paypal")
+		assert.NoError(t, err)
+
+		// Should find no subscription
+		subscription, err = service.GetActiveSubscription(1)
+		assert.NoError(t, err)
+		assert.Nil(t, subscription)
+	},
+		getBillingTestOptions())
 }
