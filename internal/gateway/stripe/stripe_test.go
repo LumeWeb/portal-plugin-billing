@@ -150,6 +150,9 @@ func TestStripeGateway_ValidateWebhook(t *testing.T) {
 func createTestSubscription(userID string, planID string) stripe.Subscription {
 	subscription := stripe.Subscription{
 		ID: "sub_123",
+		Customer: &stripe.Customer{
+			ID: "cus_123",
+		},
 		Metadata: map[string]string{
 			UserIDMetadataKey: userID,
 		},
@@ -205,7 +208,7 @@ func TestStripeGateway_HandleWebhook_SubscriptionCreated(t *testing.T) {
 		mockUsers.On("AccountExists", uint(123)).Return(true, createTestUser(123), nil)
 		mockQuota.On("GetQuotaPlan", uint(1)).Return(&quotaCore.QuotaPlan{}, nil)
 		mockQuota.On("AssignUserToPlan", uint(123), uint(1)).Return(nil)
-		mockBilling.On("CreateOrUpdateSubscriber", uint(123), "stripe", "sub_123", true, mock.AnythingOfType("*uint")).Return(nil)
+		mockBilling.On("CreateOrUpdateSubscriber", uint(123), "stripe", "cus_123", true, mock.AnythingOfType("*uint")).Return(nil)
 
 		gw := New(ctx.Logger(), "test_secret", mockQuota, mockUsers, mockBilling)
 		err := gw.HandleWebhook(context.Background(), payload)
@@ -282,7 +285,7 @@ func TestStripeGateway_HandleWebhook_SubscriptionUpdated(t *testing.T) {
 		mockUsers.On("AccountExists", uint(123)).Return(true, createTestUser(123), nil)
 		mockQuota.On("GetQuotaPlan", uint(2)).Return(&quotaCore.QuotaPlan{}, nil)
 		mockQuota.On("AssignUserToPlan", uint(123), uint(2)).Return(nil)
-		mockBilling.On("CreateOrUpdateSubscriber", uint(123), "stripe", "sub_123", true, mock.AnythingOfType("*uint")).Return(nil)
+		mockBilling.On("CreateOrUpdateSubscriber", uint(123), "stripe", "cus_123", true, mock.AnythingOfType("*uint")).Return(nil)
 
 		gw := New(ctx.Logger(), "test_secret", mockQuota, mockUsers, mockBilling)
 		err := gw.HandleWebhook(context.Background(), payload)
@@ -567,7 +570,7 @@ func TestStripeGateway_HandleWebhook_SubscriptionResumed(t *testing.T) {
 		mockUsers.On("AccountExists", uint(123)).Return(true, createTestUser(123), nil)
 		mockQuota.On("GetQuotaPlan", uint(1)).Return(&quotaCore.QuotaPlan{}, nil)
 		mockQuota.On("AssignUserToPlan", uint(123), uint(1)).Return(nil)
-		mockBilling.On("CreateOrUpdateSubscriber", uint(123), "stripe", "sub_123", true, mock.AnythingOfType("*uint")).Return(nil)
+		mockBilling.On("CreateOrUpdateSubscriber", uint(123), "stripe", "cus_123", true, mock.AnythingOfType("*uint")).Return(nil)
 
 		gw := New(ctx.Logger(), "test_secret", mockQuota, mockUsers, mockBilling)
 		err := gw.HandleWebhook(context.Background(), payload)
@@ -667,6 +670,60 @@ func TestStripeGateway_GetCustomerPortalURL_BillingServiceError(t *testing.T) {
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to get active subscription")
+		assert.Empty(t, url)
+
+		mockBilling.AssertExpectations(t)
+	})
+}
+
+func TestStripeGateway_GetCustomerPortalURL_InvalidCustomerID(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+
+		// Mock active subscription with invalid GatewayID (not starting with cus_)
+		planID := uint(42)
+		mockSubscriber := &pluginCore.Subscriber{
+			UserID:      123,
+			GatewayType: "stripe",
+			GatewayID:   "sub_123", // This is a subscription ID, not a customer ID
+			IsActive:    true,
+			PlanID:      &planID,
+		}
+		mockBilling.On("GetActiveSubscription", uint(123)).Return(mockSubscriber, nil)
+
+		gw := New(ctx.Logger(), "test_secret", nil, nil, mockBilling)
+
+		url, err := gw.GetCustomerPortalURL(context.Background(), 123, "https://example.com/return")
+
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid GatewayID: must be a Stripe customer ID starting with 'cus_'")
+		assert.Empty(t, url)
+
+		mockBilling.AssertExpectations(t)
+	})
+}
+
+func TestStripeGateway_GetCustomerPortalURL_EmptyCustomerID(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+
+		// Mock active subscription with empty GatewayID
+		planID := uint(42)
+		mockSubscriber := &pluginCore.Subscriber{
+			UserID:      123,
+			GatewayType: "stripe",
+			GatewayID:   "", // Empty GatewayID
+			IsActive:    true,
+			PlanID:      &planID,
+		}
+		mockBilling.On("GetActiveSubscription", uint(123)).Return(mockSubscriber, nil)
+
+		gw := New(ctx.Logger(), "test_secret", nil, nil, mockBilling)
+
+		url, err := gw.GetCustomerPortalURL(context.Background(), 123, "https://example.com/return")
+
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "subscriber GatewayID is empty")
 		assert.Empty(t, url)
 
 		mockBilling.AssertExpectations(t)
