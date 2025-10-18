@@ -7,10 +7,12 @@ replace github.com/go-viper/mapstructure/v2 => github.com/LumeWeb/mapstructure/v
 require (
 	github.com/Oudwins/zog v0.21.6
 	github.com/labstack/echo/v4 v4.13.4
+	github.com/samber/lo v1.51.0
 	github.com/stretchr/testify v1.11.1
 	github.com/stripe/stripe-go/v83 v83.0.1
 	go.lumeweb.com/httputil v0.5.3
 	go.lumeweb.com/portal v0.4.2-0.20251016024057-ce880ca2d44d
+	go.lumeweb.com/portal-middleware v0.3.1
 	go.lumeweb.com/portal-plugin-quota v0.0.0-20251017083829-d69b87c8c21d
 	go.lumeweb.com/portal-router v0.6.8
 	go.uber.org/zap v1.27.0
@@ -144,7 +146,6 @@ require (
 	github.com/robfig/cron/v3 v3.0.1 // indirect
 	github.com/rs/cors v1.11.1 // indirect
 	github.com/ryszard/goskiplist v0.0.0-20150312221310-2dfbae5fcf46 // indirect
-	github.com/samber/lo v1.51.0 // indirect
 	github.com/sethvargo/go-retry v0.3.0 // indirect
 	github.com/shirou/gopsutil/v3 v3.24.5 // indirect
 	github.com/spaolacci/murmur3 v1.1.0 // indirect
@@ -167,7 +168,6 @@ require (
 	go.lumeweb.com/configmanager v0.3.20 // indirect
 	go.lumeweb.com/event/v2 v2.1.0 // indirect
 	go.lumeweb.com/gswagger v0.20.10 // indirect
-	go.lumeweb.com/portal-middleware v0.3.1 // indirect
 	go.lumeweb.com/queryutil v0.3.14 // indirect
 	go.shabbyrobe.org/gocovmerge v0.0.0-20230507111327-fa4f82cfbf4d // indirect
 	go.sia.tech/core v0.14.1 // indirect

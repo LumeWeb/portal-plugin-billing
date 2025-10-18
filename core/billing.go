@@ -22,6 +22,9 @@ type BillingService interface {
 	GetSignatureHeader(gatewayType string) (string, error)
 	// RegisterGateway registers a PaymentGateway with the billing service and returns an error if registration fails.
 	RegisterGateway(gateway PaymentGateway) error
+	// GetGateway returns a registered payment gateway by type
+	// Returns pluginCore.ErrGatewayNotFound if the gateway is not registered
+	GetGateway(gatewayType string) (PaymentGateway, error)
 
 	// Subscriber management methods
 	// CreateOrUpdateSubscriber creates or updates a subscriber record

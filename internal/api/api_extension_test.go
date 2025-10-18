@@ -255,3 +255,178 @@ func TestHandleSubscriptionStatus_Unauthorized(t *testing.T) {
 		assert.Equal(tb, http.StatusUnauthorized, w.Code)
 	})
 }
+
+func TestHandleCustomerPortal_Success(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		// Retrieve necessary services and router from the context
+		billingSvc := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+		userSvc := core.GetService[*mocks.MockUserService](ctx, core.USER_SERVICE)
+		router := ctx.Router()
+		domain := ctx.APISubdomain("dashboard", false)
+
+		userSvc.On("AccountExists", uint(1)).Return(true, nil, nil)
+
+		// Mock active subscription
+		planID := uint(42)
+		mockSubscriber := &pluginCore.Subscriber{
+			UserID:      1,
+			GatewayType: "stripe",
+			GatewayID:   "cus_123",
+			IsActive:    true,
+			PlanID:      &planID,
+		}
+		billingSvc.On("GetActiveSubscription", uint(1)).Return(mockSubscriber, nil)
+
+		// Mock gateway retrieval
+		mockGateway := pluginCore.NewMockPaymentGateway(t)
+		billingSvc.On("GetGateway", "stripe").Return(mockGateway, nil)
+
+		// Mock customer portal URL generation
+		mockGateway.On("GetCustomerPortalURL", mock.Anything, uint(1), "https://example.com/return").
+			Return("https://billing.stripe.com/session/123", nil)
+
+		// Create valid JWT token
+		jwtToken, err := createTestJWT(ctx, "1")
+		assert.NoError(tb, err, "Failed to generate test JWT")
+
+		// Create request body
+		requestBody := map[string]string{
+			"return_url": "https://example.com/return",
+		}
+		bodyBytes, _ := json.Marshal(requestBody)
+
+		// Create authenticated request
+		req := httptest.NewRequest("POST", "/api/account/billing/customer-portal", bytes.NewReader(bodyBytes))
+		req.Host = domain
+		req.Header.Set("Authorization", "Bearer "+jwtToken)
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		// Execute
+		router.ServeHTTP(w, req)
+
+		// Verify
+		assert.Equal(tb, http.StatusOK, w.Code)
+
+		// Parse response
+		var response dto.CustomerPortalResponse
+		err = json.Unmarshal(w.Body.Bytes(), &response)
+		assert.NoError(tb, err)
+
+		assert.Equal(tb, "https://billing.stripe.com/session/123", response.URL)
+
+		// Verify mocks were called
+		billingSvc.AssertExpectations(tb)
+		mockGateway.AssertExpectations(tb)
+	})
+}
+
+func TestHandleCustomerPortal_NoActiveSubscription(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		// Retrieve necessary services and router from the context
+		billingSvc := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+		userSvc := core.GetService[*mocks.MockUserService](ctx, core.USER_SERVICE)
+		router := ctx.Router()
+		domain := ctx.APISubdomain("dashboard", false)
+
+		userSvc.On("AccountExists", uint(1)).Return(true, nil, nil)
+
+		// Mock no active subscription
+		billingSvc.On("GetActiveSubscription", uint(1)).Return((*pluginCore.Subscriber)(nil), nil)
+
+		// Create valid JWT token
+		jwtToken, err := createTestJWT(ctx, "1")
+		assert.NoError(tb, err, "Failed to generate test JWT")
+
+		// Create request body
+		requestBody := map[string]string{
+			"return_url": "https://example.com/return",
+		}
+		bodyBytes, _ := json.Marshal(requestBody)
+
+		// Create authenticated request
+		req := httptest.NewRequest("POST", "/api/account/billing/customer-portal", bytes.NewReader(bodyBytes))
+		req.Host = domain
+		req.Header.Set("Authorization", "Bearer "+jwtToken)
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		// Execute
+		router.ServeHTTP(w, req)
+
+		// Verify
+		assert.Equal(tb, http.StatusBadRequest, w.Code)
+
+		// Parse error response
+		var errorResponse map[string]interface{}
+		err = json.Unmarshal(w.Body.Bytes(), &errorResponse)
+		assert.NoError(tb, err)
+
+		assert.Contains(tb, errorResponse["error"], "no active subscription found")
+	})
+}
+
+func TestHandleCustomerPortal_MissingReturnURL(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		// Retrieve necessary services and router from the context
+		userSvc := core.GetService[*mocks.MockUserService](ctx, core.USER_SERVICE)
+		router := ctx.Router()
+		domain := ctx.APISubdomain("dashboard", false)
+
+		userSvc.On("AccountExists", uint(1)).Return(true, nil, nil)
+
+		// Create valid JWT token
+		jwtToken, err := createTestJWT(ctx, "1")
+		assert.NoError(tb, err, "Failed to generate test JWT")
+
+		// Create request body without return_url
+		requestBody := map[string]string{}
+		bodyBytes, _ := json.Marshal(requestBody)
+
+		// Create authenticated request
+		req := httptest.NewRequest("POST", "/api/account/billing/customer-portal", bytes.NewReader(bodyBytes))
+		req.Host = domain
+		req.Header.Set("Authorization", "Bearer "+jwtToken)
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		// Execute
+		router.ServeHTTP(w, req)
+
+		// Verify
+		assert.Equal(tb, http.StatusBadRequest, w.Code)
+
+		// Parse error response
+		var errorResponse map[string]interface{}
+		err = json.Unmarshal(w.Body.Bytes(), &errorResponse)
+		assert.NoError(tb, err)
+
+		assert.Contains(tb, errorResponse["error"], "return_url is required")
+	})
+}
+
+func TestHandleCustomerPortal_Unauthorized(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		// Retrieve necessary services and router from the context
+		router := ctx.Router()
+		domain := ctx.APISubdomain("dashboard", false)
+
+		// Create request body
+		requestBody := map[string]string{
+			"return_url": "https://example.com/return",
+		}
+		bodyBytes, _ := json.Marshal(requestBody)
+
+		// Create unauthenticated request (no auth header)
+		req := httptest.NewRequest("POST", "/api/account/billing/customer-portal", bytes.NewReader(bodyBytes))
+		req.Host = domain
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		// Execute
+		router.ServeHTTP(w, req)
+
+		// Verify - should return unauthorized
+		assert.Equal(tb, http.StatusUnauthorized, w.Code)
+	})
+}

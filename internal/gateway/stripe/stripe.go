@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/stripe/stripe-go/v83"
+	"github.com/stripe/stripe-go/v83/billingportal/session"
 	"github.com/stripe/stripe-go/v83/webhook"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
 	quotaCore "go.lumeweb.com/portal-plugin-quota/core"
@@ -23,6 +25,7 @@ const (
 	EventTypeSubscriptionUpdated = "customer.subscription.updated"
 	PlanIDMetadataKey            = "plan_id"
 	UserIDMetadataKey            = "user_id"
+	CustomerIDPrefix             = "cus_"
 )
 
 type StripeGateway struct {
@@ -70,6 +73,38 @@ func (g *StripeGateway) ExtractEventType(payload []byte) (string, error) {
 		return "", err
 	}
 	return string(event.Type), nil
+}
+
+func (g *StripeGateway) GetCustomerPortalURL(ctx context.Context, userID uint, returnUrl string) (string, error) {
+	// Get the subscriber for this user and gateway
+	subscriber, err := g.billing.GetActiveSubscription(userID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get active subscription: %w", err)
+	}
+	if subscriber == nil || subscriber.GatewayType != GatewayID {
+		return "", fmt.Errorf("no active stripe subscription found for user %d", userID)
+	}
+
+	// Defensive check: ensure GatewayID is a valid Stripe customer ID
+	if subscriber.GatewayID == "" {
+		return "", fmt.Errorf("subscriber GatewayID is empty")
+	}
+	if !strings.HasPrefix(subscriber.GatewayID, CustomerIDPrefix) {
+		return "", fmt.Errorf("invalid GatewayID: must be a Stripe customer ID starting with '%s'", CustomerIDPrefix)
+	}
+
+	// Create a billing portal session
+	params := &stripe.BillingPortalSessionParams{
+		Customer:  stripe.String(subscriber.GatewayID),
+		ReturnURL: stripe.String(returnUrl),
+	}
+
+	sess, err := session.New(params)
+	if err != nil {
+		return "", fmt.Errorf("failed to create billing portal session: %w", err)
+	}
+
+	return sess.URL, nil
 }
 
 func (g *StripeGateway) ValidateWebhook(ctx context.Context, signature string, payload []byte) error {
@@ -159,11 +194,11 @@ func (g *StripeGateway) handleSubscriptionActivated(ctx context.Context, event s
 
 	// Track subscriber in billing service
 	if g.billing != nil {
-		if err := g.createOrUpdateSubscriber(user.ID, subscription.ID, true, &planID); err != nil {
+		if err := g.createOrUpdateSubscriber(user.ID, subscription.Customer.ID, true, &planID); err != nil {
 			g.logger.Error("failed to track subscriber",
 				zap.Error(err),
 				zap.Uint("user_id", userID),
-				zap.String("subscription_id", subscription.ID))
+				zap.String("customer_id", subscription.Customer.ID))
 		}
 	}
 
@@ -302,11 +337,11 @@ func (g *StripeGateway) handleSubscriptionUpdated(ctx context.Context, event str
 
 	// Update subscriber in billing service
 	if g.billing != nil {
-		if err := g.createOrUpdateSubscriber(user.ID, subscription.ID, true, &planID); err != nil {
+		if err := g.createOrUpdateSubscriber(user.ID, subscription.Customer.ID, true, &planID); err != nil {
 			g.logger.Error("failed to update subscriber",
 				zap.Error(err),
 				zap.Uint("user_id", userID),
-				zap.String("subscription_id", subscription.ID))
+				zap.String("customer_id", subscription.Customer.ID))
 		}
 	}
 

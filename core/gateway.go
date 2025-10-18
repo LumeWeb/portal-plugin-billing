@@ -35,4 +35,8 @@ type PaymentGateway interface {
 	// ExtractEventType extracts the event type from the webhook payload
 	// This is used for logging and monitoring purposes
 	ExtractEventType(payload []byte) (string, error)
+
+	// GetCustomerPortalURL creates and returns a customer portal session URL for the given user
+	// Returns the URL where the user can manage their subscription and payment methods
+	GetCustomerPortalURL(ctx context.Context, userID uint, returnUrl string) (string, error)
 }
