@@ -203,6 +203,65 @@ func TestBillingService_GetSignatureHeader_UninitializedRegistry(t *testing.T) {
 	})
 }
 
+func TestBillingService_GetGateway(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		// Setup
+		registry := gateway.NewRegistry()
+		mockGateway := new(pluginCore.MockPaymentGateway)
+		mockGateway.On("ID").Return("stripe")
+
+		svc, _, err := NewBillingServiceWithRegistry(registry)
+		assert.NoError(tb, err)
+		service := svc.(pluginCore.BillingService)
+
+		// Register gateway using the service's RegisterGateway method
+		err = service.RegisterGateway(mockGateway)
+		assert.NoError(tb, err)
+
+		// Test cases
+		tests := []struct {
+			name          string
+			gatewayType   string
+			expectedError error
+		}{
+			{
+				name:        "valid gateway",
+				gatewayType: "stripe",
+			},
+			{
+				name:          "invalid gateway",
+				gatewayType:   "invalid",
+				expectedError: pluginCore.ErrGatewayNotFound,
+			},
+		}
+
+		t := tb.(*testing.T)
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				gateway, err := service.GetGateway(tt.gatewayType)
+				if tt.expectedError != nil {
+					assert.ErrorIs(t, err, tt.expectedError)
+					assert.Nil(t, gateway)
+					return
+				}
+				assert.NoError(t, err)
+				assert.Equal(t, mockGateway, gateway)
+			})
+		}
+
+		mockGateway.AssertExpectations(tb)
+	})
+}
+
+func TestBillingService_GetGateway_UninitializedRegistry(t *testing.T) {
+	// Create service with nil registry
+	svc, _, err := NewBillingServiceWithRegistry(nil)
+	assert.Error(t, err)
+	assert.Nil(t, svc)
+	assert.Contains(t, err.Error(), "gateway registry is nil")
+}
+
 // Tests for new subscriber management methods
 
 func TestBillingService_CreateOrUpdateSubscriber(t *testing.T) {

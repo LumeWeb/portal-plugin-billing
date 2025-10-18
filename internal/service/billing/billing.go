@@ -106,6 +106,17 @@ func (s *BillingServiceDefault) RegisterGateway(gateway pluginCore.PaymentGatewa
 	return s.gateways.Register(gateway)
 }
 
+func (s *BillingServiceDefault) GetGateway(gatewayType string) (pluginCore.PaymentGateway, error) {
+	if s.gateways == nil {
+		return nil, fmt.Errorf("gateway registry not initialized")
+	}
+	gateway, exists := s.gateways.Get(gatewayType)
+	if !exists {
+		return nil, pluginCore.ErrGatewayNotFound
+	}
+	return gateway, nil
+}
+
 func (s *BillingServiceDefault) ProcessWebhook(ctx context.Context, gatewayType string, signature string, payload []byte) error {
 	if s.gateways == nil {
 		return fmt.Errorf("gateway registry not initialized")

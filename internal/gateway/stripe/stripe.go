@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/stripe/stripe-go/v83"
+	"github.com/stripe/stripe-go/v83/billingportal/session"
 	"github.com/stripe/stripe-go/v83/webhook"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
 	quotaCore "go.lumeweb.com/portal-plugin-quota/core"
@@ -70,6 +71,30 @@ func (g *StripeGateway) ExtractEventType(payload []byte) (string, error) {
 		return "", err
 	}
 	return string(event.Type), nil
+}
+
+func (g *StripeGateway) GetCustomerPortalURL(ctx context.Context, userID uint, returnUrl string) (string, error) {
+	// Get the subscriber for this user and gateway
+	subscriber, err := g.billing.GetActiveSubscription(userID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get active subscription: %w", err)
+	}
+	if subscriber == nil || subscriber.GatewayType != GatewayID {
+		return "", fmt.Errorf("no active stripe subscription found for user %d", userID)
+	}
+
+	// Create a billing portal session
+	params := &stripe.BillingPortalSessionParams{
+		Customer:  stripe.String(subscriber.GatewayID),
+		ReturnURL: stripe.String(returnUrl),
+	}
+
+	sess, err := session.New(params)
+	if err != nil {
+		return "", fmt.Errorf("failed to create billing portal session: %w", err)
+	}
+
+	return sess.URL, nil
 }
 
 func (g *StripeGateway) ValidateWebhook(ctx context.Context, signature string, payload []byte) error {

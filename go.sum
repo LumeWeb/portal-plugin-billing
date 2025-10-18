@@ -456,8 +456,6 @@ go.lumeweb.com/portal v0.4.2-0.20251016024057-ce880ca2d44d h1:V6sjZ9xNgrpKmE0sE3
 go.lumeweb.com/portal v0.4.2-0.20251016024057-ce880ca2d44d/go.mod h1:LIAasK20WTe2M4oDbhHwx1wf59Qx5EWpG8cGVDRa4w0=
 go.lumeweb.com/portal-middleware v0.3.1 h1:XfYQPqCWFkUbyGa0nSbKlHYxZgs+jVdovkQusTACbBs=
 go.lumeweb.com/portal-middleware v0.3.1/go.mod h1:zxCrbMLGjhnzCl3lC/fFp3583/2eRLAsCiwnTrs+O48=
-go.lumeweb.com/portal-plugin-quota v0.0.0-20251017083206-702343909448 h1:vPR07cyIuMoNCNeS2nCXkZW/ZBkYKa3eY1cwv2gj1wk=
-go.lumeweb.com/portal-plugin-quota v0.0.0-20251017083206-702343909448/go.mod h1:f97yDiAQjWi8MNK740lrIFG5pMtFC9L2IcFxG7qcAbY=
 go.lumeweb.com/portal-plugin-quota v0.0.0-20251017083829-d69b87c8c21d h1:6Wlubi0kZBENa53i4ZEWESCUXO6nW0PLs/vZr+BgXAg=
 go.lumeweb.com/portal-plugin-quota v0.0.0-20251017083829-d69b87c8c21d/go.mod h1:f97yDiAQjWi8MNK740lrIFG5pMtFC9L2IcFxG7qcAbY=
 go.lumeweb.com/portal-router v0.6.8 h1:JSQZ6WfDJJgGQY1MFf1tV3mlp7SJPqTLibi/TxqxJvU=

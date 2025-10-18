@@ -95,6 +95,28 @@ func (e *APIExtension) Configure(gRouter router.Router, accessSvc core.AccessSer
 			router.WithAccess(core.ACCESS_USER_ROLE),
 			router.WithMiddlewares(authMw, accessMw),
 		),
+		// Customer portal endpoint
+		router.NewRoute(http.MethodPost, "/api/account/billing/customer-portal", e.handleCustomerPortal,
+			router.WithSwagger(
+				router.WithSummary("Get customer portal URL"),
+				router.WithDescription("Creates and returns a customer portal session URL for managing subscriptions"),
+				router.WithTags("Billing"),
+				router.WithRequestBody(map[string]interface{}{
+					"return_url": "string",
+				}, "Return URL to redirect to after leaving the customer portal", true),
+				router.WithSuccessResponse(http.StatusOK, "Customer portal URL created successfully",
+					router.WithJSONContent(dto.CustomerPortalResponse{})),
+				router.WithErrorResponses(
+					router.DefineSwaggerErrorResponses(
+						router.DefineSwaggerErrorResponse(http.StatusUnauthorized, "Authentication required"),
+						router.DefineSwaggerErrorResponse(http.StatusBadRequest, "Invalid request or no active subscription"),
+						router.DefineSwaggerErrorResponse(http.StatusInternalServerError, "Failed to create customer portal session"),
+					),
+				),
+			),
+			router.WithAccess(core.ACCESS_USER_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
+		),
 	)
 
 	// Register all routes
@@ -120,6 +142,67 @@ func (e *APIExtension) handleSubscriptionStatus(c echo.Context) error {
 
 	var responseDto dto.SubscriptionStatusResponse
 	return httputil.EncodeResponse[*pluginCore.Subscriber](ctx, sub, &responseDto)
+}
+
+// handleCustomerPortal creates and returns a customer portal session URL
+func (e *APIExtension) handleCustomerPortal(c echo.Context) error {
+	ctx := httputil.Context(c)
+	userID, ok := e.getUser(ctx)
+	if !ok {
+		return ctx.Error(fmt.Errorf("failed to get user ID"), http.StatusUnauthorized)
+	}
+
+	// Parse request body
+	var request struct {
+		ReturnURL string `json:"return_url"`
+	}
+
+	if err := c.Bind(&request); err != nil {
+		return ctx.Error(fmt.Errorf("invalid request body: %w", err), http.StatusBadRequest)
+	}
+
+	if request.ReturnURL == "" {
+		return ctx.Error(fmt.Errorf("return_url is required"), http.StatusBadRequest)
+	}
+
+	// Get active subscription to determine gateway
+	sub, err := e.billingService.GetActiveSubscription(userID)
+	if err != nil {
+		e.logger.Error("failed to check subscription status",
+			zap.Uint("user_id", userID),
+			zap.Error(err))
+		return ctx.Error(fmt.Errorf("failed to check subscription status"), http.StatusInternalServerError)
+	}
+
+	if sub == nil {
+		return ctx.Error(fmt.Errorf("no active subscription found"), http.StatusBadRequest)
+	}
+
+	// Get the gateway for this subscription
+	gateway, err := e.billingService.GetGateway(sub.GatewayType)
+	if err != nil {
+		e.logger.Error("failed to get payment gateway",
+			zap.Uint("user_id", userID),
+			zap.String("gateway_type", sub.GatewayType),
+			zap.Error(err))
+		return ctx.Error(fmt.Errorf("failed to get payment gateway"), http.StatusInternalServerError)
+	}
+
+	// Get customer portal URL from the gateway
+	portalURL, err := gateway.GetCustomerPortalURL(c.Request().Context(), userID, request.ReturnURL)
+	if err != nil {
+		e.logger.Error("failed to create customer portal session",
+			zap.Uint("user_id", userID),
+			zap.String("gateway_type", sub.GatewayType),
+			zap.Error(err))
+		return ctx.Error(fmt.Errorf("failed to create customer portal session: %w", err), http.StatusInternalServerError)
+	}
+
+	response := dto.CustomerPortalResponse{
+		URL: portalURL,
+	}
+
+	return ctx.JSON(http.StatusOK, response)
 }
 
 // handleWebhook processes incoming webhook requests from payment gateways

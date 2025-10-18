@@ -416,6 +416,68 @@ func (_c *MockBillingService_GetActiveSubscription_Call) RunAndReturn(run func(u
 	return _c
 }
 
+// GetGateway provides a mock function for the type MockBillingService
+func (_mock *MockBillingService) GetGateway(gatewayType string) (PaymentGateway, error) {
+	ret := _mock.Called(gatewayType)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetGateway")
+	}
+
+	var r0 PaymentGateway
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(string) (PaymentGateway, error)); ok {
+		return returnFunc(gatewayType)
+	}
+	if returnFunc, ok := ret.Get(0).(func(string) PaymentGateway); ok {
+		r0 = returnFunc(gatewayType)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(PaymentGateway)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(string) error); ok {
+		r1 = returnFunc(gatewayType)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockBillingService_GetGateway_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetGateway'
+type MockBillingService_GetGateway_Call struct {
+	*mock.Call
+}
+
+// GetGateway is a helper method to define mock.On call
+//   - gatewayType string
+func (_e *MockBillingService_Expecter) GetGateway(gatewayType interface{}) *MockBillingService_GetGateway_Call {
+	return &MockBillingService_GetGateway_Call{Call: _e.mock.On("GetGateway", gatewayType)}
+}
+
+func (_c *MockBillingService_GetGateway_Call) Run(run func(gatewayType string)) *MockBillingService_GetGateway_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 string
+		if args[0] != nil {
+			arg0 = args[0].(string)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *MockBillingService_GetGateway_Call) Return(paymentGateway PaymentGateway, err error) *MockBillingService_GetGateway_Call {
+	_c.Call.Return(paymentGateway, err)
+	return _c
+}
+
+func (_c *MockBillingService_GetGateway_Call) RunAndReturn(run func(gatewayType string) (PaymentGateway, error)) *MockBillingService_GetGateway_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetSignatureHeader provides a mock function for the type MockBillingService
 func (_mock *MockBillingService) GetSignatureHeader(gatewayType string) (string, error) {
 	ret := _mock.Called(gatewayType)

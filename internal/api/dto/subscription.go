@@ -40,3 +40,8 @@ func (r *SubscriptionStatusResponse) FromModel(subscriber *pluginCore.Subscriber
 
 	return nil
 }
+
+// CustomerPortalResponse represents the customer portal URL response
+type CustomerPortalResponse struct {
+	URL string `json:"url"`
+}

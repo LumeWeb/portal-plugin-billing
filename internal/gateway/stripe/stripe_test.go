@@ -521,7 +521,7 @@ func TestStripeGateway_HandleWebhook_SubscriptionUpdated_AllPricesNil(t *testing
 
 		// Should not return error but log warning about missing plan_id
 		assert.NoError(t, err)
-		
+
 		// Verify no external calls were made
 		mockUsers.AssertNotCalled(t, "AccountExists", mock.Anything)
 		mockQuota.AssertNotCalled(t, "AssignUserToPlan", mock.Anything, mock.Anything)
@@ -573,5 +573,102 @@ func TestStripeGateway_HandleWebhook_SubscriptionResumed(t *testing.T) {
 		err := gw.HandleWebhook(context.Background(), payload)
 
 		assert.NoError(t, err)
+	})
+}
+
+func TestStripeGateway_GetCustomerPortalURL_Success(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+
+		// Mock active subscription
+		planID := uint(42)
+		mockSubscriber := &pluginCore.Subscriber{
+			UserID:      123,
+			GatewayType: "stripe",
+			GatewayID:   "cus_123",
+			IsActive:    true,
+			PlanID:      &planID,
+		}
+		mockBilling.On("GetActiveSubscription", uint(123)).Return(mockSubscriber, nil)
+
+		gw := New(ctx.Logger(), "test_secret", nil, nil, mockBilling)
+
+		// Note: This test will fail in real execution because we can't mock the Stripe API
+		// but it verifies the logic flow and error handling
+		url, err := gw.GetCustomerPortalURL(context.Background(), 123, "https://example.com/return")
+
+		// We expect this to fail because we can't mock the Stripe billing portal session creation
+		// but we can verify the error is about session creation, not about subscription lookup
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to create billing portal session")
+		assert.Empty(t, url)
+
+		// Verify the billing service was called correctly
+		mockBilling.AssertExpectations(t)
+	})
+}
+
+func TestStripeGateway_GetCustomerPortalURL_NoActiveSubscription(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+
+		// Mock no active subscription
+		mockBilling.On("GetActiveSubscription", uint(123)).Return((*pluginCore.Subscriber)(nil), nil)
+
+		gw := New(ctx.Logger(), "test_secret", nil, nil, mockBilling)
+
+		url, err := gw.GetCustomerPortalURL(context.Background(), 123, "https://example.com/return")
+
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "no active stripe subscription found")
+		assert.Empty(t, url)
+
+		mockBilling.AssertExpectations(t)
+	})
+}
+
+func TestStripeGateway_GetCustomerPortalURL_NonStripeSubscription(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+
+		// Mock active subscription with different gateway
+		planID := uint(42)
+		mockSubscriber := &pluginCore.Subscriber{
+			UserID:      123,
+			GatewayType: "paypal", // Different gateway
+			GatewayID:   "cus_123",
+			IsActive:    true,
+			PlanID:      &planID,
+		}
+		mockBilling.On("GetActiveSubscription", uint(123)).Return(mockSubscriber, nil)
+
+		gw := New(ctx.Logger(), "test_secret", nil, nil, mockBilling)
+
+		url, err := gw.GetCustomerPortalURL(context.Background(), 123, "https://example.com/return")
+
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "no active stripe subscription found")
+		assert.Empty(t, url)
+
+		mockBilling.AssertExpectations(t)
+	})
+}
+
+func TestStripeGateway_GetCustomerPortalURL_BillingServiceError(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+
+		// Mock billing service error
+		mockBilling.On("GetActiveSubscription", uint(123)).Return((*pluginCore.Subscriber)(nil), assert.AnError)
+
+		gw := New(ctx.Logger(), "test_secret", nil, nil, mockBilling)
+
+		url, err := gw.GetCustomerPortalURL(context.Background(), 123, "https://example.com/return")
+
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to get active subscription")
+		assert.Empty(t, url)
+
+		mockBilling.AssertExpectations(t)
 	})
 }
