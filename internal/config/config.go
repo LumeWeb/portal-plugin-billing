@@ -8,7 +8,25 @@ import (
 var _ config.ServiceConfig = (*ServiceConfig)(nil)
 
 type StripeConfig struct {
-	WebhookSecret string `config:"webhook_secret"`
+	WebhookSecret    string `config:"webhook_secret"`
+	PublishableKey   string `config:"publishable_key"`
+	PricingTableID   string `config:"pricing_table_id"`
+}
+
+func (s StripeConfig) Schema() z.ZogSchema {
+	return z.Struct(z.Shape{
+		"WebhookSecret":  z.String().Required(),
+		"PublishableKey": z.String().Required(),
+		"PricingTableID": z.String().Required(),
+	})
+}
+
+func (s StripeConfig) Defaults() map[string]any {
+	return map[string]any{
+		"WebhookSecret":  "",
+		"PublishableKey": "",
+		"PricingTableID": "",
+	}
 }
 
 type ServiceConfig struct {
@@ -16,17 +34,9 @@ type ServiceConfig struct {
 }
 
 func (s ServiceConfig) Schema() z.ZogSchema {
-	return z.Struct(z.Shape{
-		"stripe": z.Struct(z.Shape{
-			"WebhookSecret": z.String().Required(),
-		}),
-	})
+	return z.Struct(z.Shape{})
 }
 
 func (s ServiceConfig) Defaults() map[string]any {
-	return map[string]any{
-		"stripe": map[string]any{
-			"WebhookSecret": "",
-		},
-	}
+	return map[string]any{}
 }
