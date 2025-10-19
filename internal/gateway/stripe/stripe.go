@@ -8,41 +8,82 @@ import (
 	"strings"
 
 	"github.com/stripe/stripe-go/v83"
-	"github.com/stripe/stripe-go/v83/billingportal/session"
 	"github.com/stripe/stripe-go/v83/webhook"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
 	quotaCore "go.lumeweb.com/portal-plugin-quota/core"
 	"go.lumeweb.com/portal/core"
+	"go.lumeweb.com/portal/db/models"
 	"go.uber.org/zap"
 )
 
 const (
-	GatewayID                    = "stripe"
-	EventTypeSubscriptionCreated = "customer.subscription.created"
-	EventTypeSubscriptionDeleted = "customer.subscription.deleted"
-	EventTypeSubscriptionPaused  = "customer.subscription.paused"
-	EventTypeSubscriptionResumed = "customer.subscription.resumed"
-	EventTypeSubscriptionUpdated = "customer.subscription.updated"
-	PlanIDMetadataKey            = "plan_id"
-	UserIDMetadataKey            = "user_id"
-	CustomerIDPrefix             = "cus_"
+	GatewayID                         = "stripe"
+	EventTypeCheckoutSessionCompleted = "checkout.session.completed"
+	EventTypeSubscriptionDeleted      = "customer.subscription.deleted"
+	EventTypeSubscriptionPaused       = "customer.subscription.paused"
+	EventTypeSubscriptionResumed      = "customer.subscription.resumed"
+	EventTypeSubscriptionUpdated      = "customer.subscription.updated"
+	PlanIDMetadataKey                 = "plan_id"
+	UserIDMetadataKey                 = "user_id"
+	CustomerIDPrefix                  = "cus_"
 )
+
+// SubscriptionRetriever is an interface for retrieving Stripe subscriptions.
+// It provides a way to fetch subscription details from Stripe by ID, allowing
+// for both real API calls and mock implementations for testing.
+//
+// The interface is designed to abstract the Stripe API client's subscription
+// retrieval functionality, making it easier to test webhook handlers without
+// making actual API calls.
+type SubscriptionRetriever interface {
+	// Get retrieves a Stripe subscription by its ID.
+	// 
+	// Parameters:
+	// - ctx: The context for the request
+	// - id: The Stripe subscription ID to retrieve
+	// - params: Optional parameters for the subscription retrieval
+	//
+	// Returns:
+	// - *stripe.Subscription: The retrieved subscription object
+	// - error: Any error that occurred during retrieval
+	Get(ctx context.Context, id string, params *stripe.SubscriptionRetrieveParams) (*stripe.Subscription, error)
+}
+
+// StripeSubscriptionRetriever implements SubscriptionRetriever using the actual Stripe API.
+// This implementation makes real calls to the Stripe API to retrieve subscription information.
+type StripeSubscriptionRetriever struct {
+	client *stripe.Client
+}
+
+// Get retrieves a Stripe subscription by its ID using the Stripe API client.
+// It delegates directly to the Stripe client's subscription retrieval method.
+func (r *StripeSubscriptionRetriever) Get(ctx context.Context, id string, params *stripe.SubscriptionRetrieveParams) (*stripe.Subscription, error) {
+	return r.client.V1Subscriptions.Retrieve(ctx, id, params)
+}
 
 type StripeGateway struct {
 	logger         *core.Logger
 	endpointSecret string
+	apiKey         string
+	stripeClient   *stripe.Client
 	quota          quotaCore.QuotaService
 	users          core.UserService
 	billing        pluginCore.BillingService
+	subService     SubscriptionRetriever
 }
 
-func New(logger *core.Logger, endpointSecret string, quota quotaCore.QuotaService, users core.UserService, billing pluginCore.BillingService) *StripeGateway {
+func New(logger *core.Logger, endpointSecret string, apiKey string, quota quotaCore.QuotaService, users core.UserService, billing pluginCore.BillingService) *StripeGateway {
+	stripeClient := stripe.NewClient(apiKey)
+	
 	return &StripeGateway{
 		logger:         logger,
 		endpointSecret: endpointSecret,
+		apiKey:         apiKey,
+		stripeClient:   stripeClient,
 		quota:          quota,
 		users:          users,
 		billing:        billing,
+		subService:     &StripeSubscriptionRetriever{client: stripeClient},
 	}
 }
 
@@ -94,12 +135,12 @@ func (g *StripeGateway) GetCustomerPortalURL(ctx context.Context, userID uint, r
 	}
 
 	// Create a billing portal session
-	params := &stripe.BillingPortalSessionParams{
+	params := &stripe.BillingPortalSessionCreateParams{
 		Customer:  stripe.String(subscriber.GatewayID),
 		ReturnURL: stripe.String(returnUrl),
 	}
 
-	sess, err := session.New(params)
+	sess, err := g.stripeClient.V1BillingPortalSessions.Create(ctx, params)
 	if err != nil {
 		return "", fmt.Errorf("failed to create billing portal session: %w", err)
 	}
@@ -119,7 +160,9 @@ func (g *StripeGateway) HandleWebhook(ctx context.Context, payload []byte) error
 	}
 
 	switch event.Type {
-	case EventTypeSubscriptionCreated, EventTypeSubscriptionResumed:
+	case EventTypeCheckoutSessionCompleted:
+		return g.handleCheckoutSessionCompleted(ctx, event)
+	case EventTypeSubscriptionResumed:
 		return g.handleSubscriptionActivated(ctx, event)
 	case EventTypeSubscriptionDeleted, EventTypeSubscriptionPaused:
 		return g.handleSubscriptionDeactivated(ctx, event)
@@ -141,76 +184,7 @@ func (g *StripeGateway) handleSubscriptionActivated(ctx context.Context, event s
 		return err
 	}
 
-	if g.users == nil {
-		return fmt.Errorf("user service not configured")
-	}
-
-	// Get user by ID
-	exists, user, err := g.users.AccountExists(userID)
-	if err != nil {
-		return fmt.Errorf("failed to check user existence: %w", err)
-	}
-	if !exists {
-		return fmt.Errorf("user with ID %d not found", userID)
-	}
-
-	price, planID, hasPlan, err := findFirstPlanPrice(subscription)
-	if err != nil {
-		return err
-	}
-	if price == nil {
-		return fmt.Errorf("subscription missing item or price")
-	}
-
-	if !hasPlan {
-		logFields := []zap.Field{
-			zap.Uint("user_id", userID),
-			zap.String("subscription_id", subscription.ID),
-			zap.String("event_id", event.ID),
-		}
-		if price != nil {
-			logFields = append(logFields, zap.String("price_id", price.ID))
-		}
-		g.logger.Warn("subscription activated but price metadata missing plan_id", logFields...)
-		return nil
-	}
-
-	// Validate plan exists
-	if g.quota == nil {
-		return fmt.Errorf("quota service not configured")
-	}
-	plan, err := g.quota.GetQuotaPlan(planID)
-	if err != nil {
-		return fmt.Errorf("plan with ID %d not found: %w", planID, err)
-	}
-	if plan == nil {
-		return fmt.Errorf("plan with ID %d not found", planID)
-	}
-
-	// Assign user to quota plan
-	if err := g.quota.AssignUserToPlan(user.ID, planID); err != nil {
-		return fmt.Errorf("failed to assign user to plan: %w", err)
-	}
-
-	// Track subscriber in billing service
-	if g.billing != nil {
-		if err := g.createOrUpdateSubscriber(user.ID, subscription.Customer.ID, true, &planID); err != nil {
-			g.logger.Error("failed to track subscriber",
-				zap.Error(err),
-				zap.Uint("user_id", userID),
-				zap.String("customer_id", subscription.Customer.ID))
-		}
-	}
-
-	g.logger.Debug("subscription activated - added quota plan",
-		zap.Uint("user_id", userID),
-		zap.String("price_id", price.ID),
-		zap.String("subscription_id", subscription.ID),
-		zap.Uint("plan_id", planID),
-		zap.String("event_id", event.ID),
-		zap.Uint("user_db_id", user.ID))
-
-	return nil
+	return g.activateSubscription(ctx, userID, subscription, event)
 }
 
 func (g *StripeGateway) handleSubscriptionDeactivated(ctx context.Context, event stripe.Event) error {
@@ -224,44 +198,7 @@ func (g *StripeGateway) handleSubscriptionDeactivated(ctx context.Context, event
 		return err
 	}
 
-	if g.users == nil {
-		return fmt.Errorf("user service not configured")
-	}
-
-	// Get user by ID
-	exists, user, err := g.users.AccountExists(userID)
-	if err != nil {
-		return fmt.Errorf("failed to check user existence: %w", err)
-	}
-	if !exists {
-		return fmt.Errorf("user with ID %d not found", userID)
-	}
-
-	// Remove user from their current plan
-	if g.quota == nil {
-		return fmt.Errorf("quota service not configured")
-	}
-	if err := g.quota.RemoveUserFromPlan(user.ID); err != nil {
-		return fmt.Errorf("failed to remove user from plan: %w", err)
-	}
-
-	// Update subscriber status in billing service
-	if g.billing != nil {
-		if err := g.deactivateSubscriber(user.ID); err != nil {
-			g.logger.Error("failed to deactivate subscriber",
-				zap.Error(err),
-				zap.Uint("user_id", userID),
-				zap.String("subscription_id", subscription.ID))
-		}
-	}
-
-	g.logger.Debug("subscription deactivated - removed quota plan",
-		zap.Uint("user_id", userID),
-		zap.String("subscription_id", subscription.ID),
-		zap.String("event_id", event.ID),
-		zap.Uint("user_db_id", user.ID))
-
-	return nil
+	return g.deactivateSubscription(ctx, userID, subscription, event)
 }
 
 func (g *StripeGateway) handleSubscriptionUpdated(ctx context.Context, event stripe.Event) error {
@@ -270,11 +207,13 @@ func (g *StripeGateway) handleSubscriptionUpdated(ctx context.Context, event str
 		return err
 	}
 
-	price, planID, hasPlan, err := findFirstPlanPrice(subscription)
+	// Check if the subscription has a plan
+	price, _, hasPlan, err := findFirstPlanPrice(subscription)
 	if err != nil {
 		return err
 	}
 
+	// If no plan is found, treat as deactivation
 	if !hasPlan {
 		logFields := []zap.Field{
 			zap.String("subscription_id", subscription.ID),
@@ -284,83 +223,29 @@ func (g *StripeGateway) handleSubscriptionUpdated(ctx context.Context, event str
 			logFields = append(logFields, zap.String("price_id", price.ID))
 		}
 		g.logger.Warn("subscription updated but price metadata missing plan_id", logFields...)
-		return nil
+		
+		// Extract user ID for deactivation
+		userID, err := parseUserID(subscription.Metadata)
+		if err != nil {
+			return err
+		}
+		
+		return g.deactivateSubscription(ctx, userID, subscription, event)
 	}
 
+	// If plan is found, treat as activation
 	userID, err := parseUserID(subscription.Metadata)
 	if err != nil {
 		return err
 	}
 
-	if g.users == nil {
-		return fmt.Errorf("user service not configured")
-	}
-
-	// Get user by ID
-	exists, user, err := g.users.AccountExists(userID)
-	if err != nil {
-		return fmt.Errorf("failed to check user existence: %w", err)
-	}
-	if !exists {
-		return fmt.Errorf("user with ID %d not found", userID)
-	}
-
-	logFields := []zap.Field{
-		zap.Uint("user_id", userID),
-		zap.Uint("plan_id", planID),
-		zap.Uint("user_db_id", user.ID),
-		zap.String("subscription_id", subscription.ID),
-		zap.String("event_id", event.ID),
-		zap.Any("event_type", event.Type),
-	}
-	if price != nil {
-		logFields = append(logFields, zap.String("price_id", price.ID))
-	}
-	g.logger.Debug("updating user quota plan", logFields...)
-
-	// Validate plan exists
-	if g.quota == nil {
-		return fmt.Errorf("quota service not configured")
-	}
-	plan, err := g.quota.GetQuotaPlan(planID)
-	if err != nil {
-		return fmt.Errorf("plan with ID %d not found: %w", planID, err)
-	}
-	if plan == nil {
-		return fmt.Errorf("plan with ID %d not found", planID)
-	}
-
-	// Assign user to new quota plan
-	if err := g.quota.AssignUserToPlan(user.ID, planID); err != nil {
-		return fmt.Errorf("failed to assign user to plan: %w", err)
-	}
-
-	// Update subscriber in billing service
-	if g.billing != nil {
-		if err := g.createOrUpdateSubscriber(user.ID, subscription.Customer.ID, true, &planID); err != nil {
-			g.logger.Error("failed to update subscriber",
-				zap.Error(err),
-				zap.Uint("user_id", userID),
-				zap.String("customer_id", subscription.Customer.ID))
-		}
-	}
-
-	return nil
+	return g.activateSubscription(ctx, userID, subscription, event)
 }
 
 func (g *StripeGateway) SetQuota(quota quotaCore.QuotaService) {
 	g.quota = quota
 }
 
-// createOrUpdateSubscriber creates or updates a subscriber record
-func (g *StripeGateway) createOrUpdateSubscriber(userID uint, subscriptionID string, isActive bool, planID *uint) error {
-	return g.billing.CreateOrUpdateSubscriber(userID, GatewayID, subscriptionID, isActive, planID)
-}
-
-// deactivateSubscriber deactivates a subscriber record
-func (g *StripeGateway) deactivateSubscriber(userID uint) error {
-	return g.billing.DeactivateSubscriber(userID, GatewayID)
-}
 
 // Helper function to parse user ID from metadata
 func parseUserID(meta map[string]string) (uint, error) {
@@ -380,10 +265,17 @@ func parseUserID(meta map[string]string) (uint, error) {
 	return uint(userIDUint), nil
 }
 
-// Helper function to extract plan ID from price metadata
-func extractPlanID(price *stripe.Price) (uint, bool, error) {
+// Helper function to extract plan ID from price or plan metadata
+func extractPlanIDFromObject(price *stripe.Price, plan *stripe.Plan) (uint, bool, error) {
 	planID := ""
-	if price.Metadata != nil {
+	
+	// Check plan metadata first
+	if plan != nil && plan.Metadata != nil {
+		planID = plan.Metadata[PlanIDMetadataKey]
+	}
+	
+	// Fall back to price metadata if plan metadata doesn't contain plan_id
+	if planID == "" && price != nil && price.Metadata != nil {
 		planID = price.Metadata[PlanIDMetadataKey]
 	}
 
@@ -430,7 +322,7 @@ func findFirstPlanPrice(sub *stripe.Subscription) (*stripe.Price, uint, bool, er
 		if it == nil || it.Price == nil {
 			continue
 		}
-		pid, ok, err := extractPlanID(it.Price)
+		pid, ok, err := extractPlanIDFromObject(it.Price, it.Plan)
 		if err != nil {
 			return nil, 0, false, err
 		}
@@ -448,6 +340,182 @@ func findFirstPlanPrice(sub *stripe.Subscription) (*stripe.Price, uint, bool, er
 
 	// If no valid item found, return nil values
 	return nil, 0, false, nil
+}
+
+// handleCheckoutSessionCompleted processes a completed checkout session
+func (g *StripeGateway) handleCheckoutSessionCompleted(ctx context.Context, event stripe.Event) error {
+	if event.Data == nil {
+		return fmt.Errorf("event data is nil")
+	}
+
+	if len(event.Data.Raw) == 0 {
+		return fmt.Errorf("event data raw payload is empty")
+	}
+
+	var session stripe.CheckoutSession
+	if err := json.Unmarshal(event.Data.Raw, &session); err != nil {
+		return err
+	}
+
+	// Parse user ID from client_reference_id
+	if session.ClientReferenceID == "" {
+		return fmt.Errorf("checkout session missing client_reference_id")
+	}
+
+	userID, err := strconv.ParseUint(session.ClientReferenceID, 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid client_reference_id format: %w", err)
+	}
+
+	userIDUint := uint(userID)
+
+	// Fetch subscription data using Stripe API
+	subscription, err := g.subService.Get(ctx, session.Subscription.ID, nil)
+	if err != nil {
+		return fmt.Errorf("failed to fetch subscription: %w", err)
+	}
+
+	return g.activateSubscription(ctx, userIDUint, subscription, event)
+}
+
+// activateSubscription is a common function to handle subscription activation
+// for checkout.session.completed, customer.subscription.resumed, and customer.subscription.updated events
+func (g *StripeGateway) activateSubscription(ctx context.Context, userID uint, subscription *stripe.Subscription, event stripe.Event) error {
+	// Validate services
+	if err := g.validateServices(); err != nil {
+		return err
+	}
+
+	// Get and validate user
+	user, err := g.getUser(userID)
+	if err != nil {
+		return err
+	}
+
+	price, planID, hasPlan, err := findFirstPlanPrice(subscription)
+	if err != nil {
+		return err
+	}
+	if price == nil {
+		return fmt.Errorf("subscription missing item or price")
+	}
+
+	if !hasPlan {
+		logFields := []zap.Field{
+			zap.Uint("user_id", userID),
+			zap.String("subscription_id", subscription.ID),
+			zap.String("event_id", event.ID),
+		}
+		if price != nil {
+			logFields = append(logFields, zap.String("price_id", price.ID))
+		}
+		g.logger.Warn("subscription activated but price metadata missing plan_id", logFields...)
+		return nil
+	}
+
+	// Validate plan exists
+	plan, err := g.quota.GetQuotaPlan(planID)
+	if err != nil {
+		return fmt.Errorf("plan with ID %d not found: %w", planID, err)
+	}
+	if plan == nil {
+		return fmt.Errorf("plan with ID %d not found", planID)
+	}
+
+	// Assign user to quota plan
+	if err := g.quota.AssignUserToPlan(user.ID, planID); err != nil {
+		return fmt.Errorf("failed to assign user to plan: %w", err)
+	}
+
+	// Track subscriber in billing service
+	if err := g.trackSubscriber(user.ID, subscription.Customer.ID, true, &planID); err != nil {
+		g.logger.Error("failed to track subscriber",
+			zap.Error(err),
+			zap.Uint("user_id", userID),
+			zap.String("customer_id", subscription.Customer.ID))
+	}
+
+	g.logger.Debug("subscription activated - added quota plan",
+		zap.Uint("user_id", userID),
+		zap.String("price_id", price.ID),
+		zap.String("subscription_id", subscription.ID),
+		zap.Uint("plan_id", planID),
+		zap.String("event_id", event.ID),
+		zap.Uint("user_db_id", user.ID))
+
+	return nil
+}
+
+// deactivateSubscription is a common function to handle subscription deactivation
+// for customer.subscription.deleted and customer.subscription.paused events
+func (g *StripeGateway) deactivateSubscription(ctx context.Context, userID uint, subscription *stripe.Subscription, event stripe.Event) error {
+	// Validate services
+	if err := g.validateServices(); err != nil {
+		return err
+	}
+
+	// Get and validate user
+	user, err := g.getUser(userID)
+	if err != nil {
+		return err
+	}
+
+	// Remove user from their current plan
+	if err := g.quota.RemoveUserFromPlan(user.ID); err != nil {
+		return fmt.Errorf("failed to remove user from plan: %w", err)
+	}
+
+	// Update subscriber status in billing service
+	if err := g.trackSubscriber(user.ID, subscription.Customer.ID, false, nil); err != nil {
+		g.logger.Error("failed to deactivate subscriber",
+			zap.Error(err),
+			zap.Uint("user_id", userID),
+			zap.String("subscription_id", subscription.Customer.ID))
+	}
+
+	g.logger.Debug("subscription deactivated - removed quota plan",
+		zap.Uint("user_id", userID),
+		zap.String("subscription_id", subscription.ID),
+		zap.String("event_id", event.ID),
+		zap.Uint("user_db_id", user.ID))
+
+	return nil
+}
+
+// validateServices checks if required services are available
+func (g *StripeGateway) validateServices() error {
+	if g.users == nil {
+		return fmt.Errorf("user service not configured")
+	}
+	if g.quota == nil {
+		return fmt.Errorf("quota service not configured")
+	}
+	return nil
+}
+
+// getUser retrieves and validates a user exists
+func (g *StripeGateway) getUser(userID uint) (*models.User, error) {
+	exists, user, err := g.users.AccountExists(userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check user existence: %w", err)
+	}
+	if !exists {
+		return nil, fmt.Errorf("user with ID %d not found", userID)
+	}
+	return user, nil
+}
+
+// trackSubscriber handles subscriber tracking in the billing service
+func (g *StripeGateway) trackSubscriber(userID uint, gatewayID string, isActive bool, planID *uint) error {
+	if g.billing == nil {
+		return nil // No billing service configured, nothing to track
+	}
+
+	if isActive {
+		return g.billing.CreateOrUpdateSubscriber(userID, GatewayID, gatewayID, isActive, planID)
+	} else {
+		return g.billing.DeactivateSubscriber(userID, GatewayID)
+	}
 }
 
 var _ pluginCore.PaymentGateway = (*StripeGateway)(nil)

@@ -75,6 +75,7 @@ func NewBillingServiceWithRegistry(registry *gateway.Registry) (core.Service, []
 				if err := service.gateways.Register(stripe.New(
 					service.logger,
 					secret,
+					service.config.Stripe.PublishableKey,
 					quotaSvc,
 					userSvc,
 					service,
