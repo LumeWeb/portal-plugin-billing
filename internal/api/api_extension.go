@@ -94,6 +94,7 @@ func (e *APIExtension) Configure(gRouter router.Router, accessSvc core.AccessSer
 			),
 			router.WithAccess(core.ACCESS_USER_ROLE),
 			router.WithMiddlewares(authMw, accessMw),
+			router.WithCors(),
 		),
 		// Customer portal endpoint
 		router.NewRoute(http.MethodPost, "/api/account/billing/customer-portal", e.handleCustomerPortal,
@@ -116,6 +117,7 @@ func (e *APIExtension) Configure(gRouter router.Router, accessSvc core.AccessSer
 			),
 			router.WithAccess(core.ACCESS_USER_ROLE),
 			router.WithMiddlewares(authMw, accessMw),
+			router.WithCors(),
 		),
 	)
 
