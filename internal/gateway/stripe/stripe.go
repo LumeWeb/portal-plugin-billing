@@ -278,11 +278,6 @@ func (g *StripeGateway) SetQuota(quota quotaCore.QuotaService) {
 }
 
 
-// Helper function to parse user ID from metadata
-func parseUserID(meta map[string]string) (uint, error) {
-	return parseUserIDFromMetadata(meta, "subscription")
-}
-
 // Helper function to parse user ID from customer metadata
 func parseUserIDFromCustomer(customer *stripe.Customer) (uint, error) {
 	if customer == nil {
