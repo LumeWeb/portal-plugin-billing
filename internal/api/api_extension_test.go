@@ -50,11 +50,29 @@ func TestHandleWebhook_Success(t *testing.T) {
 
 		// Mock expectations
 		billingSvc.On("GetSignatureHeader", "stripe").Return("Stripe-Signature", nil).Once()
-		billingSvc.On("ProcessWebhook", mock.Anything, "stripe", "test_sig", []byte(`{"test":"payload"}`)).
+		
+		// Create a test webhook payload with customer metadata
+		webhookPayload := `{
+			"id": "evt_test_webhook",
+			"type": "checkout.session.completed",
+			"data": {
+				"object": {
+					"id": "cs_test_session",
+					"object": "checkout.session",
+					"mode": "subscription",
+					"client_reference_id": "1",
+					"subscription": {
+						"id": "sub_test_subscription"
+					}
+				}
+			}
+		}`
+
+		billingSvc.On("ProcessWebhook", mock.Anything, "stripe", "test_sig", []byte(webhookPayload)).
 			Return(nil).Once()
 
 		// Create request
-		req := httptest.NewRequest("POST", "/api/account/billing/webhooks/stripe", bytes.NewReader([]byte(`{"test":"payload"}`)))
+		req := httptest.NewRequest("POST", "/api/account/billing/webhooks/stripe", bytes.NewReader([]byte(webhookPayload)))
 		req.Host = domain
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Stripe-Signature", "test_sig")
@@ -109,7 +127,7 @@ func TestHandleSubscriptionStatus_ActiveSubscription(t *testing.T) {
 		mockSubscriber := &pluginCore.Subscriber{
 			UserID:      1,
 			GatewayType: "stripe",
-			GatewayID:   "sub_123",
+			GatewayID:   "cus_123", // Changed to customer ID format
 			IsActive:    true,
 			PlanID:      &planID,
 		}
@@ -202,7 +220,7 @@ func TestHandleSubscriptionStatus_MultipleGateways(t *testing.T) {
 		mockSubscriber := &pluginCore.Subscriber{
 			UserID:      1,
 			GatewayType: "paypal", // Different gateway to test multiple scenarios
-			GatewayID:   "sub_456",
+			GatewayID:   "cus_456", // Changed to customer ID format
 			IsActive:    true,
 			PlanID:      &planID,
 		}

@@ -153,6 +153,9 @@ func createTestSubscription(userID string, planID string) stripe.Subscription {
 		ID: "sub_123",
 		Customer: &stripe.Customer{
 			ID: "cus_123",
+			Metadata: map[string]string{
+				UserIDMetadataKey: userID,
+			},
 		},
 		Metadata: map[string]string{
 			UserIDMetadataKey: userID,
@@ -457,6 +460,9 @@ func TestStripeGateway_HandleWebhook_SubscriptionUpdated_AllPricesNil(t *testing
 			ID: "sub_123",
 			Customer: &stripe.Customer{
 				ID: "cus_123",
+				Metadata: map[string]string{
+					UserIDMetadataKey: "123",
+				},
 			},
 			Metadata: map[string]string{
 				UserIDMetadataKey: "123",
@@ -602,6 +608,7 @@ func TestStripeGateway_HandleWebhook_CheckoutSessionCompleted(t *testing.T) {
 			ID:                 "cs_test_123",
 			ClientReferenceID:  clientRefID,
 			Subscription:       subscription,
+			Mode:               "subscription",
 		}
 		rawData, _ := json.Marshal(checkoutSession)
 		event := createTestEvent(EventTypeCheckoutSessionCompleted, rawData)

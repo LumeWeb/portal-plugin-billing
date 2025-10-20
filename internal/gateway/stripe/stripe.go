@@ -179,7 +179,7 @@ func (g *StripeGateway) handleSubscriptionActivated(ctx context.Context, event s
 		return err
 	}
 
-	userID, err := parseUserID(subscription.Metadata)
+	userID, err := parseUserIDFromCustomer(subscription.Customer)
 	if err != nil {
 		return err
 	}
@@ -193,7 +193,7 @@ func (g *StripeGateway) handleSubscriptionDeactivated(ctx context.Context, event
 		return err
 	}
 
-	userID, err := parseUserID(subscription.Metadata)
+	userID, err := parseUserIDFromCustomer(subscription.Customer)
 	if err != nil {
 		return err
 	}
@@ -225,7 +225,7 @@ func (g *StripeGateway) handleSubscriptionUpdated(ctx context.Context, event str
 		g.logger.Warn("subscription updated but price metadata missing plan_id", logFields...)
 		
 		// Extract user ID for deactivation
-		userID, err := parseUserID(subscription.Metadata)
+		userID, err := parseUserIDFromCustomer(subscription.Customer)
 		if err != nil {
 			return err
 		}
@@ -234,7 +234,7 @@ func (g *StripeGateway) handleSubscriptionUpdated(ctx context.Context, event str
 	}
 
 	// If plan is found, treat as activation
-	userID, err := parseUserID(subscription.Metadata)
+	userID, err := parseUserIDFromCustomer(subscription.Customer)
 	if err != nil {
 		return err
 	}
@@ -249,17 +249,30 @@ func (g *StripeGateway) SetQuota(quota quotaCore.QuotaService) {
 
 // Helper function to parse user ID from metadata
 func parseUserID(meta map[string]string) (uint, error) {
+	return parseUserIDFromMetadata(meta, "subscription")
+}
+
+// Helper function to parse user ID from customer metadata
+func parseUserIDFromCustomer(customer *stripe.Customer) (uint, error) {
+	if customer == nil {
+		return 0, fmt.Errorf("customer is nil")
+	}
+	return parseUserIDFromMetadata(customer.Metadata, "customer")
+}
+
+// Helper function to parse user ID from any metadata map
+func parseUserIDFromMetadata(meta map[string]string, source string) (uint, error) {
 	userID := ""
 	if meta != nil {
 		userID = meta[UserIDMetadataKey]
 	}
 	if userID == "" {
-		return 0, fmt.Errorf("subscription metadata missing user_id")
+		return 0, fmt.Errorf("%s metadata missing user_id", source)
 	}
 
 	userIDUint, err := strconv.ParseUint(userID, 10, 64)
 	if err != nil {
-		return 0, fmt.Errorf("invalid user_id format: %w", err)
+		return 0, fmt.Errorf("invalid user_id format in %s metadata: %w", source, err)
 	}
 
 	return uint(userIDUint), nil
@@ -457,6 +470,15 @@ func (g *StripeGateway) activateSubscription(ctx context.Context, userID uint, s
 			zap.String("customer_id", subscription.Customer.ID))
 	}
 
+	// Update customer metadata with user ID
+	if err := g.updateCustomerMetadata(subscription.Customer.ID, userID); err != nil {
+		g.logger.Warn("failed to update customer metadata",
+			zap.Uint("user_id", userID),
+			zap.String("customer_id", subscription.Customer.ID),
+			zap.Error(err))
+		// Don't fail the activation if customer metadata update fails
+	}
+
 	g.logger.Debug("subscription activated - added quota plan",
 		zap.Uint("user_id", userID),
 		zap.String("price_id", price.ID),
@@ -548,6 +570,19 @@ func (g *StripeGateway) trackSubscriber(userID uint, gatewayID string, isActive 
 	} else {
 		return g.billing.DeactivateSubscriber(userID, GatewayID)
 	}
+}
+
+// updateCustomerMetadata updates the customer's metadata with the user ID
+func (g *StripeGateway) updateCustomerMetadata(customerID string, userID uint) error {
+	params := &stripe.CustomerUpdateParams{}
+	params.AddMetadata(UserIDMetadataKey, strconv.FormatUint(uint64(userID), 10))
+
+	_, err := g.stripeClient.V1Customers.Update(context.Background(), customerID, params)
+	if err != nil {
+		return fmt.Errorf("failed to update customer metadata: %w", err)
+	}
+
+	return nil
 }
 
 var _ pluginCore.PaymentGateway = (*StripeGateway)(nil)
