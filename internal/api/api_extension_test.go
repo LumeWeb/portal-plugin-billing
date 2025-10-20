@@ -51,7 +51,7 @@ func TestHandleWebhook_Success(t *testing.T) {
 		// Mock expectations
 		billingSvc.On("GetSignatureHeader", "stripe").Return("Stripe-Signature", nil).Once()
 		
-		// Create a test webhook payload with customer metadata
+		// Create a test webhook payload for a checkout.session.completed event
 		webhookPayload := `{
 			"id": "evt_test_webhook",
 			"type": "checkout.session.completed",
