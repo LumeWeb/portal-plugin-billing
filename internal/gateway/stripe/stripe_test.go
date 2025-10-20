@@ -286,7 +286,7 @@ func TestStripeGateway_ExtractEventID(t *testing.T) {
 				payload, _ := json.Marshal(event)
 				return payload
 			}(),
-			expectedID: "",
+			expectError: true,
 		},
 	}
 
