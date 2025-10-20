@@ -242,7 +242,7 @@ func (g *StripeGateway) handleSubscriptionUpdated(ctx context.Context, event str
 	}
 
 	// Check if the subscription has a plan
-	price, _, hasPlan, err := findFirstPlanPrice(subscription)
+	planID, hasPlan, err := findPlanIDFromSubscription(subscription)
 	if err != nil {
 		return err
 	}
@@ -263,20 +263,15 @@ func (g *StripeGateway) handleSubscriptionUpdated(ctx context.Context, event str
 
 	// If no plan is found, treat as deactivation
 	if !hasPlan {
-		logFields := []zap.Field{
+		g.logger.Warn("subscription updated but product metadata missing plan_id",
 			zap.String("subscription_id", subscription.ID),
-			zap.String("event_id", event.ID),
-		}
-		if price != nil {
-			logFields = append(logFields, zap.String("price_id", price.ID))
-		}
-		g.logger.Warn("subscription updated but price metadata missing plan_id", logFields...)
+			zap.String("event_id", event.ID))
 		
 		return g.deactivateSubscription(ctx, userID, subscription, event)
 	}
 
 	// If plan is found, treat as activation
-	return g.activateSubscription(ctx, userID, subscription, event)
+	return g.activateSubscriptionWithPlanID(ctx, userID, subscription, event, planID)
 }
 
 func (g *StripeGateway) SetQuota(quota quotaCore.QuotaService) {
@@ -351,27 +346,20 @@ func parseUserIDFromMetadata(meta map[string]string, source string) (uint, error
 	return uint(userIDUint), nil
 }
 
-// Helper function to extract plan ID from price or plan metadata
-func extractPlanIDFromObject(price *stripe.Price, plan *stripe.Plan) (uint, bool, error) {
-	planID := ""
-	
-	// Check plan metadata first
-	if plan != nil && plan.Metadata != nil {
-		planID = plan.Metadata[PlanIDMetadataKey]
+// Helper function to extract plan ID from product metadata
+func extractPlanIDFromProduct(product *stripe.Product) (uint, bool, error) {
+	if product == nil || product.Metadata == nil {
+		return 0, false, nil
 	}
 	
-	// Fall back to price metadata if plan metadata doesn't contain plan_id
-	if planID == "" && price != nil && price.Metadata != nil {
-		planID = price.Metadata[PlanIDMetadataKey]
-	}
-
+	planID := product.Metadata[PlanIDMetadataKey]
 	if planID == "" {
 		return 0, false, nil
 	}
 
 	planIDUint, err := strconv.ParseUint(planID, 10, 64)
 	if err != nil {
-		return 0, false, fmt.Errorf("invalid plan_id format: %w", err)
+		return 0, false, fmt.Errorf("invalid plan_id format in product metadata: %w", err)
 	}
 
 	return uint(planIDUint), true, nil
@@ -400,32 +388,27 @@ func (g *StripeGateway) validateSubscriptionEvent(event stripe.Event, requireIte
 	return &subscription, nil
 }
 
-func findFirstPlanPrice(sub *stripe.Subscription) (*stripe.Price, uint, bool, error) {
+// Helper function to find plan ID from subscription using expanded product data
+func findPlanIDFromSubscription(sub *stripe.Subscription) (uint, bool, error) {
 	if sub.Items == nil || len(sub.Items.Data) == 0 {
-		return nil, 0, false, nil
+		return 0, false, nil
 	}
-	for _, it := range sub.Items.Data {
-		if it == nil || it.Price == nil {
+	
+	for _, item := range sub.Items.Data {
+		if item == nil || item.Plan == nil || item.Plan.Product == nil {
 			continue
 		}
-		pid, ok, err := extractPlanIDFromObject(it.Price, it.Plan)
+		
+		planID, found, err := extractPlanIDFromProduct(item.Plan.Product)
 		if err != nil {
-			return nil, 0, false, err
+			return 0, false, err
 		}
-		if ok {
-			return it.Price, pid, true, nil
-		}
-	}
-
-	// Safe fallback: find first non-nil item with non-nil Price
-	for _, it := range sub.Items.Data {
-		if it != nil && it.Price != nil {
-			return it.Price, 0, false, nil
+		if found {
+			return planID, true, nil
 		}
 	}
-
-	// If no valid item found, return nil values
-	return nil, 0, false, nil
+	
+	return 0, false, nil
 }
 
 // handleCheckoutSessionCompleted processes a completed checkout session
@@ -469,8 +452,10 @@ func (g *StripeGateway) handleCheckoutSessionCompleted(ctx context.Context, even
 		return fmt.Errorf("checkout session subscription missing ID")
 	}
 
-	// Fetch subscription data using Stripe API
-	subscription, err := g.subService.Get(ctx, session.Subscription.ID, nil)
+	// Fetch subscription data using Stripe API with expanded product data
+	params := &stripe.SubscriptionRetrieveParams{}
+	params.AddExpand("data.plan.product")
+	subscription, err := g.subService.Get(ctx, session.Subscription.ID, params)
 	if err != nil {
 		return fmt.Errorf("failed to fetch subscription: %w", err)
 	}
@@ -479,8 +464,36 @@ func (g *StripeGateway) handleCheckoutSessionCompleted(ctx context.Context, even
 }
 
 // activateSubscription is a common function to handle subscription activation
-// for checkout.session.completed, customer.subscription.resumed, and customer.subscription.updated events
+// for checkout.session.completed and customer.subscription.resumed events
 func (g *StripeGateway) activateSubscription(ctx context.Context, userID uint, subscription *stripe.Subscription, event stripe.Event) error {
+	// Validate services
+	if err := g.validateServices(); err != nil {
+		return err
+	}
+
+	// Get and validate user exists
+	if _, err := g.getUser(userID); err != nil {
+		return err
+	}
+
+	planID, hasPlan, err := findPlanIDFromSubscription(subscription)
+	if err != nil {
+		return err
+	}
+
+	if !hasPlan {
+		g.logger.Warn("subscription activated but product metadata missing plan_id",
+			zap.Uint("user_id", userID),
+			zap.String("subscription_id", subscription.ID),
+			zap.String("event_id", event.ID))
+		return nil
+	}
+
+	return g.activateSubscriptionWithPlanID(ctx, userID, subscription, event, planID)
+}
+
+// activateSubscriptionWithPlanID handles subscription activation with a known plan ID
+func (g *StripeGateway) activateSubscriptionWithPlanID(ctx context.Context, userID uint, subscription *stripe.Subscription, event stripe.Event, planID uint) error {
 	// Validate services
 	if err := g.validateServices(); err != nil {
 		return err
@@ -490,27 +503,6 @@ func (g *StripeGateway) activateSubscription(ctx context.Context, userID uint, s
 	user, err := g.getUser(userID)
 	if err != nil {
 		return err
-	}
-
-	price, planID, hasPlan, err := findFirstPlanPrice(subscription)
-	if err != nil {
-		return err
-	}
-	if price == nil {
-		return fmt.Errorf("subscription missing item or price")
-	}
-
-	if !hasPlan {
-		logFields := []zap.Field{
-			zap.Uint("user_id", userID),
-			zap.String("subscription_id", subscription.ID),
-			zap.String("event_id", event.ID),
-		}
-		if price != nil {
-			logFields = append(logFields, zap.String("price_id", price.ID))
-		}
-		g.logger.Warn("subscription activated but price metadata missing plan_id", logFields...)
-		return nil
 	}
 
 	// Validate plan exists
@@ -554,7 +546,6 @@ func (g *StripeGateway) activateSubscription(ctx context.Context, userID uint, s
 
 	g.logger.Debug("subscription activated - added quota plan",
 		zap.Uint("user_id", userID),
-		zap.String("price_id", price.ID),
 		zap.String("subscription_id", subscription.ID),
 		zap.Uint("plan_id", planID),
 		zap.String("event_id", event.ID),
