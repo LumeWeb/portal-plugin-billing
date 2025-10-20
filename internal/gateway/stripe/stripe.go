@@ -64,7 +64,7 @@ func (r *StripeSubscriptionRetriever) Get(ctx context.Context, id string, params
 type StripeGateway struct {
 	logger         *core.Logger
 	endpointSecret string
-	apiKey         string
+	secretKey      string
 	stripeClient   *stripe.Client
 	quota          quotaCore.QuotaService
 	users          core.UserService
@@ -72,13 +72,13 @@ type StripeGateway struct {
 	subService     SubscriptionRetriever
 }
 
-func New(logger *core.Logger, endpointSecret string, apiKey string, quota quotaCore.QuotaService, users core.UserService, billing pluginCore.BillingService) *StripeGateway {
-	stripeClient := stripe.NewClient(apiKey)
+func New(logger *core.Logger, endpointSecret string, secretKey string, quota quotaCore.QuotaService, users core.UserService, billing pluginCore.BillingService) *StripeGateway {
+	stripeClient := stripe.NewClient(secretKey)
 	
 	return &StripeGateway{
 		logger:         logger,
 		endpointSecret: endpointSecret,
-		apiKey:         apiKey,
+		secretKey:      secretKey,
 		stripeClient:   stripeClient,
 		quota:          quota,
 		users:          users,
@@ -357,6 +357,11 @@ func (g *StripeGateway) handleCheckoutSessionCompleted(ctx context.Context, even
 		return err
 	}
 
+	// Verify that the session mode is "subscription"
+	if session.Mode != "subscription" {
+		return fmt.Errorf("checkout session mode is not 'subscription': got '%s'", session.Mode)
+	}
+
 	// Parse user ID from client_reference_id
 	if session.ClientReferenceID == "" {
 		return fmt.Errorf("checkout session missing client_reference_id")
@@ -368,6 +373,15 @@ func (g *StripeGateway) handleCheckoutSessionCompleted(ctx context.Context, even
 	}
 
 	userIDUint := uint(userID)
+
+	// Verify that session.Subscription is non-nil and has a valid ID
+	if session.Subscription == nil {
+		return fmt.Errorf("checkout session missing subscription object")
+	}
+
+	if session.Subscription.ID == "" {
+		return fmt.Errorf("checkout session subscription missing ID")
+	}
 
 	// Fetch subscription data using Stripe API
 	subscription, err := g.subService.Get(ctx, session.Subscription.ID, nil)
@@ -428,6 +442,14 @@ func (g *StripeGateway) activateSubscription(ctx context.Context, userID uint, s
 	}
 
 	// Track subscriber in billing service
+	if subscription.Customer == nil {
+		return fmt.Errorf("subscription missing customer id")
+	}
+	
+	if subscription.Customer.ID == "" {
+		return fmt.Errorf("subscription missing customer id")
+	}
+
 	if err := g.trackSubscriber(user.ID, subscription.Customer.ID, true, &planID); err != nil {
 		g.logger.Error("failed to track subscriber",
 			zap.Error(err),
@@ -465,17 +487,27 @@ func (g *StripeGateway) deactivateSubscription(ctx context.Context, userID uint,
 		return fmt.Errorf("failed to remove user from plan: %w", err)
 	}
 
+	// Check if subscription.Customer is nil before accessing it
+	if subscription.Customer == nil {
+		g.logger.Error("subscription customer is nil",
+			zap.Uint("user_id", userID),
+			zap.String("subscription_id", subscription.ID),
+			zap.String("event_id", event.ID))
+		return fmt.Errorf("subscription customer is nil for subscription %s", subscription.ID)
+	}
+
 	// Update subscriber status in billing service
 	if err := g.trackSubscriber(user.ID, subscription.Customer.ID, false, nil); err != nil {
 		g.logger.Error("failed to deactivate subscriber",
 			zap.Error(err),
 			zap.Uint("user_id", userID),
-			zap.String("subscription_id", subscription.Customer.ID))
+			zap.String("customer_id", subscription.Customer.ID))
 	}
 
 	g.logger.Debug("subscription deactivated - removed quota plan",
 		zap.Uint("user_id", userID),
 		zap.String("subscription_id", subscription.ID),
+		zap.String("customer_id", subscription.Customer.ID),
 		zap.String("event_id", event.ID),
 		zap.Uint("user_db_id", user.ID))
 
