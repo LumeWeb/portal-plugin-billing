@@ -168,8 +168,14 @@ func createTestSubscription(userID string, planID string) stripe.Subscription {
 				{
 					Price: &stripe.Price{
 						ID: "price_123",
-						Metadata: map[string]string{
-							PlanIDMetadataKey: planID,
+					},
+					Plan: &stripe.Plan{
+						ID: "plan_123",
+						Product: &stripe.Product{
+							ID: "prod_123",
+							Metadata: map[string]string{
+								PlanIDMetadataKey: planID,
+							},
 						},
 					},
 				},
@@ -469,8 +475,18 @@ func TestStripeGateway_HandleWebhook_SubscriptionUpdated_AllPricesNil(t *testing
 			},
 			Items: &stripe.SubscriptionItemList{
 				Data: []*stripe.SubscriptionItem{
-					{Price: nil},
-					{Price: nil},
+					{
+						Price: nil,
+						Plan: &stripe.Plan{
+							Product: &stripe.Product{}, // Empty product with no plan_id
+						},
+					},
+					{
+						Price: nil,
+						Plan: &stripe.Plan{
+							Product: &stripe.Product{}, // Empty product with no plan_id
+						},
+					},
 				},
 			},
 		}
@@ -595,8 +611,14 @@ func TestStripeGateway_HandleWebhook_CheckoutSessionCompleted(t *testing.T) {
 					{
 						Price: &stripe.Price{
 							ID: "price_456",
-							Metadata: map[string]string{
-								PlanIDMetadataKey: "3",
+						},
+						Plan: &stripe.Plan{
+							ID: "plan_456",
+							Product: &stripe.Product{
+								ID: "prod_456",
+								Metadata: map[string]string{
+									PlanIDMetadataKey: "3",
+								},
 							},
 						},
 					},
