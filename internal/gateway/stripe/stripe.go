@@ -74,8 +74,7 @@ type StripeGateway struct {
 
 func New(logger *core.Logger, endpointSecret string, secretKey string, quota quotaCore.QuotaService, users core.UserService, billing pluginCore.BillingService) *StripeGateway {
 	stripeClient := stripe.NewClient(secretKey)
-	
-	return &StripeGateway{
+	gateway := &StripeGateway{
 		logger:         logger,
 		endpointSecret: endpointSecret,
 		secretKey:      secretKey,
@@ -83,8 +82,21 @@ func New(logger *core.Logger, endpointSecret string, secretKey string, quota quo
 		quota:          quota,
 		users:          users,
 		billing:        billing,
-		subService:     &StripeSubscriptionRetriever{client: stripeClient},
 	}
+	
+	gateway.subService = gateway.subscriptionRetriever()
+	
+	return gateway
+}
+
+// customerRetriever returns a customer retriever instance
+func (g *StripeGateway) customerRetriever() *StripeCustomerRetriever {
+	return &StripeCustomerRetriever{client: g.stripeClient}
+}
+
+// subscriptionRetriever returns a subscription retriever instance
+func (g *StripeGateway) subscriptionRetriever() SubscriptionRetriever {
+	return &StripeSubscriptionRetriever{client: g.stripeClient}
 }
 
 func (g *StripeGateway) ID() string {
@@ -181,7 +193,15 @@ func (g *StripeGateway) handleSubscriptionActivated(ctx context.Context, event s
 
 	userID, err := parseUserIDFromCustomer(subscription.Customer)
 	if err != nil {
-		return err
+		// Try fallback if customer metadata is missing
+		if subscription.Customer != nil && subscription.Customer.ID != "" {
+			userID, err = g.parseUserIDFromCustomerWithFallback(ctx, subscription.Customer.ID)
+			if err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
 	}
 
 	return g.activateSubscription(ctx, userID, subscription, event)
@@ -195,7 +215,15 @@ func (g *StripeGateway) handleSubscriptionDeactivated(ctx context.Context, event
 
 	userID, err := parseUserIDFromCustomer(subscription.Customer)
 	if err != nil {
-		return err
+		// Try fallback if customer metadata is missing
+		if subscription.Customer != nil && subscription.Customer.ID != "" {
+			userID, err = g.parseUserIDFromCustomerWithFallback(ctx, subscription.Customer.ID)
+			if err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
 	}
 
 	return g.deactivateSubscription(ctx, userID, subscription, event)
@@ -213,6 +241,20 @@ func (g *StripeGateway) handleSubscriptionUpdated(ctx context.Context, event str
 		return err
 	}
 
+	// Extract user ID with fallback
+	userID, err := parseUserIDFromCustomer(subscription.Customer)
+	if err != nil {
+		// Try fallback if customer metadata is missing
+		if subscription.Customer != nil && subscription.Customer.ID != "" {
+			userID, err = g.parseUserIDFromCustomerWithFallback(ctx, subscription.Customer.ID)
+			if err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
+	}
+
 	// If no plan is found, treat as deactivation
 	if !hasPlan {
 		logFields := []zap.Field{
@@ -224,21 +266,10 @@ func (g *StripeGateway) handleSubscriptionUpdated(ctx context.Context, event str
 		}
 		g.logger.Warn("subscription updated but price metadata missing plan_id", logFields...)
 		
-		// Extract user ID for deactivation
-		userID, err := parseUserIDFromCustomer(subscription.Customer)
-		if err != nil {
-			return err
-		}
-		
 		return g.deactivateSubscription(ctx, userID, subscription, event)
 	}
 
 	// If plan is found, treat as activation
-	userID, err := parseUserIDFromCustomer(subscription.Customer)
-	if err != nil {
-		return err
-	}
-
 	return g.activateSubscription(ctx, userID, subscription, event)
 }
 
@@ -258,6 +289,47 @@ func parseUserIDFromCustomer(customer *stripe.Customer) (uint, error) {
 		return 0, fmt.Errorf("customer is nil")
 	}
 	return parseUserIDFromMetadata(customer.Metadata, "customer")
+}
+
+// CustomerRetriever is an interface for retrieving Stripe customers.
+// It provides a way to fetch customer details from Stripe by ID, allowing
+// for both real API calls and mock implementations for testing.
+type CustomerRetriever interface {
+	// Get retrieves a Stripe customer by its ID.
+	// 
+	// Parameters:
+	// - ctx: The context for the request
+	// - id: The Stripe customer ID to retrieve
+	// - params: Optional parameters for the customer retrieval
+	//
+	// Returns:
+	// - *stripe.Customer: The retrieved customer object
+	// - error: Any error that occurred during retrieval
+	Get(ctx context.Context, id string, params *stripe.CustomerRetrieveParams) (*stripe.Customer, error)
+}
+
+// StripeCustomerRetriever implements CustomerRetriever using the actual Stripe API.
+// This implementation makes real calls to the Stripe API to retrieve customer information.
+type StripeCustomerRetriever struct {
+	client *stripe.Client
+}
+
+// Get retrieves a Stripe customer by its ID using the Stripe API client.
+// It delegates directly to the Stripe client's customer retrieval method.
+func (r *StripeCustomerRetriever) Get(ctx context.Context, id string, params *stripe.CustomerRetrieveParams) (*stripe.Customer, error) {
+	return r.client.V1Customers.Retrieve(ctx, id, params)
+}
+
+// parseUserIDFromCustomerWithFallback attempts to parse user ID from customer metadata,
+// and if that fails, fetches the customer from Stripe API and tries again.
+func (g *StripeGateway) parseUserIDFromCustomerWithFallback(ctx context.Context, customerID string) (uint, error) {
+	// Fetch customer directly from Stripe API
+	customer, err := g.customerRetriever().Get(ctx, customerID, nil)
+	if err != nil {
+		return 0, fmt.Errorf("failed to fetch customer %s: %w", customerID, err)
+	}
+
+	return parseUserIDFromCustomer(customer)
 }
 
 // Helper function to parse user ID from any metadata map
@@ -471,7 +543,7 @@ func (g *StripeGateway) activateSubscription(ctx context.Context, userID uint, s
 	}
 
 	// Update customer metadata with user ID
-	if err := g.updateCustomerMetadata(subscription.Customer.ID, userID); err != nil {
+	if err := g.updateCustomerMetadata(ctx, g.secretKey, subscription.Customer.ID, userID); err != nil {
 		g.logger.Warn("failed to update customer metadata",
 			zap.Uint("user_id", userID),
 			zap.String("customer_id", subscription.Customer.ID),
@@ -573,13 +645,23 @@ func (g *StripeGateway) trackSubscriber(userID uint, gatewayID string, isActive 
 }
 
 // updateCustomerMetadata updates the customer's metadata with the user ID
-func (g *StripeGateway) updateCustomerMetadata(customerID string, userID uint) error {
+func (g *StripeGateway) updateCustomerMetadata(ctx context.Context, secretKey string, customerID string, userID uint) error {
+	// Short-circuit if secret key is empty (for tests/dev)
+	if secretKey == "" {
+		return nil
+	}
+
 	params := &stripe.CustomerUpdateParams{}
 	params.AddMetadata(UserIDMetadataKey, strconv.FormatUint(uint64(userID), 10))
 
-	_, err := g.stripeClient.V1Customers.Update(context.Background(), customerID, params)
+	_, err := g.stripeClient.V1Customers.Update(ctx, customerID, params)
 	if err != nil {
-		return fmt.Errorf("failed to update customer metadata: %w", err)
+		// Best-effort update - log error but don't return it
+		g.logger.Warn("failed to update customer metadata",
+			zap.String("customer_id", customerID),
+			zap.Uint("user_id", userID),
+			zap.Error(err))
+		return nil
 	}
 
 	return nil
