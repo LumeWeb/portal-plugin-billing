@@ -113,11 +113,17 @@ func (g *StripeGateway) ExtractEventID(payload []byte) (string, error) {
 		return "", err
 	}
 
-	if event.Request != nil {
+	// Always return event.ID as the primary identifier if it's not empty
+	if event.ID != "" {
+		return event.ID, nil
+	}
+
+	// Only fall back to IdempotencyKey if event.ID is empty
+	if event.Request != nil && event.Request.IdempotencyKey != "" {
 		return event.Request.IdempotencyKey, nil
 	}
 
-	return event.ID, nil
+	return "", fmt.Errorf("no event ID found in payload")
 }
 
 func (g *StripeGateway) ExtractEventType(payload []byte) (string, error) {
