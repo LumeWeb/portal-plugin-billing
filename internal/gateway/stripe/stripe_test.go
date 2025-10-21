@@ -182,9 +182,6 @@ func createTestSubscription(userID string, planID string) stripe.Subscription {
 							},
 						},
 					},
-					Plan: &stripe.Plan{
-						ID: "plan_123",
-					},
 				},
 			},
 		}
@@ -521,15 +518,9 @@ func TestStripeGateway_HandleWebhook_SubscriptionUpdated_AllPricesNil(t *testing
 				Data: []*stripe.SubscriptionItem{
 					{
 						Price: nil,
-						Plan: &stripe.Plan{
-							Product: &stripe.Product{}, // Empty product with no plan_id
-						},
 					},
 					{
 						Price: nil,
-						Plan: &stripe.Plan{
-							Product: &stripe.Product{}, // Empty product with no plan_id
-						},
 					},
 				},
 			},
@@ -581,7 +572,14 @@ func TestStripeGateway_GetCustomerPortalURL_Success(t *testing.T) {
 			URL: "https://billing.stripe.com/p/session/test_session_id",
 		}
 		mockStripeClient.billingPortalSessionsService = &MockBillingPortalSessions{}
-		mockStripeClient.billingPortalSessionsService.On("Create", mock.Anything, mock.AnythingOfType("*stripe.BillingPortalSessionCreateParams")).Return(mockSession, nil)
+		mockStripeClient.billingPortalSessionsService.
+			On("Create", mock.Anything, mock.AnythingOfType("*stripe.BillingPortalSessionCreateParams")).
+			Run(func(args mock.Arguments) {
+				params := args.Get(1).(*stripe.BillingPortalSessionCreateParams)
+				assert.Equal(t, "cus_123", stripe.StringValue(params.Customer))
+				assert.Equal(t, "https://example.com/return", stripe.StringValue(params.ReturnURL))
+			}).
+			Return(mockSession, nil)
 
 		gw := New(ctx.Logger(), "test_secret", "test_api_key", nil, nil, mockBilling)
 		gw.stripeClient = mockStripeClient
@@ -610,7 +608,7 @@ func TestStripeGateway_HandleWebhook_CheckoutSessionCompleted(t *testing.T) {
 			ID:                 "cs_test_123",
 			ClientReferenceID:  strconv.FormatUint(uint64(userID), 10),
 			Subscription:       &stripe.Subscription{ID: "sub_456"},
-			Mode:               "subscription",
+			Mode:               stripe.CheckoutSessionModeSubscription,
 		}
 		rawData, _ := json.Marshal(checkoutSession)
 		event := createTestEvent(EventTypeCheckoutSessionCompleted, rawData)
@@ -633,9 +631,6 @@ func TestStripeGateway_HandleWebhook_CheckoutSessionCompleted(t *testing.T) {
 									PlanIDMetadataKey: strconv.FormatUint(uint64(planID), 10),
 								},
 							},
-						},
-						Plan: &stripe.Plan{
-							ID: "plan_456",
 						},
 					},
 				},
@@ -807,7 +802,7 @@ func (m *MockSubscriptionRetriever) SetupGetSuccess(subscription *stripe.Subscri
 // - subscriptionID: The ID of the subscription that should fail
 // - err: The error to return
 func (m *MockSubscriptionRetriever) SetupGetError(subscriptionID string, err error) {
-	m.On("Get", mock.Anything, subscriptionID, mock.Anything).Return((*stripe.Subscription)(nil), err)
+	m.On("Get", mock.Anything, subscriptionID, mock.AnythingOfType("*stripe.SubscriptionRetrieveParams")).Return((*stripe.Subscription)(nil), err)
 }
 
 
@@ -827,6 +822,33 @@ func TestStripeGateway_GetCustomerPortalURL_NoActiveSubscription(t *testing.T) {
 		assert.Empty(t, url)
 
 		mockBilling.AssertExpectations(t)
+	})
+}
+
+func TestStripeGateway_GetCustomerPortalURL_SessionCreateError(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+		mockStripeClient := &MockStripeClient{}
+
+		planID := uint(42)
+		mockSubscriber := &pluginCore.Subscriber{
+			UserID: 123, GatewayType: "stripe", GatewayID: "cus_123", IsActive: true, PlanID: &planID,
+		}
+		mockBilling.On("GetActiveSubscription", uint(123)).Return(mockSubscriber, nil)
+
+		mockStripeClient.billingPortalSessionsService = &MockBillingPortalSessions{}
+		mockStripeClient.billingPortalSessionsService.
+			On("Create", mock.Anything, mock.AnythingOfType("*stripe.BillingPortalSessionCreateParams")).
+			Return((*stripe.BillingPortalSession)(nil), assert.AnError)
+
+		gw := New(ctx.Logger(), "test_secret", "test_api_key", nil, nil, mockBilling)
+		gw.stripeClient = mockStripeClient
+
+		url, err := gw.GetCustomerPortalURL(context.Background(), 123, "https://example.com/return")
+		assert.Error(t, err)
+		assert.Empty(t, url)
+		mockBilling.AssertExpectations(t)
+		mockStripeClient.AssertExpectations(t)
 	})
 }
 
