@@ -49,31 +49,76 @@ type SubscriptionRetriever interface {
 	Get(ctx context.Context, id string, params *stripe.SubscriptionRetrieveParams) (*stripe.Subscription, error)
 }
 
-// StripeSubscriptionRetriever implements SubscriptionRetriever using the actual Stripe API.
+// subscriptionRetriever implements SubscriptionRetriever using the actual Stripe API.
 // This implementation makes real calls to the Stripe API to retrieve subscription information.
-type StripeSubscriptionRetriever struct {
-	client *stripe.Client
+type subscriptionRetriever struct {
+	client Client
 }
 
 // Get retrieves a Stripe subscription by its ID using the Stripe API client.
 // It delegates directly to the Stripe client's subscription retrieval method.
-func (r *StripeSubscriptionRetriever) Get(ctx context.Context, id string, params *stripe.SubscriptionRetrieveParams) (*stripe.Subscription, error) {
-	return r.client.V1Subscriptions.Retrieve(ctx, id, params)
+func (r *subscriptionRetriever) Get(ctx context.Context, id string, params *stripe.SubscriptionRetrieveParams) (*stripe.Subscription, error) {
+	return r.client.V1Subscriptions().Retrieve(ctx, id, params)
 }
 
+
+
+// Client defines the interface for Stripe client operations
+type Client interface {
+	V1BillingPortalSessions() BillingPortalSessions
+	V1Customers() Customers
+	V1Subscriptions() Subscriptions
+}
+
+// BillingPortalSessions defines the interface for billing portal sessions operations
+type BillingPortalSessions interface {
+	Create(ctx context.Context, params *stripe.BillingPortalSessionCreateParams) (*stripe.BillingPortalSession, error)
+}
+
+// Customers defines the interface for customer operations
+type Customers interface {
+	Retrieve(ctx context.Context, id string, params *stripe.CustomerRetrieveParams) (*stripe.Customer, error)
+	Update(ctx context.Context, id string, params *stripe.CustomerUpdateParams) (*stripe.Customer, error)
+}
+
+// Subscriptions defines the interface for subscription operations
+type Subscriptions interface {
+	Retrieve(ctx context.Context, id string, params *stripe.SubscriptionRetrieveParams) (*stripe.Subscription, error)
+}
+
+// client wraps the stripe.Client to implement Client
+type client struct {
+	client *stripe.Client
+}
+
+func (w *client) V1BillingPortalSessions() BillingPortalSessions {
+	return w.client.V1BillingPortalSessions
+}
+
+func (w *client) V1Customers() Customers {
+	return w.client.V1Customers
+}
+
+func (w *client) V1Subscriptions() Subscriptions {
+	return w.client.V1Subscriptions
+}
+
+// StripeGateway implements the PaymentGateway interface for Stripe
 type StripeGateway struct {
 	logger         *core.Logger
 	endpointSecret string
 	secretKey      string
-	stripeClient   *stripe.Client
+	stripeClient   Client
 	quota          quotaCore.QuotaService
 	users          core.UserService
 	billing        pluginCore.BillingService
 	subService     SubscriptionRetriever
+	customerService CustomerRetriever
 }
 
 func New(logger *core.Logger, endpointSecret string, secretKey string, quota quotaCore.QuotaService, users core.UserService, billing pluginCore.BillingService) *StripeGateway {
-	stripeClient := stripe.NewClient(secretKey)
+	stripeClient := &client{client: stripe.NewClient(secretKey)}
+	
 	gateway := &StripeGateway{
 		logger:         logger,
 		endpointSecret: endpointSecret,
@@ -85,18 +130,19 @@ func New(logger *core.Logger, endpointSecret string, secretKey string, quota quo
 	}
 
 	gateway.subService = gateway.subscriptionRetriever()
+	gateway.customerService = gateway.customerRetriever()
 
 	return gateway
 }
 
 // customerRetriever returns a customer retriever instance
-func (g *StripeGateway) customerRetriever() *StripeCustomerRetriever {
-	return &StripeCustomerRetriever{client: g.stripeClient}
+func (g *StripeGateway) customerRetriever() CustomerRetriever {
+	return &customerRetriever{client: g.stripeClient}
 }
 
 // subscriptionRetriever returns a subscription retriever instance
 func (g *StripeGateway) subscriptionRetriever() SubscriptionRetriever {
-	return &StripeSubscriptionRetriever{client: g.stripeClient}
+	return &subscriptionRetriever{client: g.stripeClient}
 }
 
 func (g *StripeGateway) ID() string {
@@ -158,7 +204,7 @@ func (g *StripeGateway) GetCustomerPortalURL(ctx context.Context, userID uint, r
 		ReturnURL: stripe.String(returnUrl),
 	}
 
-	sess, err := g.stripeClient.V1BillingPortalSessions.Create(ctx, params)
+	sess, err := g.stripeClient.V1BillingPortalSessions().Create(ctx, params)
 	if err != nil {
 		return "", fmt.Errorf("failed to create billing portal session: %w", err)
 	}
@@ -192,73 +238,22 @@ func (g *StripeGateway) HandleWebhook(ctx context.Context, payload []byte) error
 }
 
 func (g *StripeGateway) handleSubscriptionActivated(ctx context.Context, event stripe.Event) error {
-	subscription, err := g.validateSubscriptionEvent(event, true)
-	if err != nil {
-		return err
-	}
-
-	userID, err := parseUserIDFromCustomer(subscription.Customer)
-	if err != nil {
-		// Try fallback if customer metadata is missing
-		if subscription.Customer != nil && subscription.Customer.ID != "" {
-			userID, err = g.parseUserIDFromCustomerWithFallback(ctx, subscription.Customer.ID)
-			if err != nil {
-				return err
-			}
-		} else {
-			return err
-		}
-	}
-
-	return g.activateSubscription(ctx, userID, subscription, event)
+	return g.handleSubscriptionEvent(ctx, event, g.activateSubscription)
 }
 
 func (g *StripeGateway) handleSubscriptionDeactivated(ctx context.Context, event stripe.Event) error {
-	subscription, err := g.validateSubscriptionEvent(event, false)
-	if err != nil {
-		return err
-	}
-
-	userID, err := parseUserIDFromCustomer(subscription.Customer)
-	if err != nil {
-		// Try fallback if customer metadata is missing
-		if subscription.Customer != nil && subscription.Customer.ID != "" {
-			userID, err = g.parseUserIDFromCustomerWithFallback(ctx, subscription.Customer.ID)
-			if err != nil {
-				return err
-			}
-		} else {
-			return err
-		}
-	}
-
-	return g.deactivateSubscription(ctx, userID, subscription, event)
+	return g.handleSubscriptionEvent(ctx, event, g.deactivateSubscription)
 }
 
 func (g *StripeGateway) handleSubscriptionUpdated(ctx context.Context, event stripe.Event) error {
-	subscription, err := g.validateSubscriptionEvent(event, true)
-	if err != nil {
-		return err
-	}
+	return g.handleSubscriptionEvent(ctx, event, g.handleSubscriptionUpdatedEvent)
+}
 
+func (g *StripeGateway) handleSubscriptionUpdatedEvent(ctx context.Context, userID uint, subscription *stripe.Subscription, event stripe.Event) error {
 	// Check if the subscription has a plan
 	planID, hasPlan, err := findPlanIDFromSubscription(subscription)
 	if err != nil {
 		return err
-	}
-
-	// Extract user ID with fallback
-	userID, err := parseUserIDFromCustomer(subscription.Customer)
-	if err != nil {
-		// Try fallback if customer metadata is missing
-		if subscription.Customer != nil && subscription.Customer.ID != "" {
-			userID, err = g.parseUserIDFromCustomerWithFallback(ctx, subscription.Customer.ID)
-			if err != nil {
-				return err
-			}
-		} else {
-			return err
-		}
 	}
 
 	// If no plan is found, treat as deactivation
@@ -303,16 +298,16 @@ type CustomerRetriever interface {
 	Get(ctx context.Context, id string, params *stripe.CustomerRetrieveParams) (*stripe.Customer, error)
 }
 
-// StripeCustomerRetriever implements CustomerRetriever using the actual Stripe API.
+// customerRetriever implements CustomerRetriever using the actual Stripe API.
 // This implementation makes real calls to the Stripe API to retrieve customer information.
-type StripeCustomerRetriever struct {
-	client *stripe.Client
+type customerRetriever struct {
+	client Client
 }
 
 // Get retrieves a Stripe customer by its ID using the Stripe API client.
 // It delegates directly to the Stripe client's customer retrieval method.
-func (r *StripeCustomerRetriever) Get(ctx context.Context, id string, params *stripe.CustomerRetrieveParams) (*stripe.Customer, error) {
-	return r.client.V1Customers.Retrieve(ctx, id, params)
+func (r *customerRetriever) Get(ctx context.Context, id string, params *stripe.CustomerRetrieveParams) (*stripe.Customer, error) {
+	return r.client.V1Customers().Retrieve(ctx, id, params)
 }
 
 // parseUserIDFromCustomerWithFallback attempts to parse user ID from customer metadata,
@@ -364,27 +359,79 @@ func extractPlanIDFromProduct(product *stripe.Product) (uint, bool, error) {
 	return uint(planIDUint), true, nil
 }
 
-// Helper function to validate subscription event data
-func (g *StripeGateway) validateSubscriptionEvent(event stripe.Event, requireItems bool) (*stripe.Subscription, error) {
-	if event.Data == nil {
-		return nil, fmt.Errorf("event data is nil")
+
+// extractUserIDFromSubscription extracts user ID from subscription customer metadata with fallback
+func (g *StripeGateway) extractUserIDFromSubscription(ctx context.Context, subscription *stripe.Subscription) (uint, error) {
+	userID, err := parseUserIDFromCustomer(subscription.Customer)
+	if err != nil {
+		// Try fallback if customer metadata is missing
+		if subscription.Customer != nil && subscription.Customer.ID != "" {
+			userID, err = g.parseUserIDFromCustomerWithFallback(ctx, subscription.Customer.ID)
+			if err != nil {
+				return 0, err
+			}
+		} else {
+			return 0, err
+		}
+	}
+	return userID, nil
+}
+
+// handleSubscriptionEvent is a generic function to handle subscription events
+func (g *StripeGateway) handleSubscriptionEvent(ctx context.Context, event stripe.Event, handler func(ctx context.Context, userID uint, subscription *stripe.Subscription, event stripe.Event) error) error {
+	subscription, err := g.getExpandedSubscriptionFromEvent(ctx, event)
+	if err != nil {
+		return err
 	}
 
-	if len(event.Data.Raw) == 0 {
-		return nil, fmt.Errorf("event data raw payload is empty")
+	userID, err := g.extractUserIDFromSubscription(ctx, subscription)
+	if err != nil {
+		return err
 	}
 
-	var subscription stripe.Subscription
-	if err := json.Unmarshal(event.Data.Raw, &subscription); err != nil {
+	return handler(ctx, userID, subscription, event)
+}
+
+// getExpandedSubscription retrieves a subscription with expanded product data
+func (g *StripeGateway) getExpandedSubscription(ctx context.Context, subscriptionID string) (*stripe.Subscription, error) {
+	params := &stripe.SubscriptionRetrieveParams{}
+	params.AddExpand("items.data.price.product")
+	return g.subService.Get(ctx, subscriptionID, params)
+}
+
+// getExpandedSubscriptionFromEvent extracts the subscription ID from a Stripe event and retrieves the expanded subscription
+func (g *StripeGateway) getExpandedSubscriptionFromEvent(ctx context.Context, event stripe.Event) (*stripe.Subscription, error) {
+	subscriptionID, err := g.extractSubscriptionIDFromEvent(event)
+	if err != nil {
 		return nil, err
 	}
 
-	// Check if there are any subscription items when required
-	if requireItems && (subscription.Items == nil || len(subscription.Items.Data) == 0) {
-		return nil, fmt.Errorf("subscription missing items")
+	subscription, err := g.getExpandedSubscription(ctx, subscriptionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch expanded subscription: %w", err)
 	}
 
-	return &subscription, nil
+	return subscription, nil
+}
+
+// extractSubscriptionIDFromEvent extracts the subscription ID from a Stripe event
+func (g *StripeGateway) extractSubscriptionIDFromEvent(event stripe.Event) (string, error) {
+	if event.Data == nil || len(event.Data.Raw) == 0 {
+		return "", fmt.Errorf("event data is nil or empty")
+	}
+
+	var eventData struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(event.Data.Raw, &eventData); err != nil {
+		return "", fmt.Errorf("failed to unmarshal event data: %w", err)
+	}
+
+	if eventData.ID == "" {
+		return "", fmt.Errorf("subscription ID not found in event data")
+	}
+
+	return eventData.ID, nil
 }
 
 // Helper function to find plan ID from subscription using expanded product data
@@ -452,9 +499,7 @@ func (g *StripeGateway) handleCheckoutSessionCompleted(ctx context.Context, even
 	}
 
 	// Fetch subscription data using Stripe API with expanded product data
-	params := &stripe.SubscriptionRetrieveParams{}
-	params.AddExpand("items.data.price.product")
-	subscription, err := g.subService.Get(ctx, session.Subscription.ID, params)
+	subscription, err := g.getExpandedSubscription(ctx, session.Subscription.ID)
 	if err != nil {
 		return fmt.Errorf("failed to fetch subscription: %w", err)
 	}
@@ -535,13 +580,7 @@ func (g *StripeGateway) activateSubscriptionWithPlanID(ctx context.Context, user
 	}
 
 	// Update customer metadata with user ID
-	if err := g.updateCustomerMetadata(ctx, g.secretKey, subscription.Customer.ID, userID); err != nil {
-		g.logger.Warn("failed to update customer metadata",
-			zap.Uint("user_id", userID),
-			zap.String("customer_id", subscription.Customer.ID),
-			zap.Error(err))
-		// Don't fail the activation if customer metadata update fails
-	}
+	g.updateCustomerMetadata(ctx, g.secretKey, subscription.Customer.ID, userID)
 
 	g.logger.Debug("subscription activated - added quota plan",
 		zap.Uint("user_id", userID),
@@ -636,26 +675,23 @@ func (g *StripeGateway) trackSubscriber(userID uint, gatewayID string, isActive 
 }
 
 // updateCustomerMetadata updates the customer's metadata with the user ID
-func (g *StripeGateway) updateCustomerMetadata(ctx context.Context, secretKey string, customerID string, userID uint) error {
+func (g *StripeGateway) updateCustomerMetadata(ctx context.Context, secretKey string, customerID string, userID uint) {
 	// Short-circuit if secret key is empty (for tests/dev)
 	if secretKey == "" {
-		return nil
+		return
 	}
 
 	params := &stripe.CustomerUpdateParams{}
 	params.AddMetadata(UserIDMetadataKey, strconv.FormatUint(uint64(userID), 10))
 
-	_, err := g.stripeClient.V1Customers.Update(ctx, customerID, params)
+	_, err := g.stripeClient.V1Customers().Update(ctx, customerID, params)
 	if err != nil {
 		// Best-effort update - log error but don't return it
 		g.logger.Warn("failed to update customer metadata",
 			zap.String("customer_id", customerID),
 			zap.Uint("user_id", userID),
 			zap.Error(err))
-		return nil
 	}
-
-	return nil
 }
 
 var _ pluginCore.PaymentGateway = (*StripeGateway)(nil)
