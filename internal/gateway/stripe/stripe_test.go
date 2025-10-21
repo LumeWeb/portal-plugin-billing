@@ -641,7 +641,17 @@ func TestStripeGateway_HandleWebhook_CheckoutSessionCompleted(t *testing.T) {
 				},
 			},
 		}
-		mockSubService.On("Get", mock.Anything, "sub_456", mock.AnythingOfType("*stripe.SubscriptionRetrieveParams")).Return(testSubscription, nil)
+		mockSubService.On("Get", mock.Anything, "sub_456", mock.MatchedBy(func(params *stripe.SubscriptionRetrieveParams) bool {
+			if params == nil {
+				return false
+			}
+			for _, expand := range params.Expand {
+				if *expand == "items.data.price.product" {
+					return true
+				}
+			}
+			return false
+		})).Return(testSubscription, nil)
 
 		// Setup mocks
 		mockUsers.On("AccountExists", userID).Return(true, createTestUser(userID), nil)
@@ -706,7 +716,7 @@ type MockCustomers struct {
 	mock.Mock
 }
 
-// Get mocks the Stripe customer retrieval
+// Retrieve mocks the Stripe customer retrieval
 func (m *MockCustomers) Retrieve(ctx context.Context, id string, params *stripe.CustomerRetrieveParams) (*stripe.Customer, error) {
 	args := m.Called(ctx, id, params)
 	customer, ok := args.Get(0).(*stripe.Customer)
@@ -731,7 +741,7 @@ type MockSubscriptions struct {
 	mock.Mock
 }
 
-// Get mocks the Stripe subscription retrieval
+// Retrieve mocks the Stripe subscription retrieval
 func (m *MockSubscriptions) Retrieve(ctx context.Context, id string, params *stripe.SubscriptionRetrieveParams) (*stripe.Subscription, error) {
 	args := m.Called(ctx, id, params)
 	subscription, ok := args.Get(0).(*stripe.Subscription)
@@ -777,7 +787,17 @@ func (m *MockSubscriptionRetriever) Get(ctx context.Context, id string, params *
 // Parameters:
 // - subscription: The subscription object to return
 func (m *MockSubscriptionRetriever) SetupGetSuccess(subscription *stripe.Subscription) {
-	m.On("Get", mock.Anything, subscription.ID, mock.AnythingOfType("*stripe.SubscriptionRetrieveParams")).Return(subscription, nil)
+	m.On("Get", mock.Anything, subscription.ID, mock.MatchedBy(func(params *stripe.SubscriptionRetrieveParams) bool {
+		if params == nil {
+			return false
+		}
+		for _, expand := range params.Expand {
+			if *expand == "items.data.price.product" {
+				return true
+			}
+		}
+		return false
+	})).Return(subscription, nil)
 }
 
 // SetupGetError configures the mock to return an error for subscription retrieval.
