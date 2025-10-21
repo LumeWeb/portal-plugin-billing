@@ -37,7 +37,7 @@ const (
 // making actual API calls.
 type SubscriptionRetriever interface {
 	// Get retrieves a Stripe subscription by its ID.
-	// 
+	//
 	// Parameters:
 	// - ctx: The context for the request
 	// - id: The Stripe subscription ID to retrieve
@@ -83,9 +83,9 @@ func New(logger *core.Logger, endpointSecret string, secretKey string, quota quo
 		users:          users,
 		billing:        billing,
 	}
-	
+
 	gateway.subService = gateway.subscriptionRetriever()
-	
+
 	return gateway
 }
 
@@ -266,7 +266,7 @@ func (g *StripeGateway) handleSubscriptionUpdated(ctx context.Context, event str
 		g.logger.Warn("subscription updated but product metadata missing plan_id",
 			zap.String("subscription_id", subscription.ID),
 			zap.String("event_id", event.ID))
-		
+
 		return g.deactivateSubscription(ctx, userID, subscription, event)
 	}
 
@@ -277,7 +277,6 @@ func (g *StripeGateway) handleSubscriptionUpdated(ctx context.Context, event str
 func (g *StripeGateway) SetQuota(quota quotaCore.QuotaService) {
 	g.quota = quota
 }
-
 
 // Helper function to parse user ID from customer metadata
 func parseUserIDFromCustomer(customer *stripe.Customer) (uint, error) {
@@ -292,7 +291,7 @@ func parseUserIDFromCustomer(customer *stripe.Customer) (uint, error) {
 // for both real API calls and mock implementations for testing.
 type CustomerRetriever interface {
 	// Get retrieves a Stripe customer by its ID.
-	// 
+	//
 	// Parameters:
 	// - ctx: The context for the request
 	// - id: The Stripe customer ID to retrieve
@@ -351,7 +350,7 @@ func extractPlanIDFromProduct(product *stripe.Product) (uint, bool, error) {
 	if product == nil || product.Metadata == nil {
 		return 0, false, nil
 	}
-	
+
 	planID := product.Metadata[PlanIDMetadataKey]
 	if planID == "" {
 		return 0, false, nil
@@ -393,13 +392,13 @@ func findPlanIDFromSubscription(sub *stripe.Subscription) (uint, bool, error) {
 	if sub.Items == nil || len(sub.Items.Data) == 0 {
 		return 0, false, nil
 	}
-	
+
 	for _, item := range sub.Items.Data {
-		if item == nil || item.Plan == nil || item.Plan.Product == nil {
+		if item == nil || item.Price == nil || item.Price.Product == nil {
 			continue
 		}
-		
-		planID, found, err := extractPlanIDFromProduct(item.Plan.Product)
+
+		planID, found, err := extractPlanIDFromProduct(item.Price.Product)
 		if err != nil {
 			return 0, false, err
 		}
@@ -407,7 +406,7 @@ func findPlanIDFromSubscription(sub *stripe.Subscription) (uint, bool, error) {
 			return planID, true, nil
 		}
 	}
-	
+
 	return 0, false, nil
 }
 
@@ -454,7 +453,7 @@ func (g *StripeGateway) handleCheckoutSessionCompleted(ctx context.Context, even
 
 	// Fetch subscription data using Stripe API with expanded product data
 	params := &stripe.SubscriptionRetrieveParams{}
-	params.AddExpand("data.plan.product")
+	params.AddExpand("items.data.price.product")
 	subscription, err := g.subService.Get(ctx, session.Subscription.ID, params)
 	if err != nil {
 		return fmt.Errorf("failed to fetch subscription: %w", err)
@@ -523,7 +522,7 @@ func (g *StripeGateway) activateSubscriptionWithPlanID(ctx context.Context, user
 	if subscription.Customer == nil {
 		return fmt.Errorf("subscription missing customer id")
 	}
-	
+
 	if subscription.Customer.ID == "" {
 		return fmt.Errorf("subscription missing customer id")
 	}

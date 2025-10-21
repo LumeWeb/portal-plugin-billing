@@ -168,15 +168,15 @@ func createTestSubscription(userID string, planID string) stripe.Subscription {
 				{
 					Price: &stripe.Price{
 						ID: "price_123",
-					},
-					Plan: &stripe.Plan{
-						ID: "plan_123",
 						Product: &stripe.Product{
 							ID: "prod_123",
 							Metadata: map[string]string{
 								PlanIDMetadataKey: planID,
 							},
 						},
+					},
+					Plan: &stripe.Plan{
+						ID: "plan_123",
 					},
 				},
 			},
@@ -611,15 +611,15 @@ func TestStripeGateway_HandleWebhook_CheckoutSessionCompleted(t *testing.T) {
 					{
 						Price: &stripe.Price{
 							ID: "price_456",
-						},
-						Plan: &stripe.Plan{
-							ID: "plan_456",
 							Product: &stripe.Product{
 								ID: "prod_456",
 								Metadata: map[string]string{
 									PlanIDMetadataKey: "3",
 								},
 							},
+						},
+						Plan: &stripe.Plan{
+							ID: "plan_456",
 						},
 					},
 				},
