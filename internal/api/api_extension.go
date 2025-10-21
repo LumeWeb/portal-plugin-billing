@@ -102,9 +102,7 @@ func (e *APIExtension) Configure(gRouter router.Router, accessSvc core.AccessSer
 				router.WithSummary("Get customer portal URL"),
 				router.WithDescription("Creates and returns a customer portal session URL for managing subscriptions"),
 				router.WithTags("Billing"),
-				router.WithRequestBody(map[string]interface{}{
-					"return_url": "string",
-				}, "Return URL to redirect to after leaving the customer portal", true),
+				router.WithRequestBody(dto.CustomerPortalRequest{}, "Return URL to redirect to after leaving the customer portal", true),
 				router.WithSuccessResponse(http.StatusOK, "Customer portal URL created successfully",
 					router.WithJSONContent(dto.CustomerPortalResponse{})),
 				router.WithErrorResponses(
@@ -154,17 +152,11 @@ func (e *APIExtension) handleCustomerPortal(c echo.Context) error {
 		return ctx.Error(fmt.Errorf("failed to get user ID"), http.StatusUnauthorized)
 	}
 
-	// Parse request body
-	var request struct {
-		ReturnURL string `json:"return_url"`
-	}
-
-	if err := c.Bind(&request); err != nil {
-		return ctx.Error(fmt.Errorf("invalid request body: %w", err), http.StatusBadRequest)
-	}
-
-	if request.ReturnURL == "" {
-		return ctx.Error(fmt.Errorf("return_url is required"), http.StatusBadRequest)
+	// Parse and validate request body
+	var request dto.CustomerPortalRequest
+	_, valid := httputil.DecodeAndValidateRequest[*dto.CustomerPortalRequest, *dto.CustomerPortalRequest](ctx, &request)
+	if !valid {
+		return nil // Error handled by DecodeAndValidateRequest
 	}
 
 	// Get active subscription to determine gateway
