@@ -3,12 +3,15 @@ package dto
 import (
 	"time"
 
+	z "github.com/Oudwins/zog"
 	"go.lumeweb.com/httputil"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
 )
 
 var (
 	_ httputil.DTOResponse[*pluginCore.Subscriber] = (*SubscriptionStatusResponse)(nil)
+	_ httputil.DTOValidator                        = (*CustomerPortalRequest)(nil)
+	_ httputil.DTORequest[*CustomerPortalRequest]  = (*CustomerPortalRequest)(nil)
 )
 
 // SubscriptionStatusResponse represents the subscription status response
@@ -39,6 +42,21 @@ func (r *SubscriptionStatusResponse) FromModel(subscriber *pluginCore.Subscriber
 	r.UpdatedAt = &subscriber.UpdatedAt
 
 	return nil
+}
+
+// CustomerPortalRequest represents the request to create a customer portal session
+type CustomerPortalRequest struct {
+	ReturnURL string `json:"return_url"`
+}
+
+func (r *CustomerPortalRequest) Schema() *z.StructSchema {
+	return z.Struct(z.Shape{
+		"ReturnURL": z.String().Required().URL(),
+	})
+}
+
+func (r *CustomerPortalRequest) ToModel() (*CustomerPortalRequest, error) {
+	return r, nil
 }
 
 // CustomerPortalResponse represents the customer portal URL response
