@@ -24,17 +24,35 @@ type MockStripeClient struct {
 
 // V1BillingPortalSessions returns the mock billing portal sessions service
 func (m *MockStripeClient) V1BillingPortalSessions() BillingPortalSessions {
+	if m.BillingPortalSessionsService == nil {
+		panic("MockStripeClient.V1BillingPortalSessions called but BillingPortalSessionsService is nil")
+	}
 	return m.BillingPortalSessionsService
 }
 
 // V1Customers returns the mock customers service
 func (m *MockStripeClient) V1Customers() Customers {
+	if m.CustomersService == nil {
+		panic("MockStripeClient.V1Customers called but CustomersService is nil")
+	}
 	return m.CustomersService
 }
 
 // V1Subscriptions returns the mock subscriptions service
 func (m *MockStripeClient) V1Subscriptions() Subscriptions {
+	if m.SubscriptionsService == nil {
+		panic("MockStripeClient.V1Subscriptions called but SubscriptionsService is nil")
+	}
 	return m.SubscriptionsService
+}
+
+// NewMockStripeClient creates a new MockStripeClient with sensible default mock services
+func NewMockStripeClient() *MockStripeClient {
+	return &MockStripeClient{
+		BillingPortalSessionsService: &MockBillingPortalSessions{},
+		CustomersService:             &MockCustomers{},
+		SubscriptionsService:         &MockSubscriptions{},
+	}
 }
 
 // MockBillingPortalSessions is a mock implementation of the billing portal sessions service
@@ -133,7 +151,7 @@ func (m *MockSubscriptionRetriever) SetupGetSuccess(subscription *stripe.Subscri
 			return false
 		}
 		for _, expand := range params.Expand {
-			if *expand == "items.data.price.product" {
+			if expand != nil && *expand == "items.data.price.product" {
 				return true
 			}
 		}
@@ -190,6 +208,17 @@ func CreateMockStripeGateway(
 	mockQuota := core.GetService[quotaCore.QuotaService](ctx, quotaCore.QUOTA_SERVICE)
 	mockUsers := core.GetService[core.UserService](ctx, core.USER_SERVICE)
 	mockBilling := core.GetService[pluginCore.BillingService](ctx, pluginCore.BILLING_SERVICE)
+
+	// Add explicit nil checks for mock services
+	if mockQuota == nil {
+		panic("CreateMockStripeGateway: missing QuotaService in test context")
+	}
+	if mockUsers == nil {
+		panic("CreateMockStripeGateway: missing UserService in test context")
+	}
+	if mockBilling == nil {
+		panic("CreateMockStripeGateway: missing BillingService in test context")
+	}
 
 	// Create mock Stripe client and services
 	mockStripeClient := &MockStripeClient{

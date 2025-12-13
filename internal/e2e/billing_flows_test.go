@@ -91,7 +91,10 @@ func createTestUserAndLogin(ctx coreTesting.TestContext) (string, uint) {
 		"first_name": "Test",
 		"last_name":  "User",
 	}
-	body, _ := json.Marshal(registerReq)
+	body, err := json.Marshal(registerReq)
+	if err != nil {
+		ctx.T().Fatalf("failed to marshal register request: %v", err)
+	}
 
 	req := ctx.NewAPIRequest(http.MethodPost, "/api/auth/register", body)
 	req.Header.Set("Content-Type", "application/json")
@@ -109,7 +112,10 @@ func createTestUserAndLogin(ctx coreTesting.TestContext) (string, uint) {
 		"password": TestUserPassword,
 		"remember": false,
 	}
-	body, _ = json.Marshal(loginReq)
+	body, err = json.Marshal(loginReq)
+	if err != nil {
+		ctx.T().Fatalf("failed to marshal login request: %v", err)
+	}
 
 	req = ctx.NewAPIRequest(http.MethodPost, "/api/auth/login", body)
 	req.Header.Set("Content-Type", "application/json")
@@ -552,7 +558,6 @@ func TestSubscriptionSignup_DuplicatePrevention(t *testing.T) {
 		assert.Equal(t, http.StatusNoContent, rec.Code)
 
 		// Send the same webhook again (should be deduplicated)
-		event = createStripeCheckoutSessionEvent(helper.userID, subscriptionID)
 		rec = helper.SendWebhook(event)
 		assert.Equal(t, http.StatusNoContent, rec.Code)
 
@@ -631,6 +636,7 @@ func TestPlanUpgrade_PlanUpgradeFlow(t *testing.T) {
 
 		// Verify initial plan
 		response := helper.GetSubscriptionStatus()
+		require.NotNil(t, response.PlanID)
 		assert.Equal(t, initialPlanID, *response.PlanID)
 
 		// Set up mock subscription for upgrade scenario
@@ -650,6 +656,7 @@ func TestPlanUpgrade_PlanUpgradeFlow(t *testing.T) {
 
 		// Verify plan was upgraded
 		response = helper.GetSubscriptionStatus()
+		require.NotNil(t, response.PlanID)
 		assert.Equal(t, upgradePlanID, *response.PlanID)
 	})
 }
@@ -681,6 +688,7 @@ func TestPlanDowngrade_PlanDowngradeFlow(t *testing.T) {
 
 		// Verify initial plan
 		response := helper.GetSubscriptionStatus()
+		require.NotNil(t, response.PlanID)
 		assert.Equal(t, initialPlanID, *response.PlanID)
 
 		// Set up mock subscription for downgrade scenario
@@ -700,6 +708,7 @@ func TestPlanDowngrade_PlanDowngradeFlow(t *testing.T) {
 
 		// Verify plan was downgraded
 		response = helper.GetSubscriptionStatus()
+		require.NotNil(t, response.PlanID)
 		assert.Equal(t, downgradePlanID, *response.PlanID)
 	})
 }
