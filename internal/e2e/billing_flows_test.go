@@ -148,7 +148,7 @@ func createTestUserAndLogin(ctx coreTesting.TestContext) (string, uint) {
 	var loginResponse struct {
 		Token string `json:"token"`
 	}
-	err := json.Unmarshal(rec.Body.Bytes(), &loginResponse)
+	err = json.Unmarshal(rec.Body.Bytes(), &loginResponse)
 	if err != nil {
 		ctx.T().Fatalf("failed to parse login response: %v", err)
 	}
@@ -328,7 +328,10 @@ func createStripeCheckoutSessionEvent(userID uint, subscriptionID string) *strip
 			"plan_id": fmt.Sprintf("%d", userID*10), // Generate a plan ID
 		},
 	}
-	rawData, _ := json.Marshal(checkoutSession)
+	rawData, err := json.Marshal(checkoutSession)
+	if err != nil {
+		panic(fmt.Sprintf("test setup failed: %v", err))
+	}
 
 	return &stripe.Event{
 		ID:         fmt.Sprintf("evt_test_%d", time.Now().UnixNano()),
@@ -358,7 +361,10 @@ func createStripeSubscriptionEvent(eventType, subscriptionID, customerID string,
 		subscription.Metadata["plan_id"] = fmt.Sprintf("%d", *planID)
 	}
 
-	rawData, _ := json.Marshal(subscription)
+	rawData, err := json.Marshal(subscription)
+	if err != nil {
+		panic(fmt.Sprintf("test setup failed: %v", err))
+	}
 
 	return &stripe.Event{
 		ID:         fmt.Sprintf("evt_test_%d", time.Now().UnixNano()),
@@ -431,7 +437,10 @@ func (h *TestSetupHelpers) RequestCustomerPortal(returnURL string) billingDTO.Cu
 	requestBody := billingDTO.CustomerPortalRequest{
 		ReturnURL: returnURL,
 	}
-	bodyBytes, _ := json.Marshal(requestBody)
+	bodyBytes, err := json.Marshal(requestBody)
+	if err != nil {
+		h.ctx.T().Fatalf("failed to marshal customer portal request: %v", err)
+	}
 
 	req := h.ctx.NewAPIRequest(http.MethodPost, "/api/account/billing/customer-portal", bodyBytes)
 	req.Header.Set("Authorization", "Bearer "+h.token)
@@ -445,7 +454,7 @@ func (h *TestSetupHelpers) RequestCustomerPortal(returnURL string) billingDTO.Cu
 	}
 
 	var response billingDTO.CustomerPortalResponse
-	err := json.Unmarshal(rec.Body.Bytes(), &response)
+	err = json.Unmarshal(rec.Body.Bytes(), &response)
 	if err != nil {
 		h.ctx.T().Fatalf("Failed to parse customer portal response: %v", err)
 	}
@@ -869,6 +878,7 @@ func TestSubscriptionReactivation_SubscriptionReactivationFlow(t *testing.T) {
 		response = helper.GetSubscriptionStatus()
 		assert.True(t, response.IsSubscribed)
 		assert.Equal(t, "stripe", response.GatewayType)
+		require.NotNil(t, response.PlanID)
 		assert.Equal(t, planID, *response.PlanID)
 	})
 }
@@ -913,7 +923,8 @@ func TestCustomerPortal_InactiveUser(t *testing.T) {
 		requestBody := billingDTO.CustomerPortalRequest{
 			ReturnURL: "https://example.com/return",
 		}
-		bodyBytes, _ := json.Marshal(requestBody)
+		bodyBytes, err := json.Marshal(requestBody)
+		require.NoError(t, err, "failed to marshal customer portal request")
 
 		req := ctx.NewAPIRequest(http.MethodPost, "/api/account/billing/customer-portal", bodyBytes)
 		req.Header.Set("Authorization", "Bearer "+helper.token)
@@ -925,7 +936,7 @@ func TestCustomerPortal_InactiveUser(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 		var response map[string]interface{}
-		err := json.Unmarshal(rec.Body.Bytes(), &response)
+		err = json.Unmarshal(rec.Body.Bytes(), &response)
 		require.NoError(t, err)
 
 		assert.Contains(t, response["error"].(string), "no active subscription found")
