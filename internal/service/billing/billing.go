@@ -15,6 +15,7 @@ import (
 	"go.lumeweb.com/portal-plugin-billing/internal/gateway/stripe"
 	quotaCore "go.lumeweb.com/portal-plugin-quota/core"
 	"go.lumeweb.com/portal/core"
+	"go.lumeweb.com/portal/event"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -55,34 +56,38 @@ func NewBillingServiceWithRegistry(registry *gateway.Registry) (core.Service, []
 			service.logger = ctx.ServiceLogger(service)
 			service.db = ctx.DB()
 
-			// Load service configuration
-			service.config = core.GetServiceConfig[*config.ServiceConfig](ctx, pluginCore.BILLING_SERVICE)
+			event.OnBootStartupFuncsCompleted(ctx, func(ctx core.Context) error {
+				// Load service configuration
+				service.config = core.GetServiceConfig[*config.ServiceConfig](ctx, pluginCore.BILLING_SERVICE)
 
-			// Register Stripe gateway if webhook secret is configured
-			if secret := strings.TrimSpace(service.config.Stripe.WebhookSecret); secret != "" {
-				// Get quota service
-				quotaSvc := core.GetService[quotaCore.QuotaService](ctx, quotaCore.QUOTA_SERVICE)
-				if quotaSvc == nil {
-					return fmt.Errorf("quota service is required for stripe gateway but not available")
+				// Register Stripe gateway if webhook secret is configured
+				if secret := strings.TrimSpace(service.config.Stripe.WebhookSecret); secret != "" {
+					// Get quota service
+					quotaSvc := core.GetService[quotaCore.QuotaService](ctx, quotaCore.QUOTA_SERVICE)
+					if quotaSvc == nil {
+						return fmt.Errorf("quota service is required for stripe gateway but not available")
+					}
+
+					// Get user service
+					userSvc := core.GetService[core.UserService](ctx, core.USER_SERVICE)
+					if userSvc == nil {
+						return fmt.Errorf("user service is required for stripe gateway but not available")
+					}
+
+					if err := service.gateways.Register(stripe.New(
+						service.logger,
+						secret,
+						service.config.Stripe.SecretKey,
+						quotaSvc,
+						userSvc,
+						service,
+					)); err != nil {
+						return fmt.Errorf("failed to register stripe gateway: %w", err)
+					}
 				}
 
-				// Get user service
-				userSvc := core.GetService[core.UserService](ctx, core.USER_SERVICE)
-				if userSvc == nil {
-					return fmt.Errorf("user service is required for stripe gateway but not available")
-				}
-
-				if err := service.gateways.Register(stripe.New(
-					service.logger,
-					secret,
-					service.config.Stripe.SecretKey,
-					quotaSvc,
-					userSvc,
-					service,
-				)); err != nil {
-					return fmt.Errorf("failed to register stripe gateway: %w", err)
-				}
-			}
+				return nil
+			})
 
 			return nil
 		}),
