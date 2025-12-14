@@ -246,7 +246,7 @@ func (e *APIExtension) handleWebhook(c echo.Context) error {
 	}
 
 	// Process the webhook through the billing service
-	if err := e.billingService.ProcessWebhook(c.Request().Context(), gatewayType, signature, payload); err != nil {
+	if err = e.billingService.ProcessWebhook(c.Request().Context(), gatewayType, signature, payload); err != nil {
 		e.logger.Error("failed to process webhook",
 			zap.String("gateway", gatewayType),
 			zap.Error(err))

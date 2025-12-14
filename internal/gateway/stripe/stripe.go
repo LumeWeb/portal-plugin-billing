@@ -61,8 +61,6 @@ func (r *subscriptionRetriever) Get(ctx context.Context, id string, params *stri
 	return r.client.V1Subscriptions().Retrieve(ctx, id, params)
 }
 
-
-
 // Client defines the interface for Stripe client operations
 type Client interface {
 	V1BillingPortalSessions() BillingPortalSessions
@@ -105,20 +103,20 @@ func (w *client) V1Subscriptions() Subscriptions {
 
 // StripeGateway implements the PaymentGateway interface for Stripe
 type StripeGateway struct {
-	logger         *core.Logger
-	endpointSecret string
-	secretKey      string
-	stripeClient   Client
-	quota          quotaCore.QuotaService
-	users          core.UserService
-	billing        pluginCore.BillingService
-	subService     SubscriptionRetriever
+	logger          *core.Logger
+	endpointSecret  string
+	secretKey       string
+	stripeClient    Client
+	quota           quotaCore.QuotaService
+	users           core.UserService
+	billing         pluginCore.BillingService
+	subService      SubscriptionRetriever
 	customerService CustomerRetriever
 }
 
 func New(logger *core.Logger, endpointSecret string, secretKey string, quota quotaCore.QuotaService, users core.UserService, billing pluginCore.BillingService) *StripeGateway {
 	stripeClient := &client{client: stripe.NewClient(secretKey)}
-	
+
 	gateway := &StripeGateway{
 		logger:         logger,
 		endpointSecret: endpointSecret,
@@ -273,6 +271,21 @@ func (g *StripeGateway) SetQuota(quota quotaCore.QuotaService) {
 	g.quota = quota
 }
 
+// GetSubscriptionRetriever returns the subscription retriever for testing purposes
+func (g *StripeGateway) GetSubscriptionRetriever() SubscriptionRetriever {
+	return g.subService
+}
+
+// GetCustomerRetriever returns the customer retriever for testing purposes
+func (g *StripeGateway) GetCustomerRetriever() CustomerRetriever {
+	return g.customerService
+}
+
+// GetStripeClient returns the Stripe client for testing purposes
+func (g *StripeGateway) GetStripeClient() Client {
+	return g.stripeClient
+}
+
 // Helper function to parse user ID from customer metadata
 func parseUserIDFromCustomer(customer *stripe.Customer) (uint, error) {
 	if customer == nil {
@@ -358,7 +371,6 @@ func extractPlanIDFromProduct(product *stripe.Product) (uint, bool, error) {
 
 	return uint(planIDUint), true, nil
 }
-
 
 // extractUserIDFromSubscription extracts user ID from subscription customer metadata with fallback
 func (g *StripeGateway) extractUserIDFromSubscription(ctx context.Context, subscription *stripe.Subscription) (uint, error) {
