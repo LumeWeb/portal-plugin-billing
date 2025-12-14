@@ -744,4 +744,18 @@ func (g *StripeGateway) updateCustomerMetadata(ctx context.Context, secretKey st
 	}
 }
 
+// SetCustomerRetrieverForTesting sets a mock customer retriever for testing purposes.
+// This method should only be used in tests and allows injection of a mock
+// customer retriever to avoid making actual Stripe API calls.
+func (g *StripeGateway) SetCustomerRetrieverForTesting(retriever CustomerRetriever) {
+	g.customerService = retriever
+}
+
+// ExtractUserIDFromSubscriptionForTesting extracts the user ID from a Stripe subscription.
+// This is a test-only method that exposes the internal user ID extraction logic.
+// It first checks the customer metadata for a user_id, then falls back to database lookup.
+func (g *StripeGateway) ExtractUserIDFromSubscriptionForTesting(ctx context.Context, subscription *stripe.Subscription) (uint, error) {
+	return g.extractUserIDFromSubscription(ctx, subscription)
+}
+
 var _ pluginCore.PaymentGateway = (*StripeGateway)(nil)
