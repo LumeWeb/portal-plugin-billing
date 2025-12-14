@@ -326,8 +326,8 @@ func (r *customerRetriever) Get(ctx context.Context, id string, params *stripe.C
 // parseUserIDFromCustomerWithFallback attempts to parse user ID from customer metadata,
 // and if that fails, fetches the customer from Stripe API and tries again.
 func (g *StripeGateway) parseUserIDFromCustomerWithFallback(ctx context.Context, customerID string) (uint, error) {
-	// Fetch customer directly from Stripe API
-	customer, err := g.customerRetriever().Get(ctx, customerID, nil)
+	// Fetch customer directly from Stripe API using injected customer service
+	customer, err := g.customerService.Get(ctx, customerID, nil)
 	if err != nil {
 		return 0, fmt.Errorf("failed to fetch customer %s: %w", customerID, err)
 	}
@@ -378,12 +378,32 @@ func (g *StripeGateway) extractUserIDFromSubscription(ctx context.Context, subsc
 	if err != nil {
 		// Try fallback if customer metadata is missing
 		if subscription.Customer != nil && subscription.Customer.ID != "" {
+			// First try to look up user_id from our database using gateway_id (customer_id)
+			if g.billing != nil {
+				subscriber, err := g.billing.GetSubscriberByGatewayID(subscription.Customer.ID, GatewayID)
+				if err == nil && subscriber != nil {
+					g.logger.Debug("found user_id from billing_subscribers table",
+						zap.String("customer_id", subscription.Customer.ID),
+						zap.Uint("user_id", subscriber.UserID),
+						zap.String("subscription_id", subscription.ID))
+					return subscriber.UserID, nil
+				}
+				if err != nil {
+					g.logger.Warn("failed to look up subscriber by gateway id; falling back to Stripe",
+						zap.String("customer_id", subscription.Customer.ID),
+						zap.String("subscription_id", subscription.ID),
+						zap.Error(err))
+				}
+			}
+
+			// Final fallback: try to fetch from Stripe API
 			userID, err = g.parseUserIDFromCustomerWithFallback(ctx, subscription.Customer.ID)
 			if err != nil {
 				// Log detailed error for debugging but don't fail the webhook
-				g.logger.Error("customer metadata missing user_id - webhook ignored",
+				g.logger.Info("customer metadata missing user_id - webhook ignored (customer may need manual metadata update)",
 					zap.String("customer_id", subscription.Customer.ID),
 					zap.String("subscription_id", subscription.ID),
+					zap.String("event_type", "subscription_processing"),
 					zap.Error(err))
 				return 0, nil // Return 0 to indicate no valid user ID, but don't fail
 			}
