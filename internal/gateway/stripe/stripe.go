@@ -380,10 +380,18 @@ func (g *StripeGateway) extractUserIDFromSubscription(ctx context.Context, subsc
 		if subscription.Customer != nil && subscription.Customer.ID != "" {
 			userID, err = g.parseUserIDFromCustomerWithFallback(ctx, subscription.Customer.ID)
 			if err != nil {
-				return 0, err
+				// Log detailed error for debugging but don't fail the webhook
+				g.logger.Error("customer metadata missing user_id - webhook ignored",
+					zap.String("customer_id", subscription.Customer.ID),
+					zap.String("subscription_id", subscription.ID),
+					zap.Error(err))
+				return 0, nil // Return 0 to indicate no valid user ID, but don't fail
 			}
 		} else {
-			return 0, err
+			// Log error for customers without ID
+			g.logger.Error("subscription has no customer ID - webhook ignored",
+				zap.String("subscription_id", subscription.ID))
+			return 0, nil // Return 0 to indicate no valid user ID, but don't fail
 		}
 	}
 	return userID, nil
@@ -399,6 +407,16 @@ func (g *StripeGateway) handleSubscriptionEvent(ctx context.Context, event strip
 	userID, err := g.extractUserIDFromSubscription(ctx, subscription)
 	if err != nil {
 		return err
+	}
+
+	// If userID is 0, it means we couldn't extract a valid user ID
+	// In this case, we should ignore the event rather than fail
+	if userID == 0 {
+		g.logger.Debug("ignoring subscription event due to missing user ID",
+			zap.String("event_id", event.ID),
+			zap.String("event_type", string(event.Type)),
+			zap.String("subscription_id", subscription.ID))
+		return nil
 	}
 
 	return handler(ctx, userID, subscription, event)
