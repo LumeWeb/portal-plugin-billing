@@ -2,7 +2,7 @@ module go.lumeweb.com/portal-plugin-billing
 
 go 1.24.3
 
-replace github.com/go-viper/mapstructure/v2 => github.com/LumeWeb/mapstructure/v2 v2.0.0-20241213212524-92525f5828be
+replace github.com/go-viper/mapstructure/v2 => github.com/LumeWeb/mapstructure/v2 v2.0.0-20241118124956-8101c0bc3534
 
 require (
 	github.com/Oudwins/zog v0.21.9
@@ -14,6 +14,7 @@ require (
 	go.lumeweb.com/httputil v0.5.3
 	go.lumeweb.com/portal v0.4.2-0.20251213161244-e7dc66f2aea1
 	go.lumeweb.com/portal-middleware v0.3.3
+	go.lumeweb.com/portal-plugin-core v0.0.0-20251213020130-9d424965fad2
 	go.lumeweb.com/portal-plugin-dashboard v0.2.7-0.20251213101354-739005102118
 	go.lumeweb.com/portal-plugin-quota v0.0.0-20251213013221-ccfd8059bce6
 	go.lumeweb.com/portal-router v0.6.8
@@ -179,7 +180,6 @@ require (
 	go.lumeweb.com/configmanager v0.3.21 // indirect
 	go.lumeweb.com/event/v2 v2.1.0 // indirect
 	go.lumeweb.com/gswagger v0.20.10 // indirect
-	go.lumeweb.com/portal-plugin-core v0.0.0-20251213020130-9d424965fad2 // indirect
 	go.lumeweb.com/queryutil v0.3.15 // indirect
 	go.lumeweb.com/web/go/portal-dashboard v0.0.0-20251007105956-9515ed1f2355 // indirect
 	go.lumeweb.com/web/go/portal-plugin-core v0.0.0-20251002232245-a7ec646aadd4 // indirect

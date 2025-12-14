@@ -25,6 +25,8 @@ github.com/AzureAD/microsoft-authentication-library-for-go v1.4.2 h1:oygO0locgZJ
 github.com/AzureAD/microsoft-authentication-library-for-go v1.4.2/go.mod h1:wP83P5OoQ5p6ip3ScPr0BAq0BvuPAvacpEuSzyouqAI=
 github.com/DATA-DOG/go-sqlmock v1.5.2 h1:OcvFkGmslmlZibjAjaHm3L//6LiuBgolP7OputlJIzU=
 github.com/DATA-DOG/go-sqlmock v1.5.2/go.mod h1:88MAG/4G7SMwSE3CeA0ZKzrT5CiOU3OJ+JlNzwDqpNU=
+github.com/LumeWeb/mapstructure/v2 v2.0.0-20241118124956-8101c0bc3534 h1:XoNR6hMiZxDckYsptJiSATt3L4PuJijDWj2KQ50+BE4=
+github.com/LumeWeb/mapstructure/v2 v2.0.0-20241118124956-8101c0bc3534/go.mod h1:oJDH3BJKyqBA2TXFhDsKDGDTlndYOZ6rGS0BRZIxGhM=
 github.com/LumeWeb/mapstructure/v2 v2.0.0-20241213212524-92525f5828be h1:oDjPBdoa6QBvAAo7AGPHPEVpTIX1DWGYhKKJsmZhX7o=
 github.com/LumeWeb/mapstructure/v2 v2.0.0-20241213212524-92525f5828be/go.mod h1:oJDH3BJKyqBA2TXFhDsKDGDTlndYOZ6rGS0BRZIxGhM=
 github.com/Oudwins/zog v0.21.9 h1:nYg9b+fUpkm+IMN3WsX3lvdqmWWQMeqgOaraaC/TkV4=
