@@ -33,6 +33,8 @@ type BillingService interface {
 	DeactivateSubscriber(userID uint, gatewayType string) error
 	// GetActiveSubscriber returns an active subscriber for the given user and gateway
 	GetActiveSubscriber(userID uint, gatewayType string) (*Subscriber, error)
+	// GetSubscriberByGatewayID returns a subscriber by gateway ID (customer ID) across all gateway types
+	GetSubscriberByGatewayID(gatewayID string) (*Subscriber, error)
 	// IsUserActiveSubscriber checks if a user has an active subscription with any gateway
 	IsUserActiveSubscriber(userID uint) (bool, error)
 	// GetActiveSubscribersByGateway returns all active subscribers for a specific gateway

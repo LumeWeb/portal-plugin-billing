@@ -538,6 +538,68 @@ func (_c *MockBillingService_GetSignatureHeader_Call) RunAndReturn(run func(gate
 	return _c
 }
 
+// GetSubscriberByGatewayID provides a mock function for the type MockBillingService
+func (_mock *MockBillingService) GetSubscriberByGatewayID(gatewayID string) (*Subscriber, error) {
+	ret := _mock.Called(gatewayID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetSubscriberByGatewayID")
+	}
+
+	var r0 *Subscriber
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(string) (*Subscriber, error)); ok {
+		return returnFunc(gatewayID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(string) *Subscriber); ok {
+		r0 = returnFunc(gatewayID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*Subscriber)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(string) error); ok {
+		r1 = returnFunc(gatewayID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockBillingService_GetSubscriberByGatewayID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetSubscriberByGatewayID'
+type MockBillingService_GetSubscriberByGatewayID_Call struct {
+	*mock.Call
+}
+
+// GetSubscriberByGatewayID is a helper method to define mock.On call
+//   - gatewayID string
+func (_e *MockBillingService_Expecter) GetSubscriberByGatewayID(gatewayID interface{}) *MockBillingService_GetSubscriberByGatewayID_Call {
+	return &MockBillingService_GetSubscriberByGatewayID_Call{Call: _e.mock.On("GetSubscriberByGatewayID", gatewayID)}
+}
+
+func (_c *MockBillingService_GetSubscriberByGatewayID_Call) Run(run func(gatewayID string)) *MockBillingService_GetSubscriberByGatewayID_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 string
+		if args[0] != nil {
+			arg0 = args[0].(string)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *MockBillingService_GetSubscriberByGatewayID_Call) Return(v *Subscriber, err error) *MockBillingService_GetSubscriberByGatewayID_Call {
+	_c.Call.Return(v, err)
+	return _c
+}
+
+func (_c *MockBillingService_GetSubscriberByGatewayID_Call) RunAndReturn(run func(gatewayID string) (*Subscriber, error)) *MockBillingService_GetSubscriberByGatewayID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ID provides a mock function for the type MockBillingService
 func (_mock *MockBillingService) ID() string {
 	ret := _mock.Called()

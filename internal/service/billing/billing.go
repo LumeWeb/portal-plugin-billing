@@ -287,6 +287,21 @@ func (s *BillingServiceDefault) GetActiveSubscriber(userID uint, gatewayType str
 	return (*pluginCore.Subscriber)(&subscriber), nil
 }
 
+// GetSubscriberByGatewayID returns a subscriber by gateway ID (customer ID) across all gateway types
+func (s *BillingServiceDefault) GetSubscriberByGatewayID(gatewayID string) (*pluginCore.Subscriber, error) {
+	var subscriber models.Subscriber
+	err := s.db.Where("gateway_id = ?", gatewayID).
+		Order("updated_at DESC").
+		First(&subscriber).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return (*pluginCore.Subscriber)(&subscriber), nil
+}
+
 // IsUserActiveSubscriber checks if a user has an active subscription with any gateway
 func (s *BillingServiceDefault) IsUserActiveSubscriber(userID uint) (bool, error) {
 	var count int64
