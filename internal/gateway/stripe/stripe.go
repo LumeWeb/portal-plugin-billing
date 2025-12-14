@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/stripe/stripe-go/v83"
 	"github.com/stripe/stripe-go/v83/webhook"
@@ -248,6 +249,18 @@ func (g *StripeGateway) handleSubscriptionUpdated(ctx context.Context, event str
 }
 
 func (g *StripeGateway) handleSubscriptionUpdatedEvent(ctx context.Context, userID uint, subscription *stripe.Subscription, event stripe.Event) error {
+	// Check if this is a cancellation request
+	if g.isCancellationRequest(subscription) {
+		g.logger.Debug("subscription cancellation request received - ignoring until deletion event",
+			zap.Uint("user_id", userID),
+			zap.String("subscription_id", subscription.ID),
+			zap.String("event_id", event.ID),
+			zap.Time("cancel_at", time.Unix(subscription.CancelAt, 0)))
+
+		// Don't make any changes for cancellation requests - wait for the actual deletion event
+		return nil
+	}
+
 	// Check if the subscription has a plan
 	planID, hasPlan, err := findPlanIDFromSubscription(subscription)
 	if err != nil {
@@ -370,6 +383,23 @@ func extractPlanIDFromProduct(product *stripe.Product) (uint, bool, error) {
 	}
 
 	return uint(planIDUint), true, nil
+}
+
+// isCancellationRequest checks if a subscription update represents a cancellation request
+// This happens when a user requests cancellation through the Stripe customer portal
+// but the subscription remains active until the end of the billing period
+func (g *StripeGateway) isCancellationRequest(subscription *stripe.Subscription) bool {
+	// Check if subscription is scheduled for cancellation at a specific time
+	if subscription.CancelAt > 0 {
+		return true
+	}
+
+	// Check if cancellation details indicate a cancellation was requested
+	if subscription.CancellationDetails != nil && subscription.CancellationDetails.Reason == "cancellation_requested" {
+		return true
+	}
+
+	return false
 }
 
 // extractUserIDFromSubscription extracts user ID from subscription customer metadata with fallback

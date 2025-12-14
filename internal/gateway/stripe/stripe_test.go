@@ -495,6 +495,66 @@ func TestStripeGateway_HandleWebhook_NilSubscriptionItems(t *testing.T) {
 	})
 }
 
+func TestStripeGateway_HandleWebhook_SubscriptionUpdated_CancellationRequest(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockQuota, mockUsers, mockBilling := setupMockServices(ctx)
+		mockSubService := &MockSubscriptionRetriever{}
+
+		// Create subscription with cancellation request (cancel_at set)
+		cancelAt := time.Now().Add(30 * 24 * time.Hour).Unix() // 30 days from now
+		subscription := stripe.Subscription{
+			ID: TestSubscriptionID,
+			Customer: &stripe.Customer{
+				ID: TestCustomerID,
+				Metadata: map[string]string{
+					UserIDMetadataKey: "123",
+				},
+			},
+			Metadata: map[string]string{
+				UserIDMetadataKey: "123",
+			},
+			CancelAt: cancelAt,
+			CancellationDetails: &stripe.SubscriptionCancellationDetails{
+				Reason: "cancellation_requested",
+			},
+			Items: &stripe.SubscriptionItemList{
+				Data: []*stripe.SubscriptionItem{
+					{
+						Price: &stripe.Price{
+							ID: "price_123",
+							Product: &stripe.Product{
+								ID: "prod_123",
+								Metadata: map[string]string{
+									PlanIDMetadataKey: "2",
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		rawData, _ := json.Marshal(subscription)
+		event := createTestEvent(EventTypeSubscriptionUpdated, rawData)
+		payload, _ := json.Marshal(event)
+
+		mockSubService.SetupGetSuccess(&subscription)
+
+		gw := New(ctx.Logger(), "test_secret", "", mockQuota, mockUsers, mockBilling)
+		gw.subService = mockSubService
+		err := gw.HandleWebhook(context.Background(), payload)
+
+		// Should not make any changes for cancellation requests
+		assert.NoError(t, err)
+
+		// Verify that no quota or billing operations were called
+		mockQuota.AssertNotCalled(t, "AssignUserToPlan")
+		mockQuota.AssertNotCalled(t, "RemoveUserFromPlan")
+		mockBilling.AssertNotCalled(t, "CreateOrUpdateSubscriber")
+		mockBilling.AssertNotCalled(t, "DeactivateSubscriber")
+	})
+}
+
 func TestStripeGateway_HandleWebhook_SubscriptionUpdated_AllPricesNil(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		mockQuota, mockUsers, mockBilling := setupMockServices(ctx)
