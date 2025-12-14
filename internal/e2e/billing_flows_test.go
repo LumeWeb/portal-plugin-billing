@@ -197,7 +197,7 @@ func NewTestSetupHelpers(ctx coreTesting.TestContext) *TestSetupHelpers {
 
 	// Get and configure mock gateway
 	registry := gateway.GetRegistry()
-	stripeGateway, exists := registry.Get("stripe")
+	stripeGateway, exists := registry.Get(pluginGatewayStripe.GatewayID)
 	if !exists {
 		ctx.T().Fatalf("Stripe gateway not found in registry")
 	}
@@ -312,7 +312,7 @@ func createTestQuotaPlan(ctx coreTesting.TestContext, planID uint, name string) 
 }
 
 // createStripeCheckoutSessionEvent creates a Stripe checkout.session.completed event
-func createStripeCheckoutSessionEvent(userID uint, subscriptionID string) *stripe.Event {
+func createStripeCheckoutSessionEvent(userID uint, subscriptionID string, planID uint) *stripe.Event {
 	checkoutSession := stripe.CheckoutSession{
 		ID:                fmt.Sprintf("cs_test_%d", time.Now().UnixNano()),
 		Object:            "checkout.session",
@@ -325,7 +325,7 @@ func createStripeCheckoutSessionEvent(userID uint, subscriptionID string) *strip
 			ID: fmt.Sprintf("cus_test_%d", userID),
 		},
 		Metadata: map[string]string{
-			"plan_id": fmt.Sprintf("%d", userID*10), // Generate a plan ID
+			"plan_id": fmt.Sprintf("%d", planID),
 		},
 	}
 	rawData, err := json.Marshal(checkoutSession)
@@ -530,7 +530,7 @@ func TestSubscriptionSignup_NewUserSubscription(t *testing.T) {
 		helper.SetupMockCustomer(customerID)
 
 		// Create and send checkout session completed webhook
-		evt := createStripeCheckoutSessionEvent(helper.userID, subscriptionID)
+		evt := createStripeCheckoutSessionEvent(helper.userID, subscriptionID, planID)
 		rec := helper.SendWebhook(evt)
 
 		// Verify webhook was processed successfully
@@ -540,7 +540,8 @@ func TestSubscriptionSignup_NewUserSubscription(t *testing.T) {
 		response := helper.GetSubscriptionStatus()
 		assert.True(t, response.IsSubscribed)
 		assert.Equal(t, "stripe", response.GatewayType)
-		assert.NotNil(t, response.PlanID)
+		require.NotNil(t, response.PlanID)
+		assert.Equal(t, planID, *response.PlanID)
 	})
 }
 
@@ -562,7 +563,7 @@ func TestSubscriptionSignup_DuplicatePrevention(t *testing.T) {
 		helper.SetupMockCustomer(customerID)
 
 		// First create the initial subscription
-		event := createStripeCheckoutSessionEvent(helper.userID, subscriptionID)
+		event := createStripeCheckoutSessionEvent(helper.userID, subscriptionID, planID)
 		rec := helper.SendWebhook(event)
 		assert.Equal(t, http.StatusNoContent, rec.Code)
 
@@ -583,7 +584,7 @@ func TestSubscriptionSignup_InvalidWebhookSignature(t *testing.T) {
 		// Create test setup helper
 		helper := NewTestSetupHelpers(ctx)
 
-		event := createStripeCheckoutSessionEvent(helper.userID, "sub_invalid_test")
+		event := createStripeCheckoutSessionEvent(helper.userID, "sub_invalid_test", 42)
 		rec := helper.SendWebhookWithInvalidSignature(event)
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
 	})
@@ -639,7 +640,7 @@ func TestPlanUpgrade_PlanUpgradeFlow(t *testing.T) {
 		helper.SetupMockCustomer(customerID)
 
 		// Create initial subscription
-		event := createStripeCheckoutSessionEvent(helper.userID, subscriptionID)
+		event := createStripeCheckoutSessionEvent(helper.userID, subscriptionID, initialPlanID)
 		rec := helper.SendWebhook(event)
 		assert.Equal(t, http.StatusNoContent, rec.Code)
 
@@ -691,7 +692,7 @@ func TestPlanDowngrade_PlanDowngradeFlow(t *testing.T) {
 		helper.SetupMockCustomer(customerID)
 
 		// Create initial subscription with premium plan
-		event := createStripeCheckoutSessionEvent(helper.userID, subscriptionID)
+		event := createStripeCheckoutSessionEvent(helper.userID, subscriptionID, initialPlanID)
 		rec := helper.SendWebhook(event)
 		assert.Equal(t, http.StatusNoContent, rec.Code)
 
@@ -740,7 +741,7 @@ func TestSubscriptionCancellation_SubscriptionCancellationFlow(t *testing.T) {
 		helper.SetupMockCustomer(customerID)
 
 		// Create active subscription
-		event := createStripeCheckoutSessionEvent(helper.userID, subscriptionID)
+		event := createStripeCheckoutSessionEvent(helper.userID, subscriptionID, planID)
 		rec := helper.SendWebhook(event)
 		assert.Equal(t, http.StatusNoContent, rec.Code)
 
@@ -789,7 +790,7 @@ func TestSubscriptionCancellation_SubscriptionPauseFlow(t *testing.T) {
 		helper.SetupMockCustomer(customerID)
 
 		// Create active subscription
-		event := createStripeCheckoutSessionEvent(helper.userID, subscriptionID)
+		event := createStripeCheckoutSessionEvent(helper.userID, subscriptionID, planID)
 		rec := helper.SendWebhook(event)
 		assert.Equal(t, http.StatusNoContent, rec.Code)
 
@@ -836,7 +837,7 @@ func TestSubscriptionReactivation_SubscriptionReactivationFlow(t *testing.T) {
 		helper.SetupMockCustomer(customerID)
 
 		// Create and then pause subscription
-		event := createStripeCheckoutSessionEvent(helper.userID, subscriptionID)
+		event := createStripeCheckoutSessionEvent(helper.userID, subscriptionID, planID)
 		rec := helper.SendWebhook(event)
 		assert.Equal(t, http.StatusNoContent, rec.Code)
 
@@ -902,7 +903,7 @@ func TestCustomerPortal_ActiveSubscriber(t *testing.T) {
 		helper.SetupMockBillingPortal(customerID)
 
 		// Create active subscription
-		event := createStripeCheckoutSessionEvent(helper.userID, subscriptionID)
+		event := createStripeCheckoutSessionEvent(helper.userID, subscriptionID, planID)
 		rec := helper.SendWebhook(event)
 		assert.Equal(t, http.StatusNoContent, rec.Code)
 
@@ -939,7 +940,12 @@ func TestCustomerPortal_InactiveUser(t *testing.T) {
 		err = json.Unmarshal(rec.Body.Bytes(), &response)
 		require.NoError(t, err)
 
-		assert.Contains(t, response["error"].(string), "no active subscription found")
+		// Safe type assertion for error field
+		errorVal, ok := response["error"]
+		require.True(t, ok, "expected error field in response")
+		errorStr, ok := errorVal.(string)
+		require.True(t, ok, "expected error to be a string")
+		assert.Contains(t, errorStr, "no active subscription found")
 	})
 }
 
@@ -953,7 +959,8 @@ func TestCustomerPortal_MissingReturnURL(t *testing.T) {
 		requestBody := billingDTO.CustomerPortalRequest{
 			ReturnURL: "", // Empty return URL to trigger validation error
 		}
-		bodyBytes, _ := json.Marshal(requestBody)
+		bodyBytes, err := json.Marshal(requestBody)
+		require.NoError(t, err, "failed to marshal customer portal request")
 
 		req := ctx.NewAPIRequest(http.MethodPost, "/api/account/billing/customer-portal", bodyBytes)
 		req.Header.Set("Authorization", "Bearer "+helper.token)
@@ -965,9 +972,14 @@ func TestCustomerPortal_MissingReturnURL(t *testing.T) {
 		assert.Equal(t, http.StatusUnprocessableEntity, rec.Code)
 
 		var response map[string]interface{}
-		err := json.Unmarshal(rec.Body.Bytes(), &response)
+		err = json.Unmarshal(rec.Body.Bytes(), &response)
 		require.NoError(t, err)
 
-		assert.Contains(t, response["error"].(string), "validation failed")
+		// Safe type assertion for error field
+		errorVal, ok := response["error"]
+		require.True(t, ok, "expected error field in response")
+		errorStr, ok := errorVal.(string)
+		require.True(t, ok, "expected error to be a string")
+		assert.Contains(t, errorStr, "validation failed")
 	})
 }
