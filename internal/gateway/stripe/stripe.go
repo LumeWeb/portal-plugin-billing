@@ -388,6 +388,12 @@ func (g *StripeGateway) extractUserIDFromSubscription(ctx context.Context, subsc
 						zap.String("subscription_id", subscription.ID))
 					return subscriber.UserID, nil
 				}
+				if err != nil {
+					g.logger.Warn("failed to look up subscriber by gateway id; falling back to Stripe",
+						zap.String("customer_id", subscription.Customer.ID),
+						zap.String("subscription_id", subscription.ID),
+						zap.Error(err))
+				}
 			}
 
 			// Final fallback: try to fetch from Stripe API
@@ -409,16 +415,6 @@ func (g *StripeGateway) extractUserIDFromSubscription(ctx context.Context, subsc
 		}
 	}
 	return userID, nil
-}
-
-// ExtractUserIDFromSubscriptionForTesting is a testing helper that exposes the private extractUserIDFromSubscription method
-func (g *StripeGateway) ExtractUserIDFromSubscriptionForTesting(ctx context.Context, subscription *stripe.Subscription) (uint, error) {
-	return g.extractUserIDFromSubscription(ctx, subscription)
-}
-
-// SetCustomerRetrieverForTesting is a testing helper that allows injecting a mock customer retriever
-func (g *StripeGateway) SetCustomerRetrieverForTesting(retriever CustomerRetriever) {
-	g.customerService = retriever
 }
 
 // handleSubscriptionEvent is a generic function to handle subscription events
