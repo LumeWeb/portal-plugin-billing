@@ -380,7 +380,7 @@ func (g *StripeGateway) extractUserIDFromSubscription(ctx context.Context, subsc
 		if subscription.Customer != nil && subscription.Customer.ID != "" {
 			// First try to look up user_id from our database using gateway_id (customer_id)
 			if g.billing != nil {
-				subscriber, err := g.billing.GetSubscriberByGatewayID(subscription.Customer.ID)
+				subscriber, err := g.billing.GetSubscriberByGatewayID(subscription.Customer.ID, GatewayID)
 				if err == nil && subscriber != nil {
 					g.logger.Debug("found user_id from billing_subscribers table",
 						zap.String("customer_id", subscription.Customer.ID),

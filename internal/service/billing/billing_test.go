@@ -291,7 +291,7 @@ func TestBillingService_GetSubscriberByGatewayID(t *testing.T) {
 		service := core.GetService[pluginCore.BillingService](ctx, pluginCore.BILLING_SERVICE)
 
 		// Test case 1: Subscriber not found
-		subscriber, err := service.GetSubscriberByGatewayID("nonexistent_customer_id")
+		subscriber, err := service.GetSubscriberByGatewayID("nonexistent_customer_id", "stripe")
 		assert.NoError(tb, err)
 		assert.Nil(tb, subscriber)
 
@@ -299,7 +299,7 @@ func TestBillingService_GetSubscriberByGatewayID(t *testing.T) {
 		err = service.CreateOrUpdateSubscriber(123, "stripe", "cus_test_12345", true, nil)
 		assert.NoError(tb, err)
 
-		subscriber, err = service.GetSubscriberByGatewayID("cus_test_12345")
+		subscriber, err = service.GetSubscriberByGatewayID("cus_test_12345", "stripe")
 		assert.NoError(tb, err)
 		assert.NotNil(tb, subscriber)
 		assert.Equal(tb, uint(123), subscriber.UserID)
@@ -311,11 +311,11 @@ func TestBillingService_GetSubscriberByGatewayID(t *testing.T) {
 		err = service.CreateOrUpdateSubscriber(456, "stripe", "cus_test_67890", true, nil)
 		assert.NoError(tb, err)
 
-		subscriber1, err := service.GetSubscriberByGatewayID("cus_test_12345")
+		subscriber1, err := service.GetSubscriberByGatewayID("cus_test_12345", "stripe")
 		assert.NoError(tb, err)
 		assert.Equal(tb, uint(123), subscriber1.UserID)
 
-		subscriber2, err := service.GetSubscriberByGatewayID("cus_test_67890")
+		subscriber2, err := service.GetSubscriberByGatewayID("cus_test_67890", "stripe")
 		assert.NoError(tb, err)
 		assert.Equal(tb, uint(456), subscriber2.UserID)
 
@@ -323,7 +323,7 @@ func TestBillingService_GetSubscriberByGatewayID(t *testing.T) {
 		err = service.DeactivateSubscriber(123, "stripe")
 		assert.NoError(tb, err)
 
-		subscriber, err = service.GetSubscriberByGatewayID("cus_test_12345")
+		subscriber, err = service.GetSubscriberByGatewayID("cus_test_12345", "stripe")
 		assert.NoError(tb, err)
 		assert.NotNil(tb, subscriber)
 		assert.Equal(tb, uint(123), subscriber.UserID)
@@ -333,13 +333,20 @@ func TestBillingService_GetSubscriberByGatewayID(t *testing.T) {
 		err = service.CreateOrUpdateSubscriber(789, "paypal", "cus_test_12345", true, nil)
 		assert.NoError(tb, err)
 
-		// Should find the most recent one for that gateway ID
-		subscriber, err = service.GetSubscriberByGatewayID("cus_test_12345")
+		// Should find the stripe subscriber (not paypal) when querying for stripe
+		subscriber, err = service.GetSubscriberByGatewayID("cus_test_12345", "stripe")
 		assert.NoError(tb, err)
 		assert.NotNil(tb, subscriber)
-		// Note: This will find the paypal one since it was created last
-		assert.Equal(tb, uint(789), subscriber.UserID)
-		assert.Equal(tb, "paypal", subscriber.GatewayType)
+		// Should find the stripe subscriber since we're filtering by gateway type
+		assert.Equal(tb, uint(123), subscriber.UserID)
+		assert.Equal(tb, "stripe", subscriber.GatewayType)
+
+		// Should find the paypal subscriber when querying for paypal
+		paypalSubscriber, err := service.GetSubscriberByGatewayID("cus_test_12345", "paypal")
+		assert.NoError(tb, err)
+		assert.NotNil(tb, paypalSubscriber)
+		assert.Equal(tb, uint(789), paypalSubscriber.UserID)
+		assert.Equal(tb, "paypal", paypalSubscriber.GatewayType)
 	},
 		getBillingTestOptions())
 }

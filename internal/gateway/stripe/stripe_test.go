@@ -720,7 +720,7 @@ func TestStripeGateway_ExtractUserIDFromSubscription_DatabaseFallback(t *testing
 			GatewayID:   "cus_test_456",
 			IsActive:    true,
 		}
-		mockBilling.On("GetSubscriberByGatewayID", "cus_test_456").Return(mockSubscriber, nil)
+		mockBilling.On("GetSubscriberByGatewayID", "cus_test_456", "stripe").Return(mockSubscriber, nil)
 
 		userID, err = gw.ExtractUserIDFromSubscriptionForTesting(context.Background(), subscription2)
 		assert.NoError(t, err)
@@ -737,7 +737,7 @@ func TestStripeGateway_ExtractUserIDFromSubscription_DatabaseFallback(t *testing
 		}
 
 		// Setup mock billing service to return nil (not found)
-		mockBilling.On("GetSubscriberByGatewayID", "cus_test_789").Return(nil, nil)
+		mockBilling.On("GetSubscriberByGatewayID", "cus_test_789", "stripe").Return(nil, nil)
 
 		// Setup mock customer retriever to return customer without metadata
 		mockCustomerRetriever.On("Get", mock.Anything, "cus_test_789", (*stripe.CustomerRetrieveParams)(nil)).Return(customerWithoutMapping, nil)
