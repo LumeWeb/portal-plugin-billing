@@ -884,6 +884,238 @@ func TestSubscriptionReactivation_SubscriptionReactivationFlow(t *testing.T) {
 	})
 }
 
+// TestSubscriptionCancellation_CancellationRequestIgnored tests that subscription cancellation requests are ignored until deletion
+func TestSubscriptionCancellation_CancellationRequestIgnored(t *testing.T) {
+	coreTesting.RunTestCaseWithDB(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		planID := uint(77)
+		subscriptionID := "sub_cancel_request_test"
+		customerID := "cus_cancel_request_test"
+
+		// Create test setup helper and quota plan
+		helper := NewTestSetupHelpers(ctx)
+		err := createTestQuotaPlan(ctx, planID, "Cancellation Request Test Plan")
+		require.NoError(t, err)
+
+		// Set up initial mock subscription and customer
+		mockSubscription := helper.CreateMockSubscription(subscriptionID, customerID, &planID)
+		helper.SetupMockSubscription(mockSubscription)
+		helper.SetupMockCustomer(customerID)
+
+		// Create active subscription
+		event := createStripeCheckoutSessionEvent(helper.userID, subscriptionID, planID)
+		rec := helper.SendWebhook(event)
+		assert.Equal(t, http.StatusNoContent, rec.Code)
+
+		// Verify active subscription
+		response := helper.GetSubscriptionStatus()
+		assert.True(t, response.IsSubscribed)
+
+		// Create mock subscription with cancellation request (cancel_at set)
+		cancelRequestSubscription := helper.CreateMockSubscription(subscriptionID, customerID, &planID)
+		// Add cancellation request fields to simulate Stripe's cancellation request
+		cancelRequestSubscription.CancelAt = time.Now().Add(30 * 24 * time.Hour).Unix() // 30 days from now
+		cancelRequestSubscription.CancellationDetails = &stripe.SubscriptionCancellationDetails{
+			Reason: "cancellation_requested",
+		}
+		helper.SetupMockSubscription(cancelRequestSubscription)
+
+		// Send cancellation request webhook (should be ignored)
+		cancelRequestEvent := createStripeSubscriptionEvent(
+			pluginGatewayStripe.EventTypeSubscriptionUpdated,
+			subscriptionID,
+			customerID,
+			helper.userID,
+			&planID,
+		)
+		rec = helper.SendWebhook(cancelRequestEvent)
+		assert.Equal(t, http.StatusNoContent, rec.Code)
+
+		// Verify subscription is still active (cancellation request was ignored)
+		response = helper.GetSubscriptionStatus()
+		assert.True(t, response.IsSubscribed)
+		assert.Equal(t, "stripe", response.GatewayType)
+		require.NotNil(t, response.PlanID)
+		assert.Equal(t, planID, *response.PlanID)
+	})
+}
+
+// TestSubscriptionCancellation_CancellationRequestWithCancelAtZero tests that subscriptions with cancel_at=0 are processed normally
+func TestSubscriptionCancellation_CancellationRequestWithCancelAtZero(t *testing.T) {
+	coreTesting.RunTestCaseWithDB(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		planID := uint(78)
+		subscriptionID := "sub_cancel_at_zero_test"
+		customerID := "cus_cancel_at_zero_test"
+
+		// Create test setup helper and quota plan
+		helper := NewTestSetupHelpers(ctx)
+		err := createTestQuotaPlan(ctx, planID, "Cancel At Zero Test Plan")
+		require.NoError(t, err)
+
+		// Set up initial mock subscription and customer
+		mockSubscription := helper.CreateMockSubscription(subscriptionID, customerID, &planID)
+		helper.SetupMockSubscription(mockSubscription)
+		helper.SetupMockCustomer(customerID)
+
+		// Create active subscription
+		event := createStripeCheckoutSessionEvent(helper.userID, subscriptionID, planID)
+		rec := helper.SendWebhook(event)
+		assert.Equal(t, http.StatusNoContent, rec.Code)
+
+		// Verify active subscription
+		response := helper.GetSubscriptionStatus()
+		assert.True(t, response.IsSubscribed)
+
+		// Create mock subscription with cancel_at=0 (not a cancellation request)
+		normalUpdateSubscription := helper.CreateMockSubscription(subscriptionID, customerID, &planID)
+		normalUpdateSubscription.CancelAt = 0 // Explicitly set to 0 (not a cancellation)
+		helper.SetupMockSubscription(normalUpdateSubscription)
+
+		// Send normal update webhook (should be processed)
+		updateEvent := createStripeSubscriptionEvent(
+			pluginGatewayStripe.EventTypeSubscriptionUpdated,
+			subscriptionID,
+			customerID,
+			helper.userID,
+			&planID,
+		)
+		rec = helper.SendWebhook(updateEvent)
+		assert.Equal(t, http.StatusNoContent, rec.Code)
+
+		// Verify subscription is still active (normal update was processed)
+		response = helper.GetSubscriptionStatus()
+		assert.True(t, response.IsSubscribed)
+		assert.Equal(t, "stripe", response.GatewayType)
+		require.NotNil(t, response.PlanID)
+		assert.Equal(t, planID, *response.PlanID)
+	})
+}
+
+// TestSubscriptionCancellation_CancellationRequestWithDifferentReason tests that only "cancellation_requested" reason is ignored
+func TestSubscriptionCancellation_CancellationRequestWithDifferentReason(t *testing.T) {
+	coreTesting.RunTestCaseWithDB(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		planID := uint(79)
+		subscriptionID := "sub_different_reason_test"
+		customerID := "cus_different_reason_test"
+
+		// Create test setup helper and quota plan
+		helper := NewTestSetupHelpers(ctx)
+		err := createTestQuotaPlan(ctx, planID, "Different Reason Test Plan")
+		require.NoError(t, err)
+
+		// Set up initial mock subscription and customer
+		mockSubscription := helper.CreateMockSubscription(subscriptionID, customerID, &planID)
+		helper.SetupMockSubscription(mockSubscription)
+		helper.SetupMockCustomer(customerID)
+
+		// Create active subscription
+		event := createStripeCheckoutSessionEvent(helper.userID, subscriptionID, planID)
+		rec := helper.SendWebhook(event)
+		assert.Equal(t, http.StatusNoContent, rec.Code)
+
+		// Verify active subscription
+		response := helper.GetSubscriptionStatus()
+		assert.True(t, response.IsSubscribed)
+
+		// Create mock subscription with different cancellation reason (should be processed)
+		differentReasonSubscription := helper.CreateMockSubscription(subscriptionID, customerID, &planID)
+		differentReasonSubscription.CancellationDetails = &stripe.SubscriptionCancellationDetails{
+			Reason: "payment_failed", // Different reason, should be processed
+		}
+		helper.SetupMockSubscription(differentReasonSubscription)
+
+		// Send update webhook with different reason (should be processed)
+		updateEvent := createStripeSubscriptionEvent(
+			pluginGatewayStripe.EventTypeSubscriptionUpdated,
+			subscriptionID,
+			customerID,
+			helper.userID,
+			&planID,
+		)
+		rec = helper.SendWebhook(updateEvent)
+		assert.Equal(t, http.StatusNoContent, rec.Code)
+
+		// Verify subscription is still active (different reason was processed normally)
+		response = helper.GetSubscriptionStatus()
+		assert.True(t, response.IsSubscribed)
+		assert.Equal(t, "stripe", response.GatewayType)
+		require.NotNil(t, response.PlanID)
+		assert.Equal(t, planID, *response.PlanID)
+	})
+}
+
+// TestSubscriptionCancellation_CancellationUndoFlow tests that cancellation requests can be undone before deletion
+func TestSubscriptionCancellation_CancellationUndoFlow(t *testing.T) {
+	coreTesting.RunTestCaseWithDB(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		planID := uint(80)
+		subscriptionID := "sub_cancel_undo_test"
+		customerID := "cus_cancel_undo_test"
+
+		// Create test setup helper and quota plan
+		helper := NewTestSetupHelpers(ctx)
+		err := createTestQuotaPlan(ctx, planID, "Cancellation Undo Test Plan")
+		require.NoError(t, err)
+
+		// Set up initial mock subscription and customer
+		mockSubscription := helper.CreateMockSubscription(subscriptionID, customerID, &planID)
+		helper.SetupMockSubscription(mockSubscription)
+		helper.SetupMockCustomer(customerID)
+
+		// Create active subscription
+		event := createStripeCheckoutSessionEvent(helper.userID, subscriptionID, planID)
+		rec := helper.SendWebhook(event)
+		assert.Equal(t, http.StatusNoContent, rec.Code)
+
+		// Verify active subscription
+		response := helper.GetSubscriptionStatus()
+		assert.True(t, response.IsSubscribed)
+
+		// Step 1: Send cancellation request (should be ignored)
+		cancelRequestSubscription := helper.CreateMockSubscription(subscriptionID, customerID, &planID)
+		cancelRequestSubscription.CancelAt = time.Now().Add(30 * 24 * time.Hour).Unix() // 30 days from now
+		cancelRequestSubscription.CancellationDetails = &stripe.SubscriptionCancellationDetails{
+			Reason: "cancellation_requested",
+		}
+		helper.SetupMockSubscription(cancelRequestSubscription)
+
+		cancelRequestEvent := createStripeSubscriptionEvent(
+			pluginGatewayStripe.EventTypeSubscriptionUpdated,
+			subscriptionID,
+			customerID,
+			helper.userID,
+			&planID,
+		)
+		rec = helper.SendWebhook(cancelRequestEvent)
+		assert.Equal(t, http.StatusNoContent, rec.Code)
+
+		// Verify subscription is still active after cancellation request
+		response = helper.GetSubscriptionStatus()
+		assert.True(t, response.IsSubscribed)
+
+		// Step 2: Undo the cancellation request (remove cancel_at and cancellation details)
+		undoSubscription := helper.CreateMockSubscription(subscriptionID, customerID, &planID)
+		undoSubscription.CancelAt = 0 // No cancellation scheduled
+		// No CancellationDetails - cancellation was undone
+		helper.SetupMockSubscription(undoSubscription)
+
+		undoEvent := createStripeSubscriptionEvent(
+			pluginGatewayStripe.EventTypeSubscriptionUpdated,
+			subscriptionID,
+			customerID,
+			helper.userID,
+			&planID,
+		)
+		rec = helper.SendWebhook(undoEvent)
+		assert.Equal(t, http.StatusNoContent, rec.Code)
+
+		// Verify subscription is still active after undo
+		response = helper.GetSubscriptionStatus()
+		assert.True(t, response.IsSubscribed)
+		assert.Equal(t, "stripe", response.GatewayType)
+		require.NotNil(t, response.PlanID)
+		assert.Equal(t, planID, *response.PlanID)
+	})
+}
+
 // TestCustomerPortal_ActiveSubscriber tests customer portal access for active subscriber via HTTP API
 func TestCustomerPortal_ActiveSubscriber(t *testing.T) {
 	coreTesting.RunTestCaseWithDB(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
