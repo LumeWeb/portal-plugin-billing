@@ -2,7 +2,7 @@ module go.lumeweb.com/portal-plugin-billing
 
 go 1.24.3
 
-replace github.com/go-viper/mapstructure/v2 => github.com/LumeWeb/mapstructure/v2 v2.0.0-20241213212524-92525f5828be
+replace github.com/go-viper/mapstructure/v2 => github.com/LumeWeb/mapstructure/v2 v2.0.0-20251213031937-cf810d943440
 
 require (
 	github.com/Oudwins/zog v0.21.9
