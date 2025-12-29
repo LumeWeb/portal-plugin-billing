@@ -57,11 +57,24 @@ func GetPluginInfo() core.PluginInfo {
 }
 
 func mergeMetrics() []prometheus.Collector {
-	var collectors []prometheus.Collector
-	collectors = append(collectors, billing.GetCollectors()...)
-	collectors = append(collectors, gateway.GetCollectors()...)
-	collectors = append(collectors, stripe.GetCollectors()...)
-	return collectors
+	return []prometheus.Collector{
+		// billing service metrics
+		billing.WebhookProcessed,
+		billing.WebhookDuration,
+		billing.SubscriberCreated,
+		billing.SubscriberUpdated,
+		billing.SubscriberDeactivated,
+		// gateway metrics
+		gateway.WebhookValidated,
+		gateway.WebhookHandled,
+		gateway.GatewayRegistered,
+		// stripe gateway metrics
+		stripe.CheckoutCompleted,
+		stripe.SubscriptionActivated,
+		stripe.SubscriptionDeactivated,
+		stripe.SubscriptionUpdated,
+		stripe.CustomerPortalCreated,
+	}
 }
 
 func init() {

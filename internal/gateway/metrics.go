@@ -48,11 +48,3 @@ func init() {
 		[]string{"gateway_type", "status"},
 	)
 }
-
-func GetCollectors() []prometheus.Collector {
-	return []prometheus.Collector{
-		WebhookValidated,
-		WebhookHandled,
-		GatewayRegistered,
-	}
-}

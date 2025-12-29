@@ -8,11 +8,12 @@ require (
 	github.com/Oudwins/zog v0.21.9
 	github.com/docker/go-units v0.5.0
 	github.com/labstack/echo/v4 v4.14.0
+	github.com/prometheus/client_golang v1.22.0
 	github.com/samber/lo v1.52.0
 	github.com/stretchr/testify v1.11.1
 	github.com/stripe/stripe-go/v83 v83.0.1
 	go.lumeweb.com/httputil v0.5.3
-	go.lumeweb.com/portal v0.4.2-0.20251228223532-c3e9447340bc
+	go.lumeweb.com/portal v0.4.2-0.20251229200155-e5f1801ebe11
 	go.lumeweb.com/portal-middleware v0.3.4
 	go.lumeweb.com/portal-plugin-core v0.0.0-20251213020130-9d424965fad2
 	go.lumeweb.com/portal-plugin-dashboard v0.2.7-0.20251227170610-a58517c36406
@@ -162,7 +163,6 @@ require (
 	github.com/power-devops/perfstat v0.0.0-20210106213030-5aafc221ea8c // indirect
 	github.com/pquerna/otp v1.5.0 // indirect
 	github.com/pressly/goose/v3 v3.26.0 // indirect
-	github.com/prometheus/client_golang v1.22.0 // indirect
 	github.com/prometheus/client_model v0.6.2 // indirect
 	github.com/prometheus/common v0.65.0 // indirect
 	github.com/prometheus/procfs v0.17.0 // indirect

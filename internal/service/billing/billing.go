@@ -179,10 +179,7 @@ func (s *BillingServiceDefault) ProcessWebhook(ctx context.Context, gatewayType 
 
 			// Mark the event as processed
 			if err := s.markWebhookEventProcessed(ctx, gatewayType, eventID); err != nil {
-				s.Logger().Error("failed to mark webhook event as processed",
-					zap.Error(err),
-					zap.String("event_id", eventID),
-					zap.String("gateway_type", gatewayType))
+				return fmt.Errorf("failed to mark webhook event as processed: %w", err)
 			}
 
 			return nil

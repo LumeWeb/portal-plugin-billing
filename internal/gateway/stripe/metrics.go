@@ -68,13 +68,3 @@ func init() {
 		[]string{"status"},
 	)
 }
-
-func GetCollectors() []prometheus.Collector {
-	return []prometheus.Collector{
-		CheckoutCompleted,
-		SubscriptionActivated,
-		SubscriptionDeactivated,
-		SubscriptionUpdated,
-		CustomerPortalCreated,
-	}
-}
