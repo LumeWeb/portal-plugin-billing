@@ -23,9 +23,12 @@ const maxWebhookPayload = 1 << 20 // 1 MiB
 
 // APIExtension extends the API with billing functionality
 type APIExtension struct {
-	ctx            core.Context
-	logger         *core.Logger
+	*core.BaseComponent
 	billingService pluginCore.BillingService
+}
+
+func (e *APIExtension) ID() string {
+	return pluginCore.BILLING_SERVICE
 }
 
 // NewAPIExtension creates a new API extension for billing
@@ -34,8 +37,6 @@ func NewAPIExtension() core.APIExtensionFactory {
 		ext := &APIExtension{}
 
 		return ext, core.ContextOptions(core.ContextWithStartupFunc(func(ctx core.Context) error {
-			ext.ctx = ctx
-			ext.logger = ctx.NamedLogger("billing.api_extension")
 
 			// Get and verify the billing service
 			if ext.billingService = core.GetService[pluginCore.BillingService](ctx, pluginCore.BILLING_SERVICE); ext.billingService == nil {
@@ -55,8 +56,8 @@ func (e *APIExtension) TargetAPI() string {
 // Configure is called to set up routes on the API router
 func (e *APIExtension) Configure(gRouter router.Router, accessSvc core.AccessService) error {
 	// Create middleware instances once
-	authMw := middleware.AuthMiddleware(e.ctx, middleware.WithAuthPurpose(jwt.PurposeLogin))
-	accessMw := middleware.AccessMiddleware(e.ctx)
+	authMw := middleware.AuthMiddleware(e.Context(), middleware.WithAuthPurpose(jwt.PurposeLogin))
+	accessMw := middleware.AccessMiddleware(e.Context())
 	// Define billing routes using DefineRoutes helper
 	routes := router.DefineRoutes(
 		// Webhook endpoint
@@ -132,9 +133,9 @@ func (e *APIExtension) handleSubscriptionStatus(c echo.Context) error {
 	}
 
 	// Get active subscription if any
-	sub, err := e.billingService.GetActiveSubscription(userID)
+	sub, err := e.billingService.GetActiveSubscription(c.Request().Context(), userID)
 	if err != nil {
-		e.logger.Error("failed to check subscription status",
+		e.Logger().Error("failed to check subscription status",
 			zap.Uint("user_id", userID),
 			zap.Error(err))
 		return ctx.Error(fmt.Errorf("failed to check subscription status"), http.StatusInternalServerError)
@@ -160,9 +161,9 @@ func (e *APIExtension) handleCustomerPortal(c echo.Context) error {
 	}
 
 	// Get active subscription to determine gateway
-	sub, err := e.billingService.GetActiveSubscription(userID)
+	sub, err := e.billingService.GetActiveSubscription(c.Request().Context(), userID)
 	if err != nil {
-		e.logger.Error("failed to check subscription status",
+		e.Logger().Error("failed to check subscription status",
 			zap.Uint("user_id", userID),
 			zap.Error(err))
 		return ctx.Error(fmt.Errorf("failed to check subscription status"), http.StatusInternalServerError)
@@ -173,9 +174,9 @@ func (e *APIExtension) handleCustomerPortal(c echo.Context) error {
 	}
 
 	// Get the gateway for this subscription
-	gateway, err := e.billingService.GetGateway(sub.GatewayType)
+	gateway, err := e.billingService.GetGateway(c.Request().Context(), sub.GatewayType)
 	if err != nil {
-		e.logger.Error("failed to get payment gateway",
+		e.Logger().Error("failed to get payment gateway",
 			zap.Uint("user_id", userID),
 			zap.String("gateway_type", sub.GatewayType),
 			zap.Error(err))
@@ -185,7 +186,7 @@ func (e *APIExtension) handleCustomerPortal(c echo.Context) error {
 	// Get customer portal URL from the gateway
 	portalURL, err := gateway.GetCustomerPortalURL(c.Request().Context(), userID, request.ReturnURL)
 	if err != nil {
-		e.logger.Error("failed to create customer portal session",
+		e.Logger().Error("failed to create customer portal session",
 			zap.Uint("user_id", userID),
 			zap.String("gateway_type", sub.GatewayType),
 			zap.Error(err))
@@ -212,7 +213,7 @@ func (e *APIExtension) handleWebhook(c echo.Context) error {
 	c.Request().Body = http.MaxBytesReader(c.Response(), c.Request().Body, maxWebhookPayload)
 	defer func() {
 		if err := c.Request().Body.Close(); err != nil {
-			e.logger.Error("failed to close request body",
+			e.Logger().Error("failed to close request body",
 				zap.String("gateway", gatewayType),
 				zap.Error(err))
 		}
@@ -222,19 +223,19 @@ func (e *APIExtension) handleWebhook(c echo.Context) error {
 	if err != nil {
 		var maxErr *http.MaxBytesError
 		if errors.As(err, &maxErr) {
-			e.logger.Warn("webhook payload too large",
+			e.Logger().Warn("webhook payload too large",
 				zap.String("gateway", gatewayType),
 				zap.Int64("max_size", maxWebhookPayload))
 			return ctx.Error(fmt.Errorf("payload too large"), http.StatusRequestEntityTooLarge)
 		}
-		e.logger.Error("failed to read webhook payload",
+		e.Logger().Error("failed to read webhook payload",
 			zap.String("gateway", gatewayType),
 			zap.Error(err))
 		return ctx.Error(fmt.Errorf("failed to read webhook payload"), http.StatusBadRequest)
 	}
 
 	// Get signature header name from billing service
-	sigHeader, err := e.billingService.GetSignatureHeader(gatewayType)
+	sigHeader, err := e.billingService.GetSignatureHeader(c.Request().Context(), gatewayType)
 	if err != nil {
 		return ctx.Error(fmt.Errorf("failed to get signature header: %w", err), http.StatusBadRequest)
 	}
@@ -247,7 +248,7 @@ func (e *APIExtension) handleWebhook(c echo.Context) error {
 
 	// Process the webhook through the billing service
 	if err = e.billingService.ProcessWebhook(c.Request().Context(), gatewayType, signature, payload); err != nil {
-		e.logger.Error("failed to process webhook",
+		e.Logger().Error("failed to process webhook",
 			zap.String("gateway", gatewayType),
 			zap.Error(err))
 		return ctx.Error(fmt.Errorf("failed to process webhook: %w", err), http.StatusBadRequest)

@@ -8,6 +8,9 @@ import (
 	"context"
 
 	mock "github.com/stretchr/testify/mock"
+	"go.lumeweb.com/portal/config"
+	"go.lumeweb.com/portal/core"
+	"gorm.io/gorm"
 )
 
 // NewMockBillingService creates a new instance of MockBillingService. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
@@ -38,11 +41,503 @@ func (_m *MockBillingService) EXPECT() *MockBillingService_Expecter {
 }
 
 // Config provides a mock function for the type MockBillingService
-func (_mock *MockBillingService) Config() (any, error) {
+func (_mock *MockBillingService) Config() config.Manager {
 	ret := _mock.Called()
 
 	if len(ret) == 0 {
 		panic("no return value specified for Config")
+	}
+
+	var r0 config.Manager
+	if returnFunc, ok := ret.Get(0).(func() config.Manager); ok {
+		r0 = returnFunc()
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(config.Manager)
+		}
+	}
+	return r0
+}
+
+// MockBillingService_Config_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Config'
+type MockBillingService_Config_Call struct {
+	*mock.Call
+}
+
+// Config is a helper method to define mock.On call
+func (_e *MockBillingService_Expecter) Config() *MockBillingService_Config_Call {
+	return &MockBillingService_Config_Call{Call: _e.mock.On("Config")}
+}
+
+func (_c *MockBillingService_Config_Call) Run(run func()) *MockBillingService_Config_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockBillingService_Config_Call) Return(manager config.Manager) *MockBillingService_Config_Call {
+	_c.Call.Return(manager)
+	return _c
+}
+
+func (_c *MockBillingService_Config_Call) RunAndReturn(run func() config.Manager) *MockBillingService_Config_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// Context provides a mock function for the type MockBillingService
+func (_mock *MockBillingService) Context() core.Context {
+	ret := _mock.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for Context")
+	}
+
+	var r0 core.Context
+	if returnFunc, ok := ret.Get(0).(func() core.Context); ok {
+		r0 = returnFunc()
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(core.Context)
+		}
+	}
+	return r0
+}
+
+// MockBillingService_Context_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Context'
+type MockBillingService_Context_Call struct {
+	*mock.Call
+}
+
+// Context is a helper method to define mock.On call
+func (_e *MockBillingService_Expecter) Context() *MockBillingService_Context_Call {
+	return &MockBillingService_Context_Call{Call: _e.mock.On("Context")}
+}
+
+func (_c *MockBillingService_Context_Call) Run(run func()) *MockBillingService_Context_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockBillingService_Context_Call) Return(context core.Context) *MockBillingService_Context_Call {
+	_c.Call.Return(context)
+	return _c
+}
+
+func (_c *MockBillingService_Context_Call) RunAndReturn(run func() core.Context) *MockBillingService_Context_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// CreateOrUpdateSubscriber provides a mock function for the type MockBillingService
+func (_mock *MockBillingService) CreateOrUpdateSubscriber(ctx context.Context, userID uint, gatewayType string, gatewayID string, isActive bool, planID *uint) error {
+	ret := _mock.Called(ctx, userID, gatewayType, gatewayID, isActive, planID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CreateOrUpdateSubscriber")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uint, string, string, bool, *uint) error); ok {
+		r0 = returnFunc(ctx, userID, gatewayType, gatewayID, isActive, planID)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockBillingService_CreateOrUpdateSubscriber_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CreateOrUpdateSubscriber'
+type MockBillingService_CreateOrUpdateSubscriber_Call struct {
+	*mock.Call
+}
+
+// CreateOrUpdateSubscriber is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID uint
+//   - gatewayType string
+//   - gatewayID string
+//   - isActive bool
+//   - planID *uint
+func (_e *MockBillingService_Expecter) CreateOrUpdateSubscriber(ctx interface{}, userID interface{}, gatewayType interface{}, gatewayID interface{}, isActive interface{}, planID interface{}) *MockBillingService_CreateOrUpdateSubscriber_Call {
+	return &MockBillingService_CreateOrUpdateSubscriber_Call{Call: _e.mock.On("CreateOrUpdateSubscriber", ctx, userID, gatewayType, gatewayID, isActive, planID)}
+}
+
+func (_c *MockBillingService_CreateOrUpdateSubscriber_Call) Run(run func(ctx context.Context, userID uint, gatewayType string, gatewayID string, isActive bool, planID *uint)) *MockBillingService_CreateOrUpdateSubscriber_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 uint
+		if args[1] != nil {
+			arg1 = args[1].(uint)
+		}
+		var arg2 string
+		if args[2] != nil {
+			arg2 = args[2].(string)
+		}
+		var arg3 string
+		if args[3] != nil {
+			arg3 = args[3].(string)
+		}
+		var arg4 bool
+		if args[4] != nil {
+			arg4 = args[4].(bool)
+		}
+		var arg5 *uint
+		if args[5] != nil {
+			arg5 = args[5].(*uint)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+			arg3,
+			arg4,
+			arg5,
+		)
+	})
+	return _c
+}
+
+func (_c *MockBillingService_CreateOrUpdateSubscriber_Call) Return(err error) *MockBillingService_CreateOrUpdateSubscriber_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockBillingService_CreateOrUpdateSubscriber_Call) RunAndReturn(run func(ctx context.Context, userID uint, gatewayType string, gatewayID string, isActive bool, planID *uint) error) *MockBillingService_CreateOrUpdateSubscriber_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// DB provides a mock function for the type MockBillingService
+func (_mock *MockBillingService) DB() *gorm.DB {
+	ret := _mock.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for DB")
+	}
+
+	var r0 *gorm.DB
+	if returnFunc, ok := ret.Get(0).(func() *gorm.DB); ok {
+		r0 = returnFunc()
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*gorm.DB)
+		}
+	}
+	return r0
+}
+
+// MockBillingService_DB_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DB'
+type MockBillingService_DB_Call struct {
+	*mock.Call
+}
+
+// DB is a helper method to define mock.On call
+func (_e *MockBillingService_Expecter) DB() *MockBillingService_DB_Call {
+	return &MockBillingService_DB_Call{Call: _e.mock.On("DB")}
+}
+
+func (_c *MockBillingService_DB_Call) Run(run func()) *MockBillingService_DB_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockBillingService_DB_Call) Return(dB *gorm.DB) *MockBillingService_DB_Call {
+	_c.Call.Return(dB)
+	return _c
+}
+
+func (_c *MockBillingService_DB_Call) RunAndReturn(run func() *gorm.DB) *MockBillingService_DB_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// DeactivateSubscriber provides a mock function for the type MockBillingService
+func (_mock *MockBillingService) DeactivateSubscriber(ctx context.Context, userID uint, gatewayType string) error {
+	ret := _mock.Called(ctx, userID, gatewayType)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeactivateSubscriber")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uint, string) error); ok {
+		r0 = returnFunc(ctx, userID, gatewayType)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockBillingService_DeactivateSubscriber_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeactivateSubscriber'
+type MockBillingService_DeactivateSubscriber_Call struct {
+	*mock.Call
+}
+
+// DeactivateSubscriber is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID uint
+//   - gatewayType string
+func (_e *MockBillingService_Expecter) DeactivateSubscriber(ctx interface{}, userID interface{}, gatewayType interface{}) *MockBillingService_DeactivateSubscriber_Call {
+	return &MockBillingService_DeactivateSubscriber_Call{Call: _e.mock.On("DeactivateSubscriber", ctx, userID, gatewayType)}
+}
+
+func (_c *MockBillingService_DeactivateSubscriber_Call) Run(run func(ctx context.Context, userID uint, gatewayType string)) *MockBillingService_DeactivateSubscriber_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 uint
+		if args[1] != nil {
+			arg1 = args[1].(uint)
+		}
+		var arg2 string
+		if args[2] != nil {
+			arg2 = args[2].(string)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockBillingService_DeactivateSubscriber_Call) Return(err error) *MockBillingService_DeactivateSubscriber_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockBillingService_DeactivateSubscriber_Call) RunAndReturn(run func(ctx context.Context, userID uint, gatewayType string) error) *MockBillingService_DeactivateSubscriber_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetActiveSubscriber provides a mock function for the type MockBillingService
+func (_mock *MockBillingService) GetActiveSubscriber(ctx context.Context, userID uint, gatewayType string) (*Subscriber, error) {
+	ret := _mock.Called(ctx, userID, gatewayType)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetActiveSubscriber")
+	}
+
+	var r0 *Subscriber
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uint, string) (*Subscriber, error)); ok {
+		return returnFunc(ctx, userID, gatewayType)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uint, string) *Subscriber); ok {
+		r0 = returnFunc(ctx, userID, gatewayType)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*Subscriber)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, uint, string) error); ok {
+		r1 = returnFunc(ctx, userID, gatewayType)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockBillingService_GetActiveSubscriber_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetActiveSubscriber'
+type MockBillingService_GetActiveSubscriber_Call struct {
+	*mock.Call
+}
+
+// GetActiveSubscriber is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID uint
+//   - gatewayType string
+func (_e *MockBillingService_Expecter) GetActiveSubscriber(ctx interface{}, userID interface{}, gatewayType interface{}) *MockBillingService_GetActiveSubscriber_Call {
+	return &MockBillingService_GetActiveSubscriber_Call{Call: _e.mock.On("GetActiveSubscriber", ctx, userID, gatewayType)}
+}
+
+func (_c *MockBillingService_GetActiveSubscriber_Call) Run(run func(ctx context.Context, userID uint, gatewayType string)) *MockBillingService_GetActiveSubscriber_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 uint
+		if args[1] != nil {
+			arg1 = args[1].(uint)
+		}
+		var arg2 string
+		if args[2] != nil {
+			arg2 = args[2].(string)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockBillingService_GetActiveSubscriber_Call) Return(v *Subscriber, err error) *MockBillingService_GetActiveSubscriber_Call {
+	_c.Call.Return(v, err)
+	return _c
+}
+
+func (_c *MockBillingService_GetActiveSubscriber_Call) RunAndReturn(run func(ctx context.Context, userID uint, gatewayType string) (*Subscriber, error)) *MockBillingService_GetActiveSubscriber_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetActiveSubscribersByGateway provides a mock function for the type MockBillingService
+func (_mock *MockBillingService) GetActiveSubscribersByGateway(ctx context.Context, gatewayType string) ([]Subscriber, error) {
+	ret := _mock.Called(ctx, gatewayType)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetActiveSubscribersByGateway")
+	}
+
+	var r0 []Subscriber
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) ([]Subscriber, error)); ok {
+		return returnFunc(ctx, gatewayType)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) []Subscriber); ok {
+		r0 = returnFunc(ctx, gatewayType)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]Subscriber)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = returnFunc(ctx, gatewayType)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockBillingService_GetActiveSubscribersByGateway_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetActiveSubscribersByGateway'
+type MockBillingService_GetActiveSubscribersByGateway_Call struct {
+	*mock.Call
+}
+
+// GetActiveSubscribersByGateway is a helper method to define mock.On call
+//   - ctx context.Context
+//   - gatewayType string
+func (_e *MockBillingService_Expecter) GetActiveSubscribersByGateway(ctx interface{}, gatewayType interface{}) *MockBillingService_GetActiveSubscribersByGateway_Call {
+	return &MockBillingService_GetActiveSubscribersByGateway_Call{Call: _e.mock.On("GetActiveSubscribersByGateway", ctx, gatewayType)}
+}
+
+func (_c *MockBillingService_GetActiveSubscribersByGateway_Call) Run(run func(ctx context.Context, gatewayType string)) *MockBillingService_GetActiveSubscribersByGateway_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockBillingService_GetActiveSubscribersByGateway_Call) Return(vs []Subscriber, err error) *MockBillingService_GetActiveSubscribersByGateway_Call {
+	_c.Call.Return(vs, err)
+	return _c
+}
+
+func (_c *MockBillingService_GetActiveSubscribersByGateway_Call) RunAndReturn(run func(ctx context.Context, gatewayType string) ([]Subscriber, error)) *MockBillingService_GetActiveSubscribersByGateway_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetActiveSubscription provides a mock function for the type MockBillingService
+func (_mock *MockBillingService) GetActiveSubscription(ctx context.Context, userID uint) (*Subscriber, error) {
+	ret := _mock.Called(ctx, userID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetActiveSubscription")
+	}
+
+	var r0 *Subscriber
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uint) (*Subscriber, error)); ok {
+		return returnFunc(ctx, userID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uint) *Subscriber); ok {
+		r0 = returnFunc(ctx, userID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*Subscriber)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, uint) error); ok {
+		r1 = returnFunc(ctx, userID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockBillingService_GetActiveSubscription_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetActiveSubscription'
+type MockBillingService_GetActiveSubscription_Call struct {
+	*mock.Call
+}
+
+// GetActiveSubscription is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID uint
+func (_e *MockBillingService_Expecter) GetActiveSubscription(ctx interface{}, userID interface{}) *MockBillingService_GetActiveSubscription_Call {
+	return &MockBillingService_GetActiveSubscription_Call{Call: _e.mock.On("GetActiveSubscription", ctx, userID)}
+}
+
+func (_c *MockBillingService_GetActiveSubscription_Call) Run(run func(ctx context.Context, userID uint)) *MockBillingService_GetActiveSubscription_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 uint
+		if args[1] != nil {
+			arg1 = args[1].(uint)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockBillingService_GetActiveSubscription_Call) Return(v *Subscriber, err error) *MockBillingService_GetActiveSubscription_Call {
+	_c.Call.Return(v, err)
+	return _c
+}
+
+func (_c *MockBillingService_GetActiveSubscription_Call) RunAndReturn(run func(ctx context.Context, userID uint) (*Subscriber, error)) *MockBillingService_GetActiveSubscription_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetConfig provides a mock function for the type MockBillingService
+func (_mock *MockBillingService) GetConfig() (any, error) {
+	ret := _mock.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetConfig")
 	}
 
 	var r0 any
@@ -65,360 +560,36 @@ func (_mock *MockBillingService) Config() (any, error) {
 	return r0, r1
 }
 
-// MockBillingService_Config_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Config'
-type MockBillingService_Config_Call struct {
+// MockBillingService_GetConfig_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetConfig'
+type MockBillingService_GetConfig_Call struct {
 	*mock.Call
 }
 
-// Config is a helper method to define mock.On call
-func (_e *MockBillingService_Expecter) Config() *MockBillingService_Config_Call {
-	return &MockBillingService_Config_Call{Call: _e.mock.On("Config")}
+// GetConfig is a helper method to define mock.On call
+func (_e *MockBillingService_Expecter) GetConfig() *MockBillingService_GetConfig_Call {
+	return &MockBillingService_GetConfig_Call{Call: _e.mock.On("GetConfig")}
 }
 
-func (_c *MockBillingService_Config_Call) Run(run func()) *MockBillingService_Config_Call {
+func (_c *MockBillingService_GetConfig_Call) Run(run func()) *MockBillingService_GetConfig_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run()
 	})
 	return _c
 }
 
-func (_c *MockBillingService_Config_Call) Return(v any, err error) *MockBillingService_Config_Call {
+func (_c *MockBillingService_GetConfig_Call) Return(v any, err error) *MockBillingService_GetConfig_Call {
 	_c.Call.Return(v, err)
 	return _c
 }
 
-func (_c *MockBillingService_Config_Call) RunAndReturn(run func() (any, error)) *MockBillingService_Config_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// CreateOrUpdateSubscriber provides a mock function for the type MockBillingService
-func (_mock *MockBillingService) CreateOrUpdateSubscriber(userID uint, gatewayType string, gatewayID string, isActive bool, planID *uint) error {
-	ret := _mock.Called(userID, gatewayType, gatewayID, isActive, planID)
-
-	if len(ret) == 0 {
-		panic("no return value specified for CreateOrUpdateSubscriber")
-	}
-
-	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(uint, string, string, bool, *uint) error); ok {
-		r0 = returnFunc(userID, gatewayType, gatewayID, isActive, planID)
-	} else {
-		r0 = ret.Error(0)
-	}
-	return r0
-}
-
-// MockBillingService_CreateOrUpdateSubscriber_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CreateOrUpdateSubscriber'
-type MockBillingService_CreateOrUpdateSubscriber_Call struct {
-	*mock.Call
-}
-
-// CreateOrUpdateSubscriber is a helper method to define mock.On call
-//   - userID uint
-//   - gatewayType string
-//   - gatewayID string
-//   - isActive bool
-//   - planID *uint
-func (_e *MockBillingService_Expecter) CreateOrUpdateSubscriber(userID interface{}, gatewayType interface{}, gatewayID interface{}, isActive interface{}, planID interface{}) *MockBillingService_CreateOrUpdateSubscriber_Call {
-	return &MockBillingService_CreateOrUpdateSubscriber_Call{Call: _e.mock.On("CreateOrUpdateSubscriber", userID, gatewayType, gatewayID, isActive, planID)}
-}
-
-func (_c *MockBillingService_CreateOrUpdateSubscriber_Call) Run(run func(userID uint, gatewayType string, gatewayID string, isActive bool, planID *uint)) *MockBillingService_CreateOrUpdateSubscriber_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 uint
-		if args[0] != nil {
-			arg0 = args[0].(uint)
-		}
-		var arg1 string
-		if args[1] != nil {
-			arg1 = args[1].(string)
-		}
-		var arg2 string
-		if args[2] != nil {
-			arg2 = args[2].(string)
-		}
-		var arg3 bool
-		if args[3] != nil {
-			arg3 = args[3].(bool)
-		}
-		var arg4 *uint
-		if args[4] != nil {
-			arg4 = args[4].(*uint)
-		}
-		run(
-			arg0,
-			arg1,
-			arg2,
-			arg3,
-			arg4,
-		)
-	})
-	return _c
-}
-
-func (_c *MockBillingService_CreateOrUpdateSubscriber_Call) Return(err error) *MockBillingService_CreateOrUpdateSubscriber_Call {
-	_c.Call.Return(err)
-	return _c
-}
-
-func (_c *MockBillingService_CreateOrUpdateSubscriber_Call) RunAndReturn(run func(userID uint, gatewayType string, gatewayID string, isActive bool, planID *uint) error) *MockBillingService_CreateOrUpdateSubscriber_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// DeactivateSubscriber provides a mock function for the type MockBillingService
-func (_mock *MockBillingService) DeactivateSubscriber(userID uint, gatewayType string) error {
-	ret := _mock.Called(userID, gatewayType)
-
-	if len(ret) == 0 {
-		panic("no return value specified for DeactivateSubscriber")
-	}
-
-	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(uint, string) error); ok {
-		r0 = returnFunc(userID, gatewayType)
-	} else {
-		r0 = ret.Error(0)
-	}
-	return r0
-}
-
-// MockBillingService_DeactivateSubscriber_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeactivateSubscriber'
-type MockBillingService_DeactivateSubscriber_Call struct {
-	*mock.Call
-}
-
-// DeactivateSubscriber is a helper method to define mock.On call
-//   - userID uint
-//   - gatewayType string
-func (_e *MockBillingService_Expecter) DeactivateSubscriber(userID interface{}, gatewayType interface{}) *MockBillingService_DeactivateSubscriber_Call {
-	return &MockBillingService_DeactivateSubscriber_Call{Call: _e.mock.On("DeactivateSubscriber", userID, gatewayType)}
-}
-
-func (_c *MockBillingService_DeactivateSubscriber_Call) Run(run func(userID uint, gatewayType string)) *MockBillingService_DeactivateSubscriber_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 uint
-		if args[0] != nil {
-			arg0 = args[0].(uint)
-		}
-		var arg1 string
-		if args[1] != nil {
-			arg1 = args[1].(string)
-		}
-		run(
-			arg0,
-			arg1,
-		)
-	})
-	return _c
-}
-
-func (_c *MockBillingService_DeactivateSubscriber_Call) Return(err error) *MockBillingService_DeactivateSubscriber_Call {
-	_c.Call.Return(err)
-	return _c
-}
-
-func (_c *MockBillingService_DeactivateSubscriber_Call) RunAndReturn(run func(userID uint, gatewayType string) error) *MockBillingService_DeactivateSubscriber_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// GetActiveSubscriber provides a mock function for the type MockBillingService
-func (_mock *MockBillingService) GetActiveSubscriber(userID uint, gatewayType string) (*Subscriber, error) {
-	ret := _mock.Called(userID, gatewayType)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetActiveSubscriber")
-	}
-
-	var r0 *Subscriber
-	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(uint, string) (*Subscriber, error)); ok {
-		return returnFunc(userID, gatewayType)
-	}
-	if returnFunc, ok := ret.Get(0).(func(uint, string) *Subscriber); ok {
-		r0 = returnFunc(userID, gatewayType)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*Subscriber)
-		}
-	}
-	if returnFunc, ok := ret.Get(1).(func(uint, string) error); ok {
-		r1 = returnFunc(userID, gatewayType)
-	} else {
-		r1 = ret.Error(1)
-	}
-	return r0, r1
-}
-
-// MockBillingService_GetActiveSubscriber_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetActiveSubscriber'
-type MockBillingService_GetActiveSubscriber_Call struct {
-	*mock.Call
-}
-
-// GetActiveSubscriber is a helper method to define mock.On call
-//   - userID uint
-//   - gatewayType string
-func (_e *MockBillingService_Expecter) GetActiveSubscriber(userID interface{}, gatewayType interface{}) *MockBillingService_GetActiveSubscriber_Call {
-	return &MockBillingService_GetActiveSubscriber_Call{Call: _e.mock.On("GetActiveSubscriber", userID, gatewayType)}
-}
-
-func (_c *MockBillingService_GetActiveSubscriber_Call) Run(run func(userID uint, gatewayType string)) *MockBillingService_GetActiveSubscriber_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 uint
-		if args[0] != nil {
-			arg0 = args[0].(uint)
-		}
-		var arg1 string
-		if args[1] != nil {
-			arg1 = args[1].(string)
-		}
-		run(
-			arg0,
-			arg1,
-		)
-	})
-	return _c
-}
-
-func (_c *MockBillingService_GetActiveSubscriber_Call) Return(v *Subscriber, err error) *MockBillingService_GetActiveSubscriber_Call {
-	_c.Call.Return(v, err)
-	return _c
-}
-
-func (_c *MockBillingService_GetActiveSubscriber_Call) RunAndReturn(run func(userID uint, gatewayType string) (*Subscriber, error)) *MockBillingService_GetActiveSubscriber_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// GetActiveSubscribersByGateway provides a mock function for the type MockBillingService
-func (_mock *MockBillingService) GetActiveSubscribersByGateway(gatewayType string) ([]Subscriber, error) {
-	ret := _mock.Called(gatewayType)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetActiveSubscribersByGateway")
-	}
-
-	var r0 []Subscriber
-	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(string) ([]Subscriber, error)); ok {
-		return returnFunc(gatewayType)
-	}
-	if returnFunc, ok := ret.Get(0).(func(string) []Subscriber); ok {
-		r0 = returnFunc(gatewayType)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]Subscriber)
-		}
-	}
-	if returnFunc, ok := ret.Get(1).(func(string) error); ok {
-		r1 = returnFunc(gatewayType)
-	} else {
-		r1 = ret.Error(1)
-	}
-	return r0, r1
-}
-
-// MockBillingService_GetActiveSubscribersByGateway_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetActiveSubscribersByGateway'
-type MockBillingService_GetActiveSubscribersByGateway_Call struct {
-	*mock.Call
-}
-
-// GetActiveSubscribersByGateway is a helper method to define mock.On call
-//   - gatewayType string
-func (_e *MockBillingService_Expecter) GetActiveSubscribersByGateway(gatewayType interface{}) *MockBillingService_GetActiveSubscribersByGateway_Call {
-	return &MockBillingService_GetActiveSubscribersByGateway_Call{Call: _e.mock.On("GetActiveSubscribersByGateway", gatewayType)}
-}
-
-func (_c *MockBillingService_GetActiveSubscribersByGateway_Call) Run(run func(gatewayType string)) *MockBillingService_GetActiveSubscribersByGateway_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 string
-		if args[0] != nil {
-			arg0 = args[0].(string)
-		}
-		run(
-			arg0,
-		)
-	})
-	return _c
-}
-
-func (_c *MockBillingService_GetActiveSubscribersByGateway_Call) Return(vs []Subscriber, err error) *MockBillingService_GetActiveSubscribersByGateway_Call {
-	_c.Call.Return(vs, err)
-	return _c
-}
-
-func (_c *MockBillingService_GetActiveSubscribersByGateway_Call) RunAndReturn(run func(gatewayType string) ([]Subscriber, error)) *MockBillingService_GetActiveSubscribersByGateway_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// GetActiveSubscription provides a mock function for the type MockBillingService
-func (_mock *MockBillingService) GetActiveSubscription(userID uint) (*Subscriber, error) {
-	ret := _mock.Called(userID)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetActiveSubscription")
-	}
-
-	var r0 *Subscriber
-	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(uint) (*Subscriber, error)); ok {
-		return returnFunc(userID)
-	}
-	if returnFunc, ok := ret.Get(0).(func(uint) *Subscriber); ok {
-		r0 = returnFunc(userID)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*Subscriber)
-		}
-	}
-	if returnFunc, ok := ret.Get(1).(func(uint) error); ok {
-		r1 = returnFunc(userID)
-	} else {
-		r1 = ret.Error(1)
-	}
-	return r0, r1
-}
-
-// MockBillingService_GetActiveSubscription_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetActiveSubscription'
-type MockBillingService_GetActiveSubscription_Call struct {
-	*mock.Call
-}
-
-// GetActiveSubscription is a helper method to define mock.On call
-//   - userID uint
-func (_e *MockBillingService_Expecter) GetActiveSubscription(userID interface{}) *MockBillingService_GetActiveSubscription_Call {
-	return &MockBillingService_GetActiveSubscription_Call{Call: _e.mock.On("GetActiveSubscription", userID)}
-}
-
-func (_c *MockBillingService_GetActiveSubscription_Call) Run(run func(userID uint)) *MockBillingService_GetActiveSubscription_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 uint
-		if args[0] != nil {
-			arg0 = args[0].(uint)
-		}
-		run(
-			arg0,
-		)
-	})
-	return _c
-}
-
-func (_c *MockBillingService_GetActiveSubscription_Call) Return(v *Subscriber, err error) *MockBillingService_GetActiveSubscription_Call {
-	_c.Call.Return(v, err)
-	return _c
-}
-
-func (_c *MockBillingService_GetActiveSubscription_Call) RunAndReturn(run func(userID uint) (*Subscriber, error)) *MockBillingService_GetActiveSubscription_Call {
+func (_c *MockBillingService_GetConfig_Call) RunAndReturn(run func() (any, error)) *MockBillingService_GetConfig_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // GetGateway provides a mock function for the type MockBillingService
-func (_mock *MockBillingService) GetGateway(gatewayType string) (PaymentGateway, error) {
-	ret := _mock.Called(gatewayType)
+func (_mock *MockBillingService) GetGateway(ctx context.Context, gatewayType string) (PaymentGateway, error) {
+	ret := _mock.Called(ctx, gatewayType)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetGateway")
@@ -426,18 +597,18 @@ func (_mock *MockBillingService) GetGateway(gatewayType string) (PaymentGateway,
 
 	var r0 PaymentGateway
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(string) (PaymentGateway, error)); ok {
-		return returnFunc(gatewayType)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) (PaymentGateway, error)); ok {
+		return returnFunc(ctx, gatewayType)
 	}
-	if returnFunc, ok := ret.Get(0).(func(string) PaymentGateway); ok {
-		r0 = returnFunc(gatewayType)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) PaymentGateway); ok {
+		r0 = returnFunc(ctx, gatewayType)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(PaymentGateway)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(string) error); ok {
-		r1 = returnFunc(gatewayType)
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = returnFunc(ctx, gatewayType)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -450,139 +621,17 @@ type MockBillingService_GetGateway_Call struct {
 }
 
 // GetGateway is a helper method to define mock.On call
+//   - ctx context.Context
 //   - gatewayType string
-func (_e *MockBillingService_Expecter) GetGateway(gatewayType interface{}) *MockBillingService_GetGateway_Call {
-	return &MockBillingService_GetGateway_Call{Call: _e.mock.On("GetGateway", gatewayType)}
+func (_e *MockBillingService_Expecter) GetGateway(ctx interface{}, gatewayType interface{}) *MockBillingService_GetGateway_Call {
+	return &MockBillingService_GetGateway_Call{Call: _e.mock.On("GetGateway", ctx, gatewayType)}
 }
 
-func (_c *MockBillingService_GetGateway_Call) Run(run func(gatewayType string)) *MockBillingService_GetGateway_Call {
+func (_c *MockBillingService_GetGateway_Call) Run(run func(ctx context.Context, gatewayType string)) *MockBillingService_GetGateway_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 string
+		var arg0 context.Context
 		if args[0] != nil {
-			arg0 = args[0].(string)
-		}
-		run(
-			arg0,
-		)
-	})
-	return _c
-}
-
-func (_c *MockBillingService_GetGateway_Call) Return(paymentGateway PaymentGateway, err error) *MockBillingService_GetGateway_Call {
-	_c.Call.Return(paymentGateway, err)
-	return _c
-}
-
-func (_c *MockBillingService_GetGateway_Call) RunAndReturn(run func(gatewayType string) (PaymentGateway, error)) *MockBillingService_GetGateway_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// GetSignatureHeader provides a mock function for the type MockBillingService
-func (_mock *MockBillingService) GetSignatureHeader(gatewayType string) (string, error) {
-	ret := _mock.Called(gatewayType)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetSignatureHeader")
-	}
-
-	var r0 string
-	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(string) (string, error)); ok {
-		return returnFunc(gatewayType)
-	}
-	if returnFunc, ok := ret.Get(0).(func(string) string); ok {
-		r0 = returnFunc(gatewayType)
-	} else {
-		r0 = ret.Get(0).(string)
-	}
-	if returnFunc, ok := ret.Get(1).(func(string) error); ok {
-		r1 = returnFunc(gatewayType)
-	} else {
-		r1 = ret.Error(1)
-	}
-	return r0, r1
-}
-
-// MockBillingService_GetSignatureHeader_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetSignatureHeader'
-type MockBillingService_GetSignatureHeader_Call struct {
-	*mock.Call
-}
-
-// GetSignatureHeader is a helper method to define mock.On call
-//   - gatewayType string
-func (_e *MockBillingService_Expecter) GetSignatureHeader(gatewayType interface{}) *MockBillingService_GetSignatureHeader_Call {
-	return &MockBillingService_GetSignatureHeader_Call{Call: _e.mock.On("GetSignatureHeader", gatewayType)}
-}
-
-func (_c *MockBillingService_GetSignatureHeader_Call) Run(run func(gatewayType string)) *MockBillingService_GetSignatureHeader_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 string
-		if args[0] != nil {
-			arg0 = args[0].(string)
-		}
-		run(
-			arg0,
-		)
-	})
-	return _c
-}
-
-func (_c *MockBillingService_GetSignatureHeader_Call) Return(s string, err error) *MockBillingService_GetSignatureHeader_Call {
-	_c.Call.Return(s, err)
-	return _c
-}
-
-func (_c *MockBillingService_GetSignatureHeader_Call) RunAndReturn(run func(gatewayType string) (string, error)) *MockBillingService_GetSignatureHeader_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// GetSubscriberByGatewayID provides a mock function for the type MockBillingService
-func (_mock *MockBillingService) GetSubscriberByGatewayID(gatewayID string, gatewayType string) (*Subscriber, error) {
-	ret := _mock.Called(gatewayID, gatewayType)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetSubscriberByGatewayID")
-	}
-
-	var r0 *Subscriber
-	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(string, string) (*Subscriber, error)); ok {
-		return returnFunc(gatewayID, gatewayType)
-	}
-	if returnFunc, ok := ret.Get(0).(func(string, string) *Subscriber); ok {
-		r0 = returnFunc(gatewayID, gatewayType)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*Subscriber)
-		}
-	}
-	if returnFunc, ok := ret.Get(1).(func(string, string) error); ok {
-		r1 = returnFunc(gatewayID, gatewayType)
-	} else {
-		r1 = ret.Error(1)
-	}
-	return r0, r1
-}
-
-// MockBillingService_GetSubscriberByGatewayID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetSubscriberByGatewayID'
-type MockBillingService_GetSubscriberByGatewayID_Call struct {
-	*mock.Call
-}
-
-// GetSubscriberByGatewayID is a helper method to define mock.On call
-//   - gatewayID string
-//   - gatewayType string
-func (_e *MockBillingService_Expecter) GetSubscriberByGatewayID(gatewayID interface{}, gatewayType interface{}) *MockBillingService_GetSubscriberByGatewayID_Call {
-	return &MockBillingService_GetSubscriberByGatewayID_Call{Call: _e.mock.On("GetSubscriberByGatewayID", gatewayID, gatewayType)}
-}
-
-func (_c *MockBillingService_GetSubscriberByGatewayID_Call) Run(run func(gatewayID string, gatewayType string)) *MockBillingService_GetSubscriberByGatewayID_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 string
-		if args[0] != nil {
-			arg0 = args[0].(string)
+			arg0 = args[0].(context.Context)
 		}
 		var arg1 string
 		if args[1] != nil {
@@ -596,12 +645,152 @@ func (_c *MockBillingService_GetSubscriberByGatewayID_Call) Run(run func(gateway
 	return _c
 }
 
+func (_c *MockBillingService_GetGateway_Call) Return(paymentGateway PaymentGateway, err error) *MockBillingService_GetGateway_Call {
+	_c.Call.Return(paymentGateway, err)
+	return _c
+}
+
+func (_c *MockBillingService_GetGateway_Call) RunAndReturn(run func(ctx context.Context, gatewayType string) (PaymentGateway, error)) *MockBillingService_GetGateway_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetSignatureHeader provides a mock function for the type MockBillingService
+func (_mock *MockBillingService) GetSignatureHeader(ctx context.Context, gatewayType string) (string, error) {
+	ret := _mock.Called(ctx, gatewayType)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetSignatureHeader")
+	}
+
+	var r0 string
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) (string, error)); ok {
+		return returnFunc(ctx, gatewayType)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) string); ok {
+		r0 = returnFunc(ctx, gatewayType)
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = returnFunc(ctx, gatewayType)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockBillingService_GetSignatureHeader_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetSignatureHeader'
+type MockBillingService_GetSignatureHeader_Call struct {
+	*mock.Call
+}
+
+// GetSignatureHeader is a helper method to define mock.On call
+//   - ctx context.Context
+//   - gatewayType string
+func (_e *MockBillingService_Expecter) GetSignatureHeader(ctx interface{}, gatewayType interface{}) *MockBillingService_GetSignatureHeader_Call {
+	return &MockBillingService_GetSignatureHeader_Call{Call: _e.mock.On("GetSignatureHeader", ctx, gatewayType)}
+}
+
+func (_c *MockBillingService_GetSignatureHeader_Call) Run(run func(ctx context.Context, gatewayType string)) *MockBillingService_GetSignatureHeader_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockBillingService_GetSignatureHeader_Call) Return(s string, err error) *MockBillingService_GetSignatureHeader_Call {
+	_c.Call.Return(s, err)
+	return _c
+}
+
+func (_c *MockBillingService_GetSignatureHeader_Call) RunAndReturn(run func(ctx context.Context, gatewayType string) (string, error)) *MockBillingService_GetSignatureHeader_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetSubscriberByGatewayID provides a mock function for the type MockBillingService
+func (_mock *MockBillingService) GetSubscriberByGatewayID(ctx context.Context, gatewayID string, gatewayType string) (*Subscriber, error) {
+	ret := _mock.Called(ctx, gatewayID, gatewayType)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetSubscriberByGatewayID")
+	}
+
+	var r0 *Subscriber
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) (*Subscriber, error)); ok {
+		return returnFunc(ctx, gatewayID, gatewayType)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) *Subscriber); ok {
+		r0 = returnFunc(ctx, gatewayID, gatewayType)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*Subscriber)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
+		r1 = returnFunc(ctx, gatewayID, gatewayType)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockBillingService_GetSubscriberByGatewayID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetSubscriberByGatewayID'
+type MockBillingService_GetSubscriberByGatewayID_Call struct {
+	*mock.Call
+}
+
+// GetSubscriberByGatewayID is a helper method to define mock.On call
+//   - ctx context.Context
+//   - gatewayID string
+//   - gatewayType string
+func (_e *MockBillingService_Expecter) GetSubscriberByGatewayID(ctx interface{}, gatewayID interface{}, gatewayType interface{}) *MockBillingService_GetSubscriberByGatewayID_Call {
+	return &MockBillingService_GetSubscriberByGatewayID_Call{Call: _e.mock.On("GetSubscriberByGatewayID", ctx, gatewayID, gatewayType)}
+}
+
+func (_c *MockBillingService_GetSubscriberByGatewayID_Call) Run(run func(ctx context.Context, gatewayID string, gatewayType string)) *MockBillingService_GetSubscriberByGatewayID_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		var arg2 string
+		if args[2] != nil {
+			arg2 = args[2].(string)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
 func (_c *MockBillingService_GetSubscriberByGatewayID_Call) Return(v *Subscriber, err error) *MockBillingService_GetSubscriberByGatewayID_Call {
 	_c.Call.Return(v, err)
 	return _c
 }
 
-func (_c *MockBillingService_GetSubscriberByGatewayID_Call) RunAndReturn(run func(gatewayID string, gatewayType string) (*Subscriber, error)) *MockBillingService_GetSubscriberByGatewayID_Call {
+func (_c *MockBillingService_GetSubscriberByGatewayID_Call) RunAndReturn(run func(ctx context.Context, gatewayID string, gatewayType string) (*Subscriber, error)) *MockBillingService_GetSubscriberByGatewayID_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -651,8 +840,8 @@ func (_c *MockBillingService_ID_Call) RunAndReturn(run func() string) *MockBilli
 }
 
 // IsUserActiveSubscriber provides a mock function for the type MockBillingService
-func (_mock *MockBillingService) IsUserActiveSubscriber(userID uint) (bool, error) {
-	ret := _mock.Called(userID)
+func (_mock *MockBillingService) IsUserActiveSubscriber(ctx context.Context, userID uint) (bool, error) {
+	ret := _mock.Called(ctx, userID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for IsUserActiveSubscriber")
@@ -660,16 +849,16 @@ func (_mock *MockBillingService) IsUserActiveSubscriber(userID uint) (bool, erro
 
 	var r0 bool
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(uint) (bool, error)); ok {
-		return returnFunc(userID)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uint) (bool, error)); ok {
+		return returnFunc(ctx, userID)
 	}
-	if returnFunc, ok := ret.Get(0).(func(uint) bool); ok {
-		r0 = returnFunc(userID)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uint) bool); ok {
+		r0 = returnFunc(ctx, userID)
 	} else {
 		r0 = ret.Get(0).(bool)
 	}
-	if returnFunc, ok := ret.Get(1).(func(uint) error); ok {
-		r1 = returnFunc(userID)
+	if returnFunc, ok := ret.Get(1).(func(context.Context, uint) error); ok {
+		r1 = returnFunc(ctx, userID)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -682,19 +871,25 @@ type MockBillingService_IsUserActiveSubscriber_Call struct {
 }
 
 // IsUserActiveSubscriber is a helper method to define mock.On call
+//   - ctx context.Context
 //   - userID uint
-func (_e *MockBillingService_Expecter) IsUserActiveSubscriber(userID interface{}) *MockBillingService_IsUserActiveSubscriber_Call {
-	return &MockBillingService_IsUserActiveSubscriber_Call{Call: _e.mock.On("IsUserActiveSubscriber", userID)}
+func (_e *MockBillingService_Expecter) IsUserActiveSubscriber(ctx interface{}, userID interface{}) *MockBillingService_IsUserActiveSubscriber_Call {
+	return &MockBillingService_IsUserActiveSubscriber_Call{Call: _e.mock.On("IsUserActiveSubscriber", ctx, userID)}
 }
 
-func (_c *MockBillingService_IsUserActiveSubscriber_Call) Run(run func(userID uint)) *MockBillingService_IsUserActiveSubscriber_Call {
+func (_c *MockBillingService_IsUserActiveSubscriber_Call) Run(run func(ctx context.Context, userID uint)) *MockBillingService_IsUserActiveSubscriber_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 uint
+		var arg0 context.Context
 		if args[0] != nil {
-			arg0 = args[0].(uint)
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 uint
+		if args[1] != nil {
+			arg1 = args[1].(uint)
 		}
 		run(
 			arg0,
+			arg1,
 		)
 	})
 	return _c
@@ -705,7 +900,53 @@ func (_c *MockBillingService_IsUserActiveSubscriber_Call) Return(b bool, err err
 	return _c
 }
 
-func (_c *MockBillingService_IsUserActiveSubscriber_Call) RunAndReturn(run func(userID uint) (bool, error)) *MockBillingService_IsUserActiveSubscriber_Call {
+func (_c *MockBillingService_IsUserActiveSubscriber_Call) RunAndReturn(run func(ctx context.Context, userID uint) (bool, error)) *MockBillingService_IsUserActiveSubscriber_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// Logger provides a mock function for the type MockBillingService
+func (_mock *MockBillingService) Logger() *core.Logger {
+	ret := _mock.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for Logger")
+	}
+
+	var r0 *core.Logger
+	if returnFunc, ok := ret.Get(0).(func() *core.Logger); ok {
+		r0 = returnFunc()
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*core.Logger)
+		}
+	}
+	return r0
+}
+
+// MockBillingService_Logger_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Logger'
+type MockBillingService_Logger_Call struct {
+	*mock.Call
+}
+
+// Logger is a helper method to define mock.On call
+func (_e *MockBillingService_Expecter) Logger() *MockBillingService_Logger_Call {
+	return &MockBillingService_Logger_Call{Call: _e.mock.On("Logger")}
+}
+
+func (_c *MockBillingService_Logger_Call) Run(run func()) *MockBillingService_Logger_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockBillingService_Logger_Call) Return(logger *core.Logger) *MockBillingService_Logger_Call {
+	_c.Call.Return(logger)
+	return _c
+}
+
+func (_c *MockBillingService_Logger_Call) RunAndReturn(run func() *core.Logger) *MockBillingService_Logger_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -780,16 +1021,16 @@ func (_c *MockBillingService_ProcessWebhook_Call) RunAndReturn(run func(ctx cont
 }
 
 // RegisterGateway provides a mock function for the type MockBillingService
-func (_mock *MockBillingService) RegisterGateway(gateway PaymentGateway) error {
-	ret := _mock.Called(gateway)
+func (_mock *MockBillingService) RegisterGateway(ctx context.Context, gateway PaymentGateway) error {
+	ret := _mock.Called(ctx, gateway)
 
 	if len(ret) == 0 {
 		panic("no return value specified for RegisterGateway")
 	}
 
 	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(PaymentGateway) error); ok {
-		r0 = returnFunc(gateway)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, PaymentGateway) error); ok {
+		r0 = returnFunc(ctx, gateway)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -802,19 +1043,25 @@ type MockBillingService_RegisterGateway_Call struct {
 }
 
 // RegisterGateway is a helper method to define mock.On call
+//   - ctx context.Context
 //   - gateway PaymentGateway
-func (_e *MockBillingService_Expecter) RegisterGateway(gateway interface{}) *MockBillingService_RegisterGateway_Call {
-	return &MockBillingService_RegisterGateway_Call{Call: _e.mock.On("RegisterGateway", gateway)}
+func (_e *MockBillingService_Expecter) RegisterGateway(ctx interface{}, gateway interface{}) *MockBillingService_RegisterGateway_Call {
+	return &MockBillingService_RegisterGateway_Call{Call: _e.mock.On("RegisterGateway", ctx, gateway)}
 }
 
-func (_c *MockBillingService_RegisterGateway_Call) Run(run func(gateway PaymentGateway)) *MockBillingService_RegisterGateway_Call {
+func (_c *MockBillingService_RegisterGateway_Call) Run(run func(ctx context.Context, gateway PaymentGateway)) *MockBillingService_RegisterGateway_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 PaymentGateway
+		var arg0 context.Context
 		if args[0] != nil {
-			arg0 = args[0].(PaymentGateway)
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 PaymentGateway
+		if args[1] != nil {
+			arg1 = args[1].(PaymentGateway)
 		}
 		run(
 			arg0,
+			arg1,
 		)
 	})
 	return _c
@@ -825,7 +1072,167 @@ func (_c *MockBillingService_RegisterGateway_Call) Return(err error) *MockBillin
 	return _c
 }
 
-func (_c *MockBillingService_RegisterGateway_Call) RunAndReturn(run func(gateway PaymentGateway) error) *MockBillingService_RegisterGateway_Call {
+func (_c *MockBillingService_RegisterGateway_Call) RunAndReturn(run func(ctx context.Context, gateway PaymentGateway) error) *MockBillingService_RegisterGateway_Call {
 	_c.Call.Return(run)
+	return _c
+}
+
+// SetConfig provides a mock function for the type MockBillingService
+func (_mock *MockBillingService) SetConfig(cfg config.Manager) {
+	_mock.Called(cfg)
+	return
+}
+
+// MockBillingService_SetConfig_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetConfig'
+type MockBillingService_SetConfig_Call struct {
+	*mock.Call
+}
+
+// SetConfig is a helper method to define mock.On call
+//   - cfg config.Manager
+func (_e *MockBillingService_Expecter) SetConfig(cfg interface{}) *MockBillingService_SetConfig_Call {
+	return &MockBillingService_SetConfig_Call{Call: _e.mock.On("SetConfig", cfg)}
+}
+
+func (_c *MockBillingService_SetConfig_Call) Run(run func(cfg config.Manager)) *MockBillingService_SetConfig_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 config.Manager
+		if args[0] != nil {
+			arg0 = args[0].(config.Manager)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *MockBillingService_SetConfig_Call) Return() *MockBillingService_SetConfig_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockBillingService_SetConfig_Call) RunAndReturn(run func(cfg config.Manager)) *MockBillingService_SetConfig_Call {
+	_c.Run(run)
+	return _c
+}
+
+// SetContext provides a mock function for the type MockBillingService
+func (_mock *MockBillingService) SetContext(ctx core.Context) {
+	_mock.Called(ctx)
+	return
+}
+
+// MockBillingService_SetContext_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetContext'
+type MockBillingService_SetContext_Call struct {
+	*mock.Call
+}
+
+// SetContext is a helper method to define mock.On call
+//   - ctx core.Context
+func (_e *MockBillingService_Expecter) SetContext(ctx interface{}) *MockBillingService_SetContext_Call {
+	return &MockBillingService_SetContext_Call{Call: _e.mock.On("SetContext", ctx)}
+}
+
+func (_c *MockBillingService_SetContext_Call) Run(run func(ctx core.Context)) *MockBillingService_SetContext_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 core.Context
+		if args[0] != nil {
+			arg0 = args[0].(core.Context)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *MockBillingService_SetContext_Call) Return() *MockBillingService_SetContext_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockBillingService_SetContext_Call) RunAndReturn(run func(ctx core.Context)) *MockBillingService_SetContext_Call {
+	_c.Run(run)
+	return _c
+}
+
+// SetDB provides a mock function for the type MockBillingService
+func (_mock *MockBillingService) SetDB(db *gorm.DB) {
+	_mock.Called(db)
+	return
+}
+
+// MockBillingService_SetDB_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetDB'
+type MockBillingService_SetDB_Call struct {
+	*mock.Call
+}
+
+// SetDB is a helper method to define mock.On call
+//   - db *gorm.DB
+func (_e *MockBillingService_Expecter) SetDB(db interface{}) *MockBillingService_SetDB_Call {
+	return &MockBillingService_SetDB_Call{Call: _e.mock.On("SetDB", db)}
+}
+
+func (_c *MockBillingService_SetDB_Call) Run(run func(db *gorm.DB)) *MockBillingService_SetDB_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 *gorm.DB
+		if args[0] != nil {
+			arg0 = args[0].(*gorm.DB)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *MockBillingService_SetDB_Call) Return() *MockBillingService_SetDB_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockBillingService_SetDB_Call) RunAndReturn(run func(db *gorm.DB)) *MockBillingService_SetDB_Call {
+	_c.Run(run)
+	return _c
+}
+
+// SetLogger provides a mock function for the type MockBillingService
+func (_mock *MockBillingService) SetLogger(logger *core.Logger) {
+	_mock.Called(logger)
+	return
+}
+
+// MockBillingService_SetLogger_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetLogger'
+type MockBillingService_SetLogger_Call struct {
+	*mock.Call
+}
+
+// SetLogger is a helper method to define mock.On call
+//   - logger *core.Logger
+func (_e *MockBillingService_Expecter) SetLogger(logger interface{}) *MockBillingService_SetLogger_Call {
+	return &MockBillingService_SetLogger_Call{Call: _e.mock.On("SetLogger", logger)}
+}
+
+func (_c *MockBillingService_SetLogger_Call) Run(run func(logger *core.Logger)) *MockBillingService_SetLogger_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 *core.Logger
+		if args[0] != nil {
+			arg0 = args[0].(*core.Logger)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *MockBillingService_SetLogger_Call) Return() *MockBillingService_SetLogger_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockBillingService_SetLogger_Call) RunAndReturn(run func(logger *core.Logger)) *MockBillingService_SetLogger_Call {
+	_c.Run(run)
 	return _c
 }
