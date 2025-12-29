@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -52,23 +53,22 @@ func TestMain(m *testing.M) {
 		coreTesting.WithAPIID("dashboard"),
 		coreTesting.WithTestMainContextSimple(func(ctx coreTesting.TestContext) []coreTesting.TestContextBuilderOption {
 			return []coreTesting.TestContextBuilderOption{
-				func(ctx coreTesting.TestContext) (coreTesting.TestContext, error) {
-					event.OnBootCompleted(ctx, func(context core.Context) error {
-
+				func(c coreTesting.TestContext) (coreTesting.TestContext, error) {
+					event.OnBootCompleted(ctx, func(_ core.Context, ctx context.Context) error {
 						registry := gateway.GetRegistry()
 						registry.Reset()
 
 						// Register Stripe gateway if webhook secret is configured
-						if secret := strings.TrimSpace(getStripeWebhookSecret(ctx)); secret != "" {
+						if secret := strings.TrimSpace(getStripeWebhookSecret(c)); secret != "" {
 							// Use mock factory to create a fully configured mock Stripe gateway
-							mockGateway, _, _, _ := pluginGatewayStripe.CreateMockStripeGateway(ctx, secret, getStripeSecretKey(ctx))
+							mockGateway, _, _, _ := pluginGatewayStripe.CreateMockStripeGateway(c, secret, getStripeSecretKey(c))
 
-							if err := registry.Register(mockGateway); err != nil {
+							if err := registry.Register(context.Background(), mockGateway); err != nil {
 								return fmt.Errorf("failed to register mock stripe gateway: %w", err)
 							}
 						}
 
-						ctx.OnExit(func(context core.Context) error {
+						c.OnExit(func(context core.Context) error {
 							registry.Reset()
 							return nil
 						})
@@ -308,7 +308,7 @@ func createTestQuotaPlan(ctx coreTesting.TestContext, planID uint, name string) 
 		IsDefault:          false,
 	}
 
-	return quotaService.CreateQuotaPlan(plan)
+	return quotaService.CreateQuotaPlan(context.Background(), plan)
 }
 
 // createStripeCheckoutSessionEvent creates a Stripe checkout.session.completed event
@@ -499,7 +499,7 @@ func assertSubscriberExists(ctx coreTesting.TestContext, userID uint, gatewayTyp
 	}
 
 	// Use the billing service to get the active subscriber
-	subscriber, err := billingService.GetActiveSubscriber(userID, gatewayType)
+	subscriber, err := billingService.GetActiveSubscriber(context.Background(), userID, gatewayType)
 	if err != nil {
 		return nil, err
 	}

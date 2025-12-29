@@ -14,7 +14,7 @@ var (
 // for specific payment providers like Stripe, PayPal, etc.
 type PaymentGateway interface {
 	// ID returns the unique identifier for this gateway (e.g. "stripe", "paypal")
-	ID() string
+	ID(ctx context.Context) string
 
 	// HandleWebhook processes an incoming webhook event from the payment provider
 	// Returns an error if processing failed
@@ -26,15 +26,15 @@ type PaymentGateway interface {
 
 	// SignatureHeader returns the HTTP header name that contains the webhook signature
 	// This is provider-specific (e.g. "Stripe-Signature" for Stripe)
-	SignatureHeader() string
+	SignatureHeader(ctx context.Context) string
 
 	// ExtractEventID extracts the unique event identifier from the webhook payload
 	// This is used for deduplication purposes
-	ExtractEventID(payload []byte) (string, error)
+	ExtractEventID(ctx context.Context, payload []byte) (string, error)
 
 	// ExtractEventType extracts the event type from the webhook payload
 	// This is used for logging and monitoring purposes
-	ExtractEventType(payload []byte) (string, error)
+	ExtractEventType(ctx context.Context, payload []byte) (string, error)
 
 	// GetCustomerPortalURL creates and returns a customer portal session URL for the given user
 	// Returns the URL where the user can manage their subscription and payment methods

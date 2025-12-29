@@ -3,6 +3,7 @@ package billing
 import (
 	"fmt"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"go.lumeweb.com/portal-plugin-billing/build"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
 	"go.lumeweb.com/portal-plugin-billing/internal"
@@ -10,6 +11,8 @@ import (
 	"go.lumeweb.com/portal-plugin-billing/internal/config"
 	"go.lumeweb.com/portal-plugin-billing/internal/db/migrations"
 	"go.lumeweb.com/portal-plugin-billing/internal/db/models"
+	"go.lumeweb.com/portal-plugin-billing/internal/gateway"
+	"go.lumeweb.com/portal-plugin-billing/internal/gateway/stripe"
 	"go.lumeweb.com/portal-plugin-billing/internal/service/billing"
 	"go.lumeweb.com/portal/core"
 )
@@ -49,7 +52,16 @@ func GetPluginInfo() core.PluginInfo {
 			core.DB_TYPE_MYSQL:  migrations.GetMySQL(),
 			core.DB_TYPE_SQLITE: migrations.GetSQLite(),
 		},
+		Metrics: mergeMetrics(),
 	}
+}
+
+func mergeMetrics() []prometheus.Collector {
+	var collectors []prometheus.Collector
+	collectors = append(collectors, billing.GetCollectors()...)
+	collectors = append(collectors, gateway.GetCollectors()...)
+	collectors = append(collectors, stripe.GetCollectors()...)
+	return collectors
 }
 
 func init() {

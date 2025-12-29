@@ -6,8 +6,8 @@ import (
 	"sync"
 
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
+	"go.lumeweb.com/portal/core"
 )
-
 
 // Registry maintains a collection of payment gateways
 type Registry struct {
@@ -40,22 +40,29 @@ var (
 )
 
 // Register adds a payment gateway to the registry
-func (r *Registry) Register(gateway pluginCore.PaymentGateway) error {
+func (r *Registry) Register(ctx context.Context, gateway pluginCore.PaymentGateway) error {
+	ctx, span := core.TraceMethod(ctx, "Registry.Register")
+	defer span.End()
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	if gateway == nil {
+		GatewayRegistered.WithLabelValues("", LabelStatusError).Inc()
 		return fmt.Errorf("gateway cannot be nil")
 	}
 
-	id := gateway.ID()
+	id := gateway.ID(ctx)
 	if id == "" {
+		GatewayRegistered.WithLabelValues("", LabelStatusError).Inc()
 		return fmt.Errorf("gateway ID cannot be empty")
 	}
 	if _, exists := r.gateways[id]; exists {
+		GatewayRegistered.WithLabelValues(id, LabelStatusError).Inc()
 		return fmt.Errorf("gateway %q already registered", id)
 	}
 	r.gateways[id] = gateway
+	GatewayRegistered.WithLabelValues(id, LabelStatusSuccess).Inc()
 	return nil
 }
 
@@ -80,52 +87,80 @@ func (r *Registry) GetAll() []pluginCore.PaymentGateway {
 	return gateways
 }
 
-
 // ValidateWebhook validates a webhook for a specific gateway
 func (r *Registry) ValidateWebhook(ctx context.Context, gatewayType string, signature string, payload []byte) error {
+	ctx, span := core.TraceMethod(ctx, "Registry.ValidateWebhook")
+	defer span.End()
+
 	gw, exists := r.Get(gatewayType)
 	if !exists {
+		WebhookValidated.WithLabelValues(gatewayType, LabelStatusError).Inc()
 		return pluginCore.ErrGatewayNotFound
 	}
 
-	return gw.ValidateWebhook(ctx, signature, payload)
+	err := gw.ValidateWebhook(ctx, signature, payload)
+	if err != nil {
+		WebhookValidated.WithLabelValues(gatewayType, LabelStatusError).Inc()
+		return err
+	}
+	WebhookValidated.WithLabelValues(gatewayType, LabelStatusSuccess).Inc()
+	return nil
 }
 
 // GetSignatureHeader returns the signature header name for a gateway
-func (r *Registry) GetSignatureHeader(gatewayType string) (string, error) {
+func (r *Registry) GetSignatureHeader(ctx context.Context, gatewayType string) (string, error) {
+	ctx, span := core.TraceMethod(ctx, "Registry.GetSignatureHeader")
+	defer span.End()
+
 	gw, exists := r.Get(gatewayType)
 	if !exists {
 		return "", pluginCore.ErrGatewayNotFound
 	}
-	return gw.SignatureHeader(), nil
+	return gw.SignatureHeader(ctx), nil
 }
 
 // HandleWebhook handles a webhook for a specific gateway
 func (r *Registry) HandleWebhook(ctx context.Context, gatewayType string, payload []byte) error {
+	ctx, span := core.TraceMethod(ctx, "Registry.HandleWebhook")
+	defer span.End()
+
 	gw, exists := r.Get(gatewayType)
 	if !exists {
+		WebhookHandled.WithLabelValues(gatewayType, LabelStatusError).Inc()
 		return pluginCore.ErrGatewayNotFound
 	}
 
-	return gw.HandleWebhook(ctx, payload)
+	err := gw.HandleWebhook(ctx, payload)
+	if err != nil {
+		WebhookHandled.WithLabelValues(gatewayType, LabelStatusError).Inc()
+		return err
+	}
+	WebhookHandled.WithLabelValues(gatewayType, LabelStatusSuccess).Inc()
+	return nil
 }
 
 // ExtractEventID extracts the event ID from a webhook payload for a specific gateway
-func (r *Registry) ExtractEventID(gatewayType string, payload []byte) (string, error) {
+func (r *Registry) ExtractEventID(ctx context.Context, gatewayType string, payload []byte) (string, error) {
+	ctx, span := core.TraceMethod(ctx, "Registry.ExtractEventID")
+	defer span.End()
+
 	gw, exists := r.Get(gatewayType)
 	if !exists {
 		return "", pluginCore.ErrGatewayNotFound
 	}
 
-	return gw.ExtractEventID(payload)
+	return gw.ExtractEventID(ctx, payload)
 }
 
 // ExtractEventType extracts the event type from a webhook payload for a specific gateway
-func (r *Registry) ExtractEventType(gatewayType string, payload []byte) (string, error) {
+func (r *Registry) ExtractEventType(ctx context.Context, gatewayType string, payload []byte) (string, error) {
+	ctx, span := core.TraceMethod(ctx, "Registry.ExtractEventType")
+	defer span.End()
+
 	gw, exists := r.Get(gatewayType)
 	if !exists {
 		return "", pluginCore.ErrGatewayNotFound
 	}
 
-	return gw.ExtractEventType(payload)
+	return gw.ExtractEventType(ctx, payload)
 }

@@ -17,7 +17,6 @@ import (
 	pluginConfig "go.lumeweb.com/portal-plugin-billing/internal/config"
 	"go.lumeweb.com/portal/core"
 	coreTesting "go.lumeweb.com/portal/core/testing"
-	"go.lumeweb.com/portal/core/testing/mocks"
 )
 
 // Helper function to create a valid JWT token for testing
@@ -29,7 +28,7 @@ func createTestJWT(ctx coreTesting.TestContext, userID string) (string, error) {
 // testSetup holds common test dependencies
 type testSetup struct {
 	billingSvc *pluginCore.MockBillingService
-	userSvc    *mocks.MockUserService
+	userSvc    *coreTesting.MockUserService
 	router     http.Handler
 	domain     string
 }
@@ -38,7 +37,7 @@ type testSetup struct {
 func setupTest(ctx coreTesting.TestContext) *testSetup {
 	return &testSetup{
 		billingSvc: core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE),
-		userSvc:    core.GetService[*mocks.MockUserService](ctx, core.USER_SERVICE),
+		userSvc:    core.GetService[*coreTesting.MockUserService](ctx, core.USER_SERVICE),
 		router:     ctx.Router(),
 		domain:     ctx.APISubdomain("dashboard", false),
 	}
@@ -97,7 +96,7 @@ func TestHandleWebhook_Success(t *testing.T) {
 		ts := setupTest(ctx)
 
 		// Mock expectations
-		ts.billingSvc.On("GetSignatureHeader", "stripe").Return("Stripe-Signature", nil).Once()
+		ts.billingSvc.EXPECT().GetSignatureHeader(mock.Anything, "stripe").Return("Stripe-Signature", nil).Once()
 
 		// Create a test webhook payload for a checkout.session.completed event
 		webhookPayload := `{
@@ -116,7 +115,7 @@ func TestHandleWebhook_Success(t *testing.T) {
 			}
 		}`
 
-		ts.billingSvc.On("ProcessWebhook", mock.Anything, "stripe", "test_sig", []byte(webhookPayload)).
+		ts.billingSvc.EXPECT().ProcessWebhook(mock.Anything, "stripe", "test_sig", []byte(webhookPayload)).
 			Return(nil).Once()
 
 		// Create request
@@ -140,7 +139,7 @@ func TestHandleWebhook_InvalidGateway(t *testing.T) {
 		ts := setupTest(ctx)
 
 		// Mock expectations
-		ts.billingSvc.On("GetSignatureHeader", "invalid").Return("", pluginCore.ErrGatewayNotFound).Once()
+		ts.billingSvc.EXPECT().GetSignatureHeader(mock.Anything, "invalid").Return("", pluginCore.ErrGatewayNotFound).Once()
 
 		// Create request
 		req := httptest.NewRequest("POST", "/api/account/billing/webhooks/invalid", bytes.NewReader([]byte(`{"test":"payload"}`)))
@@ -161,12 +160,12 @@ func TestHandleSubscriptionStatus_ActiveSubscription(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		ts := setupTest(ctx)
 
-		ts.userSvc.On("AccountExists", uint(1)).Return(true, nil, nil)
+		ts.userSvc.EXPECT().AccountExists(mock.Anything, uint(1)).Return(true, nil, nil)
 
 		// Mock the billing service to return an active subscription
 		planID := uint(42)
 		mockSubscriber := createMockSubscriber(1, "stripe", "cus_123", true, &planID)
-		ts.billingSvc.On("GetActiveSubscription", uint(1)).Return(mockSubscriber, nil)
+		ts.billingSvc.EXPECT().GetActiveSubscription(mock.Anything, uint(1)).Return(mockSubscriber, nil)
 
 		// Create authenticated request
 		req, err := ts.createAuthenticatedRequest(ctx, "GET", "/api/account/billing/subscription", nil, "1")
@@ -194,12 +193,12 @@ func TestHandleSubscriptionStatus_NoActiveSubscription(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		ts := setupTest(ctx)
 
-		ts.userSvc.On("AccountExists", uint(1)).Return(true, nil, nil)
+		ts.userSvc.EXPECT().AccountExists(mock.Anything, uint(1)).Return(true, nil, nil)
 
 		// Mock the billing service to return no active subscription
 		// This covers both scenarios: no subscription exists and inactive subscriptions
 		// (GetActiveSubscription only returns active subscriptions)
-		ts.billingSvc.On("GetActiveSubscription", uint(1)).Return((*pluginCore.Subscriber)(nil), nil)
+		ts.billingSvc.EXPECT().GetActiveSubscription(mock.Anything, uint(1)).Return((*pluginCore.Subscriber)(nil), nil)
 
 		// Create authenticated request
 		req, err := ts.createAuthenticatedRequest(ctx, "GET", "/api/account/billing/subscription", nil, "1")
@@ -227,12 +226,12 @@ func TestHandleSubscriptionStatus_MultipleGateways(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		ts := setupTest(ctx)
 
-		ts.userSvc.On("AccountExists", uint(1)).Return(true, nil, nil)
+		ts.userSvc.EXPECT().AccountExists(mock.Anything, uint(1)).Return(true, nil, nil)
 
 		// Mock the billing service to return an active subscription (could be any gateway)
 		planID := uint(99)
 		mockSubscriber := createMockSubscriber(1, "paypal", "cus_456", true, &planID)
-		ts.billingSvc.On("GetActiveSubscription", uint(1)).Return(mockSubscriber, nil)
+		ts.billingSvc.EXPECT().GetActiveSubscription(mock.Anything, uint(1)).Return(mockSubscriber, nil)
 
 		// Create authenticated request
 		req, err := ts.createAuthenticatedRequest(ctx, "GET", "/api/account/billing/subscription", nil, "1")
@@ -277,19 +276,19 @@ func TestHandleCustomerPortal_Success(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		ts := setupTest(ctx)
 
-		ts.userSvc.On("AccountExists", uint(1)).Return(true, nil, nil)
+		ts.userSvc.EXPECT().AccountExists(mock.Anything, uint(1)).Return(true, nil, nil)
 
 		// Mock active subscription
 		planID := uint(42)
 		mockSubscriber := createMockSubscriber(1, "stripe", "cus_123", true, &planID)
-		ts.billingSvc.On("GetActiveSubscription", uint(1)).Return(mockSubscriber, nil)
+		ts.billingSvc.EXPECT().GetActiveSubscription(mock.Anything, uint(1)).Return(mockSubscriber, nil)
 
 		// Mock gateway retrieval
 		mockGateway := pluginCore.NewMockPaymentGateway(t)
-		ts.billingSvc.On("GetGateway", "stripe").Return(mockGateway, nil)
+		ts.billingSvc.EXPECT().GetGateway(mock.Anything, "stripe").Return(mockGateway, nil)
 
 		// Mock customer portal URL generation
-		mockGateway.On("GetCustomerPortalURL", mock.Anything, uint(1), "https://example.com/return").
+		mockGateway.EXPECT().GetCustomerPortalURL(mock.Anything, uint(1), "https://example.com/return").
 			Return("https://billing.stripe.com/session/123", nil)
 
 		// Create request body
@@ -323,10 +322,10 @@ func TestHandleCustomerPortal_NoActiveSubscription(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		ts := setupTest(ctx)
 
-		ts.userSvc.On("AccountExists", uint(1)).Return(true, nil, nil)
+		ts.userSvc.EXPECT().AccountExists(mock.Anything, uint(1)).Return(true, nil, nil)
 
 		// Mock no active subscription
-		ts.billingSvc.On("GetActiveSubscription", uint(1)).Return((*pluginCore.Subscriber)(nil), nil)
+		ts.billingSvc.EXPECT().GetActiveSubscription(mock.Anything, uint(1)).Return((*pluginCore.Subscriber)(nil), nil)
 
 		// Create request body
 		requestBody := map[string]string{
@@ -359,7 +358,7 @@ func TestHandleCustomerPortal_MissingReturnURL(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		ts := setupTest(ctx)
 
-		ts.userSvc.On("AccountExists", uint(1)).Return(true, nil, nil)
+		ts.userSvc.EXPECT().AccountExists(mock.Anything, uint(1)).Return(true, nil, nil)
 
 		// Create request body without return_url
 		requestBody := map[string]string{}

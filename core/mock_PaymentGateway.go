@@ -38,8 +38,8 @@ func (_m *MockPaymentGateway) EXPECT() *MockPaymentGateway_Expecter {
 }
 
 // ExtractEventID provides a mock function for the type MockPaymentGateway
-func (_mock *MockPaymentGateway) ExtractEventID(payload []byte) (string, error) {
-	ret := _mock.Called(payload)
+func (_mock *MockPaymentGateway) ExtractEventID(ctx context.Context, payload []byte) (string, error) {
+	ret := _mock.Called(ctx, payload)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ExtractEventID")
@@ -47,16 +47,16 @@ func (_mock *MockPaymentGateway) ExtractEventID(payload []byte) (string, error) 
 
 	var r0 string
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func([]byte) (string, error)); ok {
-		return returnFunc(payload)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, []byte) (string, error)); ok {
+		return returnFunc(ctx, payload)
 	}
-	if returnFunc, ok := ret.Get(0).(func([]byte) string); ok {
-		r0 = returnFunc(payload)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, []byte) string); ok {
+		r0 = returnFunc(ctx, payload)
 	} else {
 		r0 = ret.Get(0).(string)
 	}
-	if returnFunc, ok := ret.Get(1).(func([]byte) error); ok {
-		r1 = returnFunc(payload)
+	if returnFunc, ok := ret.Get(1).(func(context.Context, []byte) error); ok {
+		r1 = returnFunc(ctx, payload)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -69,19 +69,25 @@ type MockPaymentGateway_ExtractEventID_Call struct {
 }
 
 // ExtractEventID is a helper method to define mock.On call
+//   - ctx context.Context
 //   - payload []byte
-func (_e *MockPaymentGateway_Expecter) ExtractEventID(payload interface{}) *MockPaymentGateway_ExtractEventID_Call {
-	return &MockPaymentGateway_ExtractEventID_Call{Call: _e.mock.On("ExtractEventID", payload)}
+func (_e *MockPaymentGateway_Expecter) ExtractEventID(ctx interface{}, payload interface{}) *MockPaymentGateway_ExtractEventID_Call {
+	return &MockPaymentGateway_ExtractEventID_Call{Call: _e.mock.On("ExtractEventID", ctx, payload)}
 }
 
-func (_c *MockPaymentGateway_ExtractEventID_Call) Run(run func(payload []byte)) *MockPaymentGateway_ExtractEventID_Call {
+func (_c *MockPaymentGateway_ExtractEventID_Call) Run(run func(ctx context.Context, payload []byte)) *MockPaymentGateway_ExtractEventID_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 []byte
+		var arg0 context.Context
 		if args[0] != nil {
-			arg0 = args[0].([]byte)
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 []byte
+		if args[1] != nil {
+			arg1 = args[1].([]byte)
 		}
 		run(
 			arg0,
+			arg1,
 		)
 	})
 	return _c
@@ -92,14 +98,14 @@ func (_c *MockPaymentGateway_ExtractEventID_Call) Return(s string, err error) *M
 	return _c
 }
 
-func (_c *MockPaymentGateway_ExtractEventID_Call) RunAndReturn(run func(payload []byte) (string, error)) *MockPaymentGateway_ExtractEventID_Call {
+func (_c *MockPaymentGateway_ExtractEventID_Call) RunAndReturn(run func(ctx context.Context, payload []byte) (string, error)) *MockPaymentGateway_ExtractEventID_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // ExtractEventType provides a mock function for the type MockPaymentGateway
-func (_mock *MockPaymentGateway) ExtractEventType(payload []byte) (string, error) {
-	ret := _mock.Called(payload)
+func (_mock *MockPaymentGateway) ExtractEventType(ctx context.Context, payload []byte) (string, error) {
+	ret := _mock.Called(ctx, payload)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ExtractEventType")
@@ -107,16 +113,16 @@ func (_mock *MockPaymentGateway) ExtractEventType(payload []byte) (string, error
 
 	var r0 string
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func([]byte) (string, error)); ok {
-		return returnFunc(payload)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, []byte) (string, error)); ok {
+		return returnFunc(ctx, payload)
 	}
-	if returnFunc, ok := ret.Get(0).(func([]byte) string); ok {
-		r0 = returnFunc(payload)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, []byte) string); ok {
+		r0 = returnFunc(ctx, payload)
 	} else {
 		r0 = ret.Get(0).(string)
 	}
-	if returnFunc, ok := ret.Get(1).(func([]byte) error); ok {
-		r1 = returnFunc(payload)
+	if returnFunc, ok := ret.Get(1).(func(context.Context, []byte) error); ok {
+		r1 = returnFunc(ctx, payload)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -129,19 +135,25 @@ type MockPaymentGateway_ExtractEventType_Call struct {
 }
 
 // ExtractEventType is a helper method to define mock.On call
+//   - ctx context.Context
 //   - payload []byte
-func (_e *MockPaymentGateway_Expecter) ExtractEventType(payload interface{}) *MockPaymentGateway_ExtractEventType_Call {
-	return &MockPaymentGateway_ExtractEventType_Call{Call: _e.mock.On("ExtractEventType", payload)}
+func (_e *MockPaymentGateway_Expecter) ExtractEventType(ctx interface{}, payload interface{}) *MockPaymentGateway_ExtractEventType_Call {
+	return &MockPaymentGateway_ExtractEventType_Call{Call: _e.mock.On("ExtractEventType", ctx, payload)}
 }
 
-func (_c *MockPaymentGateway_ExtractEventType_Call) Run(run func(payload []byte)) *MockPaymentGateway_ExtractEventType_Call {
+func (_c *MockPaymentGateway_ExtractEventType_Call) Run(run func(ctx context.Context, payload []byte)) *MockPaymentGateway_ExtractEventType_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 []byte
+		var arg0 context.Context
 		if args[0] != nil {
-			arg0 = args[0].([]byte)
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 []byte
+		if args[1] != nil {
+			arg1 = args[1].([]byte)
 		}
 		run(
 			arg0,
+			arg1,
 		)
 	})
 	return _c
@@ -152,7 +164,7 @@ func (_c *MockPaymentGateway_ExtractEventType_Call) Return(s string, err error) 
 	return _c
 }
 
-func (_c *MockPaymentGateway_ExtractEventType_Call) RunAndReturn(run func(payload []byte) (string, error)) *MockPaymentGateway_ExtractEventType_Call {
+func (_c *MockPaymentGateway_ExtractEventType_Call) RunAndReturn(run func(ctx context.Context, payload []byte) (string, error)) *MockPaymentGateway_ExtractEventType_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -287,16 +299,16 @@ func (_c *MockPaymentGateway_HandleWebhook_Call) RunAndReturn(run func(ctx conte
 }
 
 // ID provides a mock function for the type MockPaymentGateway
-func (_mock *MockPaymentGateway) ID() string {
-	ret := _mock.Called()
+func (_mock *MockPaymentGateway) ID(ctx context.Context) string {
+	ret := _mock.Called(ctx)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ID")
 	}
 
 	var r0 string
-	if returnFunc, ok := ret.Get(0).(func() string); ok {
-		r0 = returnFunc()
+	if returnFunc, ok := ret.Get(0).(func(context.Context) string); ok {
+		r0 = returnFunc(ctx)
 	} else {
 		r0 = ret.Get(0).(string)
 	}
@@ -309,13 +321,20 @@ type MockPaymentGateway_ID_Call struct {
 }
 
 // ID is a helper method to define mock.On call
-func (_e *MockPaymentGateway_Expecter) ID() *MockPaymentGateway_ID_Call {
-	return &MockPaymentGateway_ID_Call{Call: _e.mock.On("ID")}
+//   - ctx context.Context
+func (_e *MockPaymentGateway_Expecter) ID(ctx interface{}) *MockPaymentGateway_ID_Call {
+	return &MockPaymentGateway_ID_Call{Call: _e.mock.On("ID", ctx)}
 }
 
-func (_c *MockPaymentGateway_ID_Call) Run(run func()) *MockPaymentGateway_ID_Call {
+func (_c *MockPaymentGateway_ID_Call) Run(run func(ctx context.Context)) *MockPaymentGateway_ID_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run()
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		run(
+			arg0,
+		)
 	})
 	return _c
 }
@@ -325,22 +344,22 @@ func (_c *MockPaymentGateway_ID_Call) Return(s string) *MockPaymentGateway_ID_Ca
 	return _c
 }
 
-func (_c *MockPaymentGateway_ID_Call) RunAndReturn(run func() string) *MockPaymentGateway_ID_Call {
+func (_c *MockPaymentGateway_ID_Call) RunAndReturn(run func(ctx context.Context) string) *MockPaymentGateway_ID_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // SignatureHeader provides a mock function for the type MockPaymentGateway
-func (_mock *MockPaymentGateway) SignatureHeader() string {
-	ret := _mock.Called()
+func (_mock *MockPaymentGateway) SignatureHeader(ctx context.Context) string {
+	ret := _mock.Called(ctx)
 
 	if len(ret) == 0 {
 		panic("no return value specified for SignatureHeader")
 	}
 
 	var r0 string
-	if returnFunc, ok := ret.Get(0).(func() string); ok {
-		r0 = returnFunc()
+	if returnFunc, ok := ret.Get(0).(func(context.Context) string); ok {
+		r0 = returnFunc(ctx)
 	} else {
 		r0 = ret.Get(0).(string)
 	}
@@ -353,13 +372,20 @@ type MockPaymentGateway_SignatureHeader_Call struct {
 }
 
 // SignatureHeader is a helper method to define mock.On call
-func (_e *MockPaymentGateway_Expecter) SignatureHeader() *MockPaymentGateway_SignatureHeader_Call {
-	return &MockPaymentGateway_SignatureHeader_Call{Call: _e.mock.On("SignatureHeader")}
+//   - ctx context.Context
+func (_e *MockPaymentGateway_Expecter) SignatureHeader(ctx interface{}) *MockPaymentGateway_SignatureHeader_Call {
+	return &MockPaymentGateway_SignatureHeader_Call{Call: _e.mock.On("SignatureHeader", ctx)}
 }
 
-func (_c *MockPaymentGateway_SignatureHeader_Call) Run(run func()) *MockPaymentGateway_SignatureHeader_Call {
+func (_c *MockPaymentGateway_SignatureHeader_Call) Run(run func(ctx context.Context)) *MockPaymentGateway_SignatureHeader_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run()
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		run(
+			arg0,
+		)
 	})
 	return _c
 }
@@ -369,7 +395,7 @@ func (_c *MockPaymentGateway_SignatureHeader_Call) Return(s string) *MockPayment
 	return _c
 }
 
-func (_c *MockPaymentGateway_SignatureHeader_Call) RunAndReturn(run func() string) *MockPaymentGateway_SignatureHeader_Call {
+func (_c *MockPaymentGateway_SignatureHeader_Call) RunAndReturn(run func(ctx context.Context) string) *MockPaymentGateway_SignatureHeader_Call {
 	_c.Call.Return(run)
 	return _c
 }
