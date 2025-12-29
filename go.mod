@@ -5,7 +5,7 @@ go 1.24.3
 replace github.com/go-viper/mapstructure/v2 => github.com/LumeWeb/mapstructure/v2 v2.0.0-20241213212524-92525f5828be
 
 require (
-	github.com/Oudwins/zog v0.21.9
+	github.com/Oudwins/zog v0.22.0
 	github.com/docker/go-units v0.5.0
 	github.com/labstack/echo/v4 v4.14.0
 	github.com/prometheus/client_golang v1.22.0
