@@ -18,7 +18,7 @@ require (
 	go.lumeweb.com/portal-plugin-core v0.0.0-20251213020130-9d424965fad2
 	go.lumeweb.com/portal-plugin-dashboard v0.2.7-0.20251227170610-a58517c36406
 	go.lumeweb.com/portal-plugin-quota v0.0.0-20251229183341-d3147a18bb0f
-	go.lumeweb.com/portal-router v0.6.9
+	go.lumeweb.com/portal-router v0.6.13
 	go.uber.org/zap v1.27.1
 	gorm.io/gorm v1.31.1
 )
