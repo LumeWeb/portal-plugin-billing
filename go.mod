@@ -7,7 +7,7 @@ replace github.com/go-viper/mapstructure/v2 => github.com/LumeWeb/mapstructure/v
 require (
 	github.com/Oudwins/zog v0.22.0
 	github.com/docker/go-units v0.5.0
-	github.com/labstack/echo/v4 v4.14.0
+	github.com/labstack/echo/v4 v4.15.1
 	github.com/prometheus/client_golang v1.23.2
 	github.com/samber/lo v1.52.0
 	github.com/stretchr/testify v1.11.1
