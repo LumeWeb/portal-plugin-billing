@@ -6,11 +6,12 @@ import (
 )
 
 const (
-	MetricCheckoutCompletedTotal  = "checkout_completed_total"
-	MetricSubscriptionActivated   = "subscription_activated_total"
-	MetricSubscriptionDeactivated = "subscription_deactivated_total"
-	MetricSubscriptionUpdated     = "subscription_updated_total"
-	MetricCustomerPortalCreated   = "customer_portal_created_total"
+	MetricCheckoutCompletedTotal    = "checkout_completed_total"
+	MetricCheckoutSessionCreated   = "checkout_session_created_total"
+	MetricSubscriptionActivated     = "subscription_activated_total"
+	MetricSubscriptionDeactivated   = "subscription_deactivated_total"
+	MetricSubscriptionUpdated       = "subscription_updated_total"
+	MetricCustomerPortalCreated     = "customer_portal_created_total"
 )
 
 const (
@@ -20,6 +21,7 @@ const (
 
 var (
 	CheckoutCompleted       *prometheus.CounterVec
+	CheckoutSessionCreated  *prometheus.CounterVec
 	SubscriptionActivated   *prometheus.CounterVec
 	SubscriptionDeactivated *prometheus.CounterVec
 	SubscriptionUpdated     *prometheus.CounterVec
@@ -32,6 +34,13 @@ func init() {
 			Name:      MetricCheckoutCompletedTotal,
 			Subsystem: pluginCore.BILLING_SERVICE,
 			Help:      "Total number of checkout sessions completed",
+		},
+		[]string{"status"},
+	)
+	CheckoutSessionCreated = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name:      MetricCheckoutSessionCreated,
+			Help:      "Total number of checkout sessions created",
 		},
 		[]string{"status"},
 	)

@@ -22,8 +22,10 @@ func getBillingTestOptions() coreTesting.TestContextBuilderOption {
 		coreTesting.NewMockPluginBuilder(internal.PLUGIN_NAME).
 			WithMigrations(core.DBMigration{core.DB_TYPE_SQLITE: migrations.GetSQLite()}).
 			WithService(pluginCore.BILLING_SERVICE, NewBillingService).
+			WithServiceConfig(pluginCore.BILLING_SERVICE, &config.ServiceConfig{}).
+			WithMockServiceFactory(pluginCore.PRICING_SERVICE, pluginCore.NewMockPricingService).
+			WithServiceConfig(pluginCore.PRICING_SERVICE, coreTesting.NewConfigBuilder().Build()).
 			BuilderOption(),
-		coreTesting.WithServiceConfig(internal.PLUGIN_NAME, pluginCore.BILLING_SERVICE, &config.ServiceConfig{}),
 	)
 }
 
@@ -31,7 +33,7 @@ func TestBillingService_GetSignatureHeader(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		// Setup
 		registry := gateway.NewRegistry()
-		mockGateway := new(pluginCore.MockPaymentGateway)
+		mockGateway := pluginCore.NewMockPaymentGateway(tb)
 		mockGateway.EXPECT().ID(mock.Anything).Return("stripe")
 		mockGateway.EXPECT().SignatureHeader(mock.Anything).Return("Stripe-Signature")
 
@@ -62,17 +64,15 @@ func TestBillingService_GetSignatureHeader(t *testing.T) {
 			},
 		}
 
-		t := tb.(*testing.T)
-
 		for _, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
+			t.Run(tt.name, func(innerT *testing.T) {
 				header, err := service.GetSignatureHeader(context.Background(), tt.gatewayType)
 				if tt.expectedError != nil {
-					assert.ErrorIs(t, err, tt.expectedError)
+					assert.ErrorIs(innerT, err, tt.expectedError)
 					return
 				}
-				assert.NoError(t, err)
-				assert.Equal(t, tt.expected, header)
+				assert.NoError(innerT, err)
+				assert.Equal(innerT, tt.expected, header)
 			})
 		}
 
@@ -179,13 +179,7 @@ func TestBillingService_ProcessWebhook(t *testing.T) {
 				}
 				assert.NoError(t, err)
 			},
-				coreTesting.CombineOptions(
-					coreTesting.NewMockPluginBuilder(internal.PLUGIN_NAME).
-						WithMigrations(core.DBMigration{core.DB_TYPE_SQLITE: migrations.GetSQLite()}).
-						WithService(pluginCore.BILLING_SERVICE, NewBillingService).
-						BuilderOption(),
-					coreTesting.WithServiceConfig(internal.PLUGIN_NAME, pluginCore.BILLING_SERVICE, &config.ServiceConfig{}),
-				))
+				getBillingTestOptions())
 		})
 	}
 }
@@ -211,7 +205,7 @@ func TestBillingService_GetGateway(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		// Setup
 		registry := gateway.NewRegistry()
-		mockGateway := new(pluginCore.MockPaymentGateway)
+		mockGateway := pluginCore.NewMockPaymentGateway(tb)
 		mockGateway.EXPECT().ID(mock.Anything).Return("stripe")
 
 		svc, _, err := NewBillingServiceWithRegistry(registry)
@@ -239,18 +233,16 @@ func TestBillingService_GetGateway(t *testing.T) {
 			},
 		}
 
-		t := tb.(*testing.T)
-
 		for _, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
+			t.Run(tt.name, func(innerT *testing.T) {
 				gateway, err := service.GetGateway(context.Background(), tt.gatewayType)
 				if tt.expectedError != nil {
-					assert.ErrorIs(t, err, tt.expectedError)
-					assert.Nil(t, gateway)
+					assert.ErrorIs(innerT, err, tt.expectedError)
+					assert.Nil(innerT, gateway)
 					return
 				}
-				assert.NoError(t, err)
-				assert.Equal(t, mockGateway, gateway)
+				assert.NoError(innerT, err)
+				assert.Equal(innerT, mockGateway, gateway)
 			})
 		}
 

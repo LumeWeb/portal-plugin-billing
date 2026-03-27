@@ -13,9 +13,12 @@ import (
 	"go.lumeweb.com/portal-plugin-billing/internal/db/models"
 	"go.lumeweb.com/portal-plugin-billing/internal/gateway"
 	"go.lumeweb.com/portal-plugin-billing/internal/gateway/stripe"
-	"go.lumeweb.com/portal-plugin-billing/internal/service/billing"
+	billing "go.lumeweb.com/portal-plugin-billing/internal/service/billing"
+	"go.lumeweb.com/portal-plugin-billing/internal/service/pricing"
 	"go.lumeweb.com/portal/core"
 )
+
+const PRICING_SERVICE = "billing.pricing"
 
 func GetPluginInfo() core.PluginInfo {
 	return core.PluginInfo{
@@ -25,11 +28,13 @@ func GetPluginInfo() core.PluginInfo {
 		Services: func() ([]core.ServiceInfo, error) {
 			return []core.ServiceInfo{
 				{ID: internal.PLUGIN_NAME, Factory: billing.NewBillingService},
+				{ID: PRICING_SERVICE, Factory: pricing.NewPricingService},
 			}, nil
 		},
 		APIExtensions: func(ctx core.Context) ([]core.APIExtensionFactory, error) {
 			return []core.APIExtensionFactory{
 				api.NewAPIExtension(),
+				api.NewAdminExtension(),
 			}, nil
 		},
 		Meta: func(ctx core.Context, builder core.PortalMetaBuilder) error {
@@ -47,10 +52,23 @@ func GetPluginInfo() core.PluginInfo {
 		Models: []any{
 			&models.WebhookEvent{},
 			&models.Subscriber{},
+			&models.PricingPlan{},
+			&models.PriceLine{},
+			&models.PriceLinePlan{},
+			&models.PriceLineAssignment{},
+			&models.GatewayProductMapping{},
 		},
 		Migrations: core.DBMigration{
 			core.DB_TYPE_MYSQL:  migrations.GetMySQL(),
 			core.DB_TYPE_SQLITE: migrations.GetSQLite(),
+		},
+		CronJobs: []core.PluginCronJob{
+			{
+				Name: "sync_pricing_plan",
+				Factory: func() (core.CronJob, error) {
+					return pricing.NewSyncPricingPlanJob(), nil
+				},
+			},
 		},
 		Metrics: mergeMetrics(),
 	}
@@ -64,6 +82,11 @@ func mergeMetrics() []prometheus.Collector {
 		billing.SubscriberCreated,
 		billing.SubscriberUpdated,
 		billing.SubscriberDeactivated,
+		// pricing sync metrics
+		pricing.SyncAttempts,
+		pricing.SyncSuccess,
+		pricing.SyncFailures,
+		pricing.SyncDuration,
 		// gateway metrics
 		gateway.WebhookValidated,
 		gateway.WebhookHandled,

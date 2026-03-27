@@ -1,9 +1,11 @@
 package stripe
 
 import (
+	"embed"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"strconv"
 	"strings"
 	"time"
@@ -11,11 +13,15 @@ import (
 	"github.com/stripe/stripe-go/v83"
 	"github.com/stripe/stripe-go/v83/webhook"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
+	billingModels "go.lumeweb.com/portal-plugin-billing/internal/db/models"
 	quotaCore "go.lumeweb.com/portal-plugin-quota/core"
 	"go.lumeweb.com/portal/core"
 	"go.lumeweb.com/portal/db/models"
 	"go.uber.org/zap"
 )
+
+//go:embed assets/*.svg
+var gatewayLogoFiles embed.FS
 
 const (
 	GatewayID                         = "stripe"
@@ -67,18 +73,29 @@ func (r *subscriptionRetriever) Get(ctx context.Context, id string, params *stri
 
 // Client defines the interface for Stripe client operations
 type Client interface {
+	V1Products() Products
+	V1Prices() Prices
+	V1BillingPortalConfigurations() BillingPortalConfigurations
 	V1BillingPortalSessions() BillingPortalSessions
 	V1Customers() Customers
 	V1Subscriptions() Subscriptions
+	V1CheckoutSessions() CheckoutSessions
 }
 
-// BillingPortalSessions defines the interface for billing portal sessions operations
+// CheckoutSessions defines the interface for checkout session operations
+type CheckoutSessions interface {
+	Create(ctx context.Context, params *stripe.CheckoutSessionCreateParams) (*stripe.CheckoutSession, error)
+	Retrieve(ctx context.Context, id string, params *stripe.CheckoutSessionRetrieveParams) (*stripe.CheckoutSession, error)
+}
+
+// BillingPortalSessions defines the interface for billing portal session operations
 type BillingPortalSessions interface {
 	Create(ctx context.Context, params *stripe.BillingPortalSessionCreateParams) (*stripe.BillingPortalSession, error)
 }
 
 // Customers defines the interface for customer operations
 type Customers interface {
+	Create(ctx context.Context, params *stripe.CustomerCreateParams) (*stripe.Customer, error)
 	Retrieve(ctx context.Context, id string, params *stripe.CustomerRetrieveParams) (*stripe.Customer, error)
 	Update(ctx context.Context, id string, params *stripe.CustomerUpdateParams) (*stripe.Customer, error)
 }
@@ -88,9 +105,41 @@ type Subscriptions interface {
 	Retrieve(ctx context.Context, id string, params *stripe.SubscriptionRetrieveParams) (*stripe.Subscription, error)
 }
 
+// Products defines the interface for product operations
+type Products interface {
+	Create(ctx context.Context, params *stripe.ProductCreateParams) (*stripe.Product, error)
+	Retrieve(ctx context.Context, id string, params *stripe.ProductRetrieveParams) (*stripe.Product, error)
+}
+
+// Prices defines the interface for price operations
+type Prices interface {
+	Create(ctx context.Context, params *stripe.PriceCreateParams) (*stripe.Price, error)
+	Retrieve(ctx context.Context, id string, params *stripe.PriceRetrieveParams) (*stripe.Price, error)
+}
+
+// BillingPortalConfigurations defines the interface for billing portal configuration operations
+type BillingPortalConfigurations interface {
+	Create(ctx context.Context, params *stripe.BillingPortalConfigurationCreateParams) (*stripe.BillingPortalConfiguration, error)
+}
+func (w *client) V1CheckoutSessions() CheckoutSessions {
+	return w.client.V1CheckoutSessions
+}
+
 // client wraps the stripe.Client to implement Client
 type client struct {
 	client *stripe.Client
+}
+
+func (w *client) V1Products() Products {
+	return w.client.V1Products
+}
+
+func (w *client) V1Prices() Prices {
+	return w.client.V1Prices
+}
+
+func (w *client) V1BillingPortalConfigurations() BillingPortalConfigurations {
+	return w.client.V1BillingPortalConfigurations
 }
 
 func (w *client) V1BillingPortalSessions() BillingPortalSessions {
@@ -114,11 +163,15 @@ type StripeGateway struct {
 	quota           quotaCore.QuotaService
 	users           core.UserService
 	billing         pluginCore.BillingService
+	pricing         pluginCore.PricingService
 	subService      SubscriptionRetriever
 	customerService CustomerRetriever
+	fs              fs.FS // filesystem for logo files, nil uses embedded files
 }
 
-func New(logger *core.Logger, endpointSecret string, secretKey string, quota quotaCore.QuotaService, users core.UserService, billing pluginCore.BillingService) *StripeGateway {
+// newGateway is the internal constructor that creates a StripeGateway instance
+// with a custom filesystem
+func newGateway(logger *core.Logger, endpointSecret string, secretKey string, quota quotaCore.QuotaService, users core.UserService, billing pluginCore.BillingService, pricing pluginCore.PricingService, fs fs.FS) *StripeGateway {
 	stripeClient := &client{client: stripe.NewClient(secretKey)}
 
 	gateway := &StripeGateway{
@@ -129,12 +182,24 @@ func New(logger *core.Logger, endpointSecret string, secretKey string, quota quo
 		quota:          quota,
 		users:          users,
 		billing:        billing,
+		pricing:        pricing,
+		fs:             fs,
 	}
 
 	gateway.subService = gateway.subscriptionRetriever()
 	gateway.customerService = gateway.customerRetriever()
 
 	return gateway
+}
+
+// New creates a StripeGateway instance with the default embedded filesystem
+func New(logger *core.Logger, endpointSecret string, secretKey string, quota quotaCore.QuotaService, users core.UserService, billing pluginCore.BillingService, pricing pluginCore.PricingService) *StripeGateway {
+	return newGateway(logger, endpointSecret, secretKey, quota, users, billing, pricing, gatewayLogoFiles)
+}
+
+// NewWithFS creates a StripeGateway instance with a custom filesystem for testing
+func NewWithFS(logger *core.Logger, endpointSecret string, secretKey string, quota quotaCore.QuotaService, users core.UserService, billing pluginCore.BillingService, pricing pluginCore.PricingService, fs fs.FS) *StripeGateway {
+	return newGateway(logger, endpointSecret, secretKey, quota, users, billing, pricing, fs)
 }
 
 // customerRetriever returns a customer retriever instance
@@ -223,6 +288,18 @@ func (g *StripeGateway) GetCustomerPortalURL(ctx context.Context, userID uint, r
 			params := &stripe.BillingPortalSessionCreateParams{
 				Customer:  stripe.String(subscriber.GatewayID),
 				ReturnURL: stripe.String(returnUrl),
+			}
+
+			// Set portal configuration if available for the user's plan
+			if subscriber.PlanID != nil && g.pricing != nil {
+				mapping, err := g.pricing.GetGatewayProductMapping(ctx, *subscriber.PlanID, GatewayID)
+				if err == nil && mapping != nil && mapping.PortalConfigurationID != nil {
+					params.Configuration = stripe.String(*mapping.PortalConfigurationID)
+					g.logger.Debug("using plan-specific portal configuration",
+						zap.Uint("plan_id", *subscriber.PlanID),
+						zap.String("config_id", *mapping.PortalConfigurationID),
+						zap.Uint("user_id", userID))
+				}
 			}
 
 			sess, err := g.stripeClient.V1BillingPortalSessions().Create(ctx, params)
@@ -700,8 +777,9 @@ func (g *StripeGateway) activateSubscription(ctx context.Context, userID uint, s
 	)
 }
 
-// activateSubscriptionWithPlanID handles subscription activation with a known plan ID
-func (g *StripeGateway) activateSubscriptionWithPlanID(ctx context.Context, userID uint, subscription *stripe.Subscription, event stripe.Event, planID uint) error {
+// activateSubscriptionWithPlanID handles subscription activation with a known plan ID.
+// The planID parameter is the PricingPlan.ID, which must be looked up to get the QuotaPlanID.
+func (g *StripeGateway) activateSubscriptionWithPlanID(ctx context.Context, userID uint, subscription *stripe.Subscription, event stripe.Event, pricingPlanID uint) error {
 	ctx, span := core.TraceMethod(ctx, "StripeGateway.activateSubscriptionWithPlanID")
 	defer span.End()
 
@@ -716,21 +794,42 @@ func (g *StripeGateway) activateSubscriptionWithPlanID(ctx context.Context, user
 		return err
 	}
 
-	// Validate plan exists
-	plan, err := g.quota.GetQuotaPlan(ctx, planID)
+	// Look up PricingPlan to get QuotaPlanID
+	pricingPlan, err := g.pricing.GetPricingPlan(ctx, pricingPlanID)
 	if err != nil {
-		return fmt.Errorf("plan with ID %d not found: %w", planID, err)
+		return fmt.Errorf("pricing plan with ID %d not found: %w", pricingPlanID, err)
 	}
-	if plan == nil {
-		return fmt.Errorf("plan with ID %d not found", planID)
-	}
-
-	// Assign user to quota plan
-	if err := g.quota.AssignUserToPlan(ctx, user.ID, planID); err != nil {
-		return fmt.Errorf("failed to assign user to plan: %w", err)
+	if pricingPlan == nil {
+		return fmt.Errorf("pricing plan with ID %d not found", pricingPlanID)
 	}
 
-	// Track subscriber in billing service
+	// If pricing plan has a quota plan assigned, assign user to it
+	if pricingPlan.QuotaPlanID != nil {
+		// Validate quota plan exists
+		quotaPlan, err := g.quota.GetQuotaPlan(ctx, *pricingPlan.QuotaPlanID)
+		if err != nil {
+			return fmt.Errorf("quota plan with ID %d not found: %w", *pricingPlan.QuotaPlanID, err)
+		}
+		if quotaPlan == nil {
+			return fmt.Errorf("quota plan with ID %d not found", *pricingPlan.QuotaPlanID)
+		}
+
+		// Assign user to quota plan
+		if err := g.quota.AssignUserToPlan(ctx, user.ID, *pricingPlan.QuotaPlanID); err != nil {
+			return fmt.Errorf("failed to assign user to quota plan %d: %w", *pricingPlan.QuotaPlanID, err)
+		}
+
+		g.logger.Debug("assigned user to quota plan",
+			zap.Uint("user_id", userID),
+			zap.Uint("quota_plan_id", *pricingPlan.QuotaPlanID),
+			zap.Uint("pricing_plan_id", pricingPlanID))
+	} else {
+		g.logger.Debug("pricing plan has no quota plan assignment",
+			zap.Uint("user_id", userID),
+			zap.Uint("pricing_plan_id", pricingPlanID))
+	}
+
+	// Track subscriber in billing service with PricingPlan ID
 	if subscription.Customer == nil {
 		return fmt.Errorf("subscription missing customer id")
 	}
@@ -739,7 +838,7 @@ func (g *StripeGateway) activateSubscriptionWithPlanID(ctx context.Context, user
 		return fmt.Errorf("subscription missing customer id")
 	}
 
-	if err := g.trackSubscriber(ctx, user.ID, subscription.Customer.ID, true, &planID); err != nil {
+	if err := g.trackSubscriber(ctx, user.ID, subscription.Customer.ID, true, &pricingPlanID); err != nil {
 		g.logger.Error("failed to track subscriber",
 			zap.Error(err),
 			zap.Uint("user_id", userID),
@@ -749,10 +848,10 @@ func (g *StripeGateway) activateSubscriptionWithPlanID(ctx context.Context, user
 	// Update customer metadata with user ID
 	g.updateCustomerMetadata(ctx, g.secretKey, subscription.Customer.ID, userID)
 
-	g.logger.Debug("subscription activated - added quota plan",
+	g.logger.Debug("subscription activated",
 		zap.Uint("user_id", userID),
 		zap.String("subscription_id", subscription.ID),
-		zap.Uint("plan_id", planID),
+		zap.Uint("pricing_plan_id", pricingPlanID),
 		zap.String("event_id", event.ID),
 		zap.Uint("user_db_id", user.ID))
 
@@ -888,12 +987,544 @@ func (g *StripeGateway) SetCustomerRetrieverForTesting(retriever CustomerRetriev
 
 // ExtractUserIDFromSubscriptionForTesting extracts the user ID from a Stripe subscription.
 // This is a test-only method that exposes the internal user ID extraction logic.
+// GetCheckoutUI returns UI fragments for Stripe checkout flows
+func (g *StripeGateway) GetCheckoutUI(ctx context.Context, userID uint, planID uint) (*pluginCore.CheckoutUIResponse, error) {
+	ctx, span := core.TraceMethod(ctx, "StripeGateway.GetCheckoutUI")
+	defer span.End()
+
+	return core.MetricTrackResult(
+		nil,
+		CheckoutSessionCreated.WithLabelValues(LabelStatusError),
+		func() (*pluginCore.CheckoutUIResponse, error) {
+			// 1. Validate services are available
+			if err := g.validateServices(); err != nil {
+				return nil, err
+			}
+
+			// 2. Get plan details and validate
+			plan, err := g.pricing.GetPricingPlan(ctx, planID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get pricing plan: %w", err)
+			}
+			if plan == nil {
+				return nil, fmt.Errorf("pricing plan not found")
+			}
+			if !plan.IsActive {
+				return nil, fmt.Errorf("plan is not active")
+			}
+
+			// 3. Get Stripe price mapping
+			mapping, err := g.pricing.GetGatewayProductMapping(ctx, planID, GatewayID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get gateway product mapping: %w", err)
+			}
+			if mapping == nil || mapping.RemoteMonthlyPriceID == "" {
+				return nil, fmt.Errorf("plan not synced with stripe (missing remote price ID)")
+			}
+
+			// 4. Get user details
+			user, err := g.getUser(ctx, userID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get user: %w", err)
+			}
+
+			// 5. Get or create Stripe customer
+			customerID, err := g.getOrCreateStripeCustomer(ctx, userID, user.Email)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get/create stripe customer: %w", err)
+			}
+
+			// 6. Create checkout session
+			params := &stripe.CheckoutSessionCreateParams{
+				Mode:    stripe.String(stripe.CheckoutSessionModeSubscription),
+				LineItems: []*stripe.CheckoutSessionCreateLineItemParams{
+					{
+						Price:    stripe.String(mapping.RemoteMonthlyPriceID),
+						Quantity: stripe.Int64(1),
+					},
+				},
+				Customer:          stripe.String(customerID),
+				ClientReferenceID: stripe.String(strconv.FormatUint(uint64(userID), 10)),
+				SuccessURL:        stripe.String(g.getCheckoutSuccessURL()),
+				CancelURL:         stripe.String(g.getCheckoutCancelURL()),
+			}
+
+			session, err := g.stripeClient.V1CheckoutSessions().Create(ctx, params)
+			if err != nil {
+				g.logger.Error("failed to create checkout session",
+					zap.Error(err),
+					zap.Uint("user_id", userID),
+					zap.Uint("plan_id", planID))
+				return nil, fmt.Errorf("failed to create checkout session: %w", err)
+			}
+
+			// 7. Build response with link fragment
+			response := &pluginCore.CheckoutUIResponse{
+				SessionID: session.ID,
+				ExpiresAt: time.Unix(session.ExpiresAt, 0),
+				Fragments: []pluginCore.CheckoutUIFragment{
+					{
+						Type: pluginCore.FragmentTypeLink,
+						Link: session.URL,
+					},
+				},
+			}
+
+			g.logger.Debug("checkout session created",
+				zap.String("session_id", session.ID),
+				zap.Uint("user_id", userID),
+				zap.Uint("plan_id", planID),
+			)
+
+			return response, nil
+		},
+	)
+}
+
+// getCheckoutSuccessURL returns the success URL for checkout
+func (g *StripeGateway) getCheckoutSuccessURL() string {
+	return "/billing/checkout/success"
+}
+
+// getCheckoutCancelURL returns the cancel URL for checkout
+func (g *StripeGateway) getCheckoutCancelURL() string {
+	return "/billing/checkout/cancel"
+}
+
+// getOrCreateStripeCustomer gets an existing or creates a new Stripe customer
+func (g *StripeGateway) getOrCreateStripeCustomer(ctx context.Context, userID uint, email string) (string, error) {
+	// Check if customer already exists in subscriber table
+	subscriber, err := g.billing.GetSubscriberByGatewayID(ctx, "", GatewayID)
+	if err == nil && subscriber != nil && subscriber.GatewayID != "" {
+		return subscriber.GatewayID, nil
+	}
+
+	// Create new Stripe customer
+	customerParams := &stripe.CustomerCreateParams{
+		Email: stripe.String(email),
+		Metadata: map[string]string{
+			UserIDMetadataKey: strconv.FormatUint(uint64(userID), 10),
+		},
+	}
+
+	customer, err := g.stripeClient.V1Customers().Create(ctx, customerParams)
+	if err != nil {
+		return "", fmt.Errorf("failed to create stripe customer: %w", err)
+	}
+
+	return customer.ID, nil
+}
+
+// GetCustomerPortalMetadata returns metadata for Stripe customer portal
+func (g *StripeGateway) GetCustomerPortalMetadata(ctx context.Context, userID uint) (map[string]interface{}, error) {
+	ctx, span := core.TraceMethod(ctx, "StripeGateway.GetCustomerPortalMetadata")
+	defer span.End()
+
+	// Return empty metadata for now
+	// Future: Could include portal configuration options
+	return map[string]any{}, nil
+}
+
+// SupportsProductSync returns true - Stripe supports product/price synchronization
+func (g *StripeGateway) SupportsProductSync() bool {
+	return true
+}
+
+// SyncPlan synchronizes a pricing plan with Stripe
+func (g *StripeGateway) SyncPlan(ctx context.Context, plan *billingModels.PricingPlan) (*pluginCore.SyncResult, error) {
+	ctx, span := core.TraceMethod(ctx, "StripeGateway.SyncPlan")
+	defer span.End()
+
+	// Check if pricing service is available
+	if g.pricing == nil {
+		return &pluginCore.SyncResult{
+			Success: false,
+		}, fmt.Errorf("pricing service not configured")
+	}
+
+	// Get the price line information for this plan
+	priceLinePlans, err := g.pricing.GetPriceLinesForPlan(ctx, plan.ID)
+	if err != nil {
+		return &pluginCore.SyncResult{
+			Success: false,
+		}, fmt.Errorf("failed to get price lines for plan: %w", err)
+	}
+
+	var priceLineID uint
+	if len(priceLinePlans) > 0 {
+		priceLineID = priceLinePlans[0].PriceLineID
+		g.logger.Debug("found plan in price line",
+			zap.Uint("plan_id", plan.ID),
+			zap.Uint("price_line_id", priceLineID),
+			zap.Int("position", priceLinePlans[0].Position))
+	} else {
+		g.logger.Info("plan not in any price line, syncing without upgrade/downgrade metadata",
+			zap.Uint("plan_id", plan.ID))
+	}
+
+	// Get upgrade/downgrade paths if plan is in a price line
+	var upgradePlanIDs, downgradePlanIDs []string
+	var planPosition int
+	if priceLineID > 0 && len(priceLinePlans) > 0 {
+		planPosition = priceLinePlans[0].Position
+		paths, err := g.pricing.GetUpgradeDowngradePlans(ctx, plan.ID, priceLineID)
+		if err != nil {
+			g.logger.Warn("failed to get upgrade/downgrade paths",
+				zap.Uint("plan_id", plan.ID),
+				zap.Uint("price_line_id", priceLineID),
+				zap.Error(err))
+		} else {
+			// Extract plan IDs for metadata
+			for _, upgrade := range paths.Upgrades {
+				upgradePlanIDs = append(upgradePlanIDs, strconv.FormatUint(uint64(upgrade.ID), 10))
+			}
+			for _, downgrade := range paths.Downgrades {
+				downgradePlanIDs = append(downgradePlanIDs, strconv.FormatUint(uint64(downgrade.ID), 10))
+			}
+			g.logger.Debug("upgrade/downgrade paths found",
+				zap.Uint("plan_id", plan.ID),
+				zap.Int("num_upgrades", len(upgradePlanIDs)),
+				zap.Int("num_downgrades", len(downgradePlanIDs)))
+		}
+	}
+
+	// Build product metadata
+	metadata := map[string]string{
+		PlanIDMetadataKey: strconv.FormatUint(uint64(plan.ID), 10),
+	}
+
+	// Add price line position if available
+	if planPosition > 0 {
+		metadata["price_line_position"] = strconv.Itoa(planPosition)
+	}
+
+	// Add upgrade/downgrade paths
+	if len(upgradePlanIDs) > 0 {
+		metadata["upgrade_path_plan_ids"] = strings.Join(upgradePlanIDs, ",")
+	}
+	if len(downgradePlanIDs) > 0 {
+		metadata["downgrade_path_plan_ids"] = strings.Join(downgradePlanIDs, ",")
+	}
+
+	// Create or update Stripe Product
+	stripeProduct, err := g.createOrUpdateStripeProduct(ctx, plan, metadata)
+	if err != nil {
+		return &pluginCore.SyncResult{
+			Success: false,
+		}, fmt.Errorf("failed to create/update product: %w", err)
+	}
+
+	// Create or update monthly price
+	var monthlyPriceID string
+	if plan.MonthlyPriceUSD != nil {
+		monthlyPriceID, err = g.createOrUpdateStripePrice(ctx, plan.MonthlyPriceUSD, plan.Currency, stripeProduct.ID, "monthly")
+		if err != nil {
+			return &pluginCore.SyncResult{
+				Success: false,
+			}, fmt.Errorf("failed to create/update monthly price: %w", err)
+		}
+	}
+
+	// Create or update yearly price
+	var yearlyPriceID string
+	if plan.YearlyPriceUSD != nil {
+		yearlyPriceID, err = g.createOrUpdateStripePrice(ctx, plan.YearlyPriceUSD, plan.Currency, stripeProduct.ID, "yearly")
+		if err != nil {
+			return &pluginCore.SyncResult{
+				Success: false,
+			}, fmt.Errorf("failed to create/update yearly price: %w", err)
+		}
+	}
+
+	g.logger.Info("successfully synced pricing plan to Stripe",
+		zap.Uint("plan_id", plan.ID),
+		zap.String("stripe_product_id", stripeProduct.ID),
+		zap.String("monthly_price_id", monthlyPriceID),
+		zap.String("yearly_price_id", yearlyPriceID))
+
+	// Create or update portal configuration if plan has upgrade/downgrade paths
+	var portalConfigID string
+	if priceLineID > 0 && (len(upgradePlanIDs) > 0 || len(downgradePlanIDs) > 0) {
+		priceIDs, err := g.resolvePriceIDsFromPlanIDs(ctx, upgradePlanIDs, downgradePlanIDs)
+		if err != nil {
+			g.logger.Warn("failed to resolve price IDs for portal configuration",
+				zap.Uint("plan_id", plan.ID),
+				zap.Error(err))
+		} else {
+			configID, err := g.createOrUpdatePortalConfiguration(ctx, plan, priceIDs)
+			if err != nil {
+				g.logger.Error("failed to create portal configuration",
+					zap.Uint("plan_id", plan.ID),
+					zap.Error(err))
+			} else {
+				portalConfigID = configID
+				g.logger.Info("created portal configuration",
+					zap.Uint("plan_id", plan.ID),
+					zap.String("config_id", configID),
+					zap.Int("allowed_prices", len(priceIDs)))
+			}
+		}
+	}
+
+	return &pluginCore.SyncResult{
+		Success:            true,
+		ProductID:          stripeProduct.ID,
+		MonthlyPriceID:     monthlyPriceID,
+		YearlyPriceID:      yearlyPriceID,
+		PortalConfigurationID: portalConfigID,
+	}, nil
+}
+
+// SupportsPriceUpdates returns true - Stripe supports updating existing prices
+func (g *StripeGateway) SupportsPriceUpdates() bool {
+	return true
+}
+
+// SupportsPlanDeletion returns false - Stripe doesn't support direct product deletion
+func (g *StripeGateway) SupportsPlanDeletion() bool {
+	return false
+}
+
+// RequiredPricingFields returns fields required for Stripe product creation
+func (g *StripeGateway) RequiredPricingFields() []string {
+	return []string{"name", "amount", "currency"}
+}
+
+// GetName returns display name for Stripe gateway
+func (g *StripeGateway) GetName(ctx context.Context) string {
+	return "Stripe"
+}
+
+// GetDescription returns description for Stripe gateway
+func (g *StripeGateway) GetDescription(ctx context.Context) string {
+	return "Industry-leading payment processor"
+}
+
+// GetLogo returns the logo image bytes for Stripe gateway
+func (g *StripeGateway) GetLogo(ctx context.Context) ([]byte, error) {
+	// Use provided filesystem if set (for testing), otherwise use embedded files
+	var defaultFS fs.FS = gatewayLogoFiles
+	if g.fs != nil {
+		defaultFS = g.fs
+	}
+
+	// Cast to ReadFileFS to use ReadFile method
+	readFileFS, ok := defaultFS.(fs.ReadFileFS)
+	if !ok {
+		return nil, fmt.Errorf("filesystem does not support reading files")
+	}
+
+	file, err := readFileFS.ReadFile("assets/" + GatewayID + ".svg")
+	if err != nil {
+		return nil, fmt.Errorf("failed to read logo file: %w", err)
+	}
+
+	return file, nil
+}
+
 // It first checks the customer metadata for a user_id, then falls back to database lookup.
 func (g *StripeGateway) ExtractUserIDFromSubscriptionForTesting(ctx context.Context, subscription *stripe.Subscription) (uint, error) {
 	ctx, span := core.TraceMethod(ctx, "StripeGateway.ExtractUserIDFromSubscriptionForTesting")
 	defer span.End()
 
 	return g.extractUserIDFromSubscription(ctx, subscription)
+}
+
+// createOrUpdateStripeProduct creates or updates a Stripe product for a pricing plan
+func (g *StripeGateway) createOrUpdateStripeProduct(ctx context.Context, plan *billingModels.PricingPlan, metadata map[string]string) (*stripe.Product, error) {
+	ctx, span := core.TraceMethod(ctx, "StripeGateway.createOrUpdateStripeProduct")
+	defer span.End()
+
+	// For now, we'll always create a new product
+	// In a production implementation, you should:
+	// 1. Check if a product with this plan_id already exists in gateway_product_mappings
+	// 2. Update if exists, or create if not
+	// This allows for proper syncing without duplicates
+
+	productParams := &stripe.ProductCreateParams{
+		Name:     stripe.String(plan.Name),
+		Metadata: metadata,
+	}
+
+	if plan.Description != "" {
+		productParams.Description = stripe.String(plan.Description)
+	}
+
+	// Create the product using the gateway's client
+	product, err := g.stripeClient.V1Products().Create(ctx, productParams)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Stripe product: %w", err)
+	}
+
+	g.logger.Debug("created Stripe product",
+		zap.Uint("plan_id", plan.ID),
+		zap.String("product_id", product.ID),
+		zap.String("product_name", product.Name))
+
+	return product, nil
+}
+
+// createOrUpdateStripePrice creates or updates a Stripe price for a pricing plan
+func (g *StripeGateway) createOrUpdateStripePrice(ctx context.Context, amount *float64, currency string, productID string, intervalPrefix string) (string, error) {
+	ctx, span := core.TraceMethod(ctx, "StripeGateway.createOrUpdateStripePrice")
+	defer span.End()
+
+	if amount == nil {
+		return "", fmt.Errorf("amount cannot be nil for %s price", intervalPrefix)
+	}
+
+	// Convert amount to cents (Stripe uses smallest currency unit)
+	amountCents := int64(*amount * 100)
+
+	// Determine the interval
+	interval := stripe.PriceRecurringIntervalMonth
+	isYearly := intervalPrefix == "yearly"
+
+	if isYearly {
+		interval = stripe.PriceRecurringIntervalYear
+	}
+
+	priceParams := &stripe.PriceCreateParams{
+		Currency:   stripe.String(currency),
+		UnitAmount: stripe.Int64(amountCents),
+		Product:    stripe.String(productID),
+		Recurring: &stripe.PriceCreateRecurringParams{
+			Interval: stripe.String(string(interval)),
+		},
+	}
+
+	// Create the price using the gateway's client
+	price, err := g.stripeClient.V1Prices().Create(ctx, priceParams)
+	if err != nil {
+		return "", fmt.Errorf("failed to create Stripe price: %w", err)
+	}
+
+	g.logger.Debug("created Stripe price",
+		zap.String("product_id", productID),
+		zap.String("price_id", price.ID),
+		zap.String("interval", intervalPrefix),
+		zap.Int64("amount_cents", amountCents))
+
+	return price.ID, nil
+}
+
+// createOrUpdatePortalConfiguration creates or updates a billing portal configuration
+// for a plan that restricts upgrade/downgrade paths based on PriceLine position
+func (g *StripeGateway) createOrUpdatePortalConfiguration(ctx context.Context, plan *billingModels.PricingPlan, priceIDs []string) (string, error) {
+	ctx, span := core.TraceMethod(ctx, "StripeGateway.createOrUpdatePortalConfiguration")
+	defer span.End()
+
+	priceLinePlans, err := g.pricing.GetPriceLinesForPlan(ctx, plan.ID)
+	if err != nil || len(priceLinePlans) == 0 {
+		return "", fmt.Errorf("plan not in price line, cannot create portal configuration")
+	}
+
+	priceLineID := priceLinePlans[0].PriceLineID
+
+	configName := fmt.Sprintf("Plan %d - Portal Config", plan.ID)
+
+	enabled := true
+	priceUpdate := stripe.String("price")
+
+	if len(priceIDs) == 0 {
+		return "", fmt.Errorf("no price IDs available for portal configuration")
+	}
+
+	pricePtrs := make([]*string, len(priceIDs))
+	for i := range priceIDs {
+		pricePtrs[i] = &priceIDs[i]
+	}
+
+	productsParam := []*stripe.BillingPortalConfigurationCreateFeaturesSubscriptionUpdateProductParams{
+		{
+			Product: stripe.String(strconv.FormatUint(uint64(plan.ID), 10)),
+			Prices:  pricePtrs,
+		},
+	}
+
+	params := &stripe.BillingPortalConfigurationCreateParams{
+		Name: stripe.String(configName),
+		Features: &stripe.BillingPortalConfigurationCreateFeaturesParams{
+			SubscriptionUpdate: &stripe.BillingPortalConfigurationCreateFeaturesSubscriptionUpdateParams{
+				Enabled:              &enabled,
+				DefaultAllowedUpdates: []*string{priceUpdate},
+				Products:              productsParam,
+				ProrationBehavior:     stripe.String("create_prorations"),
+			},
+		},
+	}
+
+	config, err := g.stripeClient.V1BillingPortalConfigurations().Create(ctx, params)
+	if err != nil {
+		return "", fmt.Errorf("failed to create portal configuration: %w", err)
+	}
+
+	g.logger.Info("created portal configuration",
+		zap.Uint("plan_id", plan.ID),
+		zap.Uint("price_line_id", priceLineID),
+		zap.String("config_id", config.ID),
+		zap.Int("allowed_prices", len(priceIDs)))
+
+	return config.ID, nil
+}
+
+// resolvePriceIDsFromPlanIDs resolves internal plan IDs to Stripe price IDs
+// by fetching gateway product mappings and extracting price IDs
+func (g *StripeGateway) resolvePriceIDsFromPlanIDs(ctx context.Context, upgradePlanIDs, downgradePlanIDs []string) ([]string, error) {
+	ctx, span := core.TraceMethod(ctx, "StripeGateway.resolvePriceIDsFromPlanIDs")
+	defer span.End()
+
+	// Combine all plan IDs
+	allPlanIDs := make(map[string]bool)
+	for _, id := range upgradePlanIDs {
+		allPlanIDs[id] = true
+	}
+	for _, id := range downgradePlanIDs {
+		allPlanIDs[id] = true
+	}
+
+	// Collect all unique price IDs
+	priceIDSet := make(map[string]bool)
+
+	for planIDStr := range allPlanIDs {
+		var planID uint
+		_, err := fmt.Sscanf(planIDStr, "%d", &planID)
+		if err != nil {
+			g.logger.Warn("invalid plan ID format", zap.String("plan_id", planIDStr), zap.Error(err))
+			continue
+		}
+
+		// Get gateway product mapping for this plan
+		mapping, err := g.pricing.GetGatewayProductMapping(ctx, planID, GatewayID)
+		if err != nil {
+			g.logger.Debug("could not get gateway mapping for plan",
+				zap.Uint("plan_id", planID),
+				zap.Error(err))
+			continue
+		}
+
+		// Add monthly price ID if available
+		if mapping.RemoteMonthlyPriceID != "" {
+			priceIDSet[mapping.RemoteMonthlyPriceID] = true
+		}
+
+		// Add yearly price ID if available
+		if mapping.RemoteYearlyPriceID != "" {
+			priceIDSet[mapping.RemoteYearlyPriceID] = true
+		}
+	}
+
+	// Convert set to slice
+	priceIDs := make([]string, 0, len(priceIDSet))
+	for priceID := range priceIDSet {
+		priceIDs = append(priceIDs, priceID)
+	}
+
+	g.logger.Debug("resolved price IDs from plan IDs",
+		zap.Int("total_plans", len(allPlanIDs)),
+		zap.Int("price_ids_found", len(priceIDs)))
+
+	return priceIDs, nil
 }
 
 var _ pluginCore.PaymentGateway = (*StripeGateway)(nil)

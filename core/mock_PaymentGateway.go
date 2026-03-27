@@ -8,6 +8,7 @@ import (
 	"context"
 
 	mock "github.com/stretchr/testify/mock"
+	"go.lumeweb.com/portal-plugin-billing/internal/db/models"
 )
 
 // NewMockPaymentGateway creates a new instance of MockPaymentGateway. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
@@ -169,6 +170,148 @@ func (_c *MockPaymentGateway_ExtractEventType_Call) RunAndReturn(run func(ctx co
 	return _c
 }
 
+// GetCheckoutUI provides a mock function for the type MockPaymentGateway
+func (_mock *MockPaymentGateway) GetCheckoutUI(ctx context.Context, userID uint, planID uint) (*CheckoutUIResponse, error) {
+	ret := _mock.Called(ctx, userID, planID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetCheckoutUI")
+	}
+
+	var r0 *CheckoutUIResponse
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uint, uint) (*CheckoutUIResponse, error)); ok {
+		return returnFunc(ctx, userID, planID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uint, uint) *CheckoutUIResponse); ok {
+		r0 = returnFunc(ctx, userID, planID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*CheckoutUIResponse)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, uint, uint) error); ok {
+		r1 = returnFunc(ctx, userID, planID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockPaymentGateway_GetCheckoutUI_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetCheckoutUI'
+type MockPaymentGateway_GetCheckoutUI_Call struct {
+	*mock.Call
+}
+
+// GetCheckoutUI is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID uint
+//   - planID uint
+func (_e *MockPaymentGateway_Expecter) GetCheckoutUI(ctx interface{}, userID interface{}, planID interface{}) *MockPaymentGateway_GetCheckoutUI_Call {
+	return &MockPaymentGateway_GetCheckoutUI_Call{Call: _e.mock.On("GetCheckoutUI", ctx, userID, planID)}
+}
+
+func (_c *MockPaymentGateway_GetCheckoutUI_Call) Run(run func(ctx context.Context, userID uint, planID uint)) *MockPaymentGateway_GetCheckoutUI_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 uint
+		if args[1] != nil {
+			arg1 = args[1].(uint)
+		}
+		var arg2 uint
+		if args[2] != nil {
+			arg2 = args[2].(uint)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockPaymentGateway_GetCheckoutUI_Call) Return(checkoutUIResponse *CheckoutUIResponse, err error) *MockPaymentGateway_GetCheckoutUI_Call {
+	_c.Call.Return(checkoutUIResponse, err)
+	return _c
+}
+
+func (_c *MockPaymentGateway_GetCheckoutUI_Call) RunAndReturn(run func(ctx context.Context, userID uint, planID uint) (*CheckoutUIResponse, error)) *MockPaymentGateway_GetCheckoutUI_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetCustomerPortalMetadata provides a mock function for the type MockPaymentGateway
+func (_mock *MockPaymentGateway) GetCustomerPortalMetadata(ctx context.Context, userID uint) (map[string]any, error) {
+	ret := _mock.Called(ctx, userID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetCustomerPortalMetadata")
+	}
+
+	var r0 map[string]any
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uint) (map[string]any, error)); ok {
+		return returnFunc(ctx, userID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uint) map[string]any); ok {
+		r0 = returnFunc(ctx, userID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(map[string]any)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, uint) error); ok {
+		r1 = returnFunc(ctx, userID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockPaymentGateway_GetCustomerPortalMetadata_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetCustomerPortalMetadata'
+type MockPaymentGateway_GetCustomerPortalMetadata_Call struct {
+	*mock.Call
+}
+
+// GetCustomerPortalMetadata is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID uint
+func (_e *MockPaymentGateway_Expecter) GetCustomerPortalMetadata(ctx interface{}, userID interface{}) *MockPaymentGateway_GetCustomerPortalMetadata_Call {
+	return &MockPaymentGateway_GetCustomerPortalMetadata_Call{Call: _e.mock.On("GetCustomerPortalMetadata", ctx, userID)}
+}
+
+func (_c *MockPaymentGateway_GetCustomerPortalMetadata_Call) Run(run func(ctx context.Context, userID uint)) *MockPaymentGateway_GetCustomerPortalMetadata_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 uint
+		if args[1] != nil {
+			arg1 = args[1].(uint)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockPaymentGateway_GetCustomerPortalMetadata_Call) Return(stringToV map[string]any, err error) *MockPaymentGateway_GetCustomerPortalMetadata_Call {
+	_c.Call.Return(stringToV, err)
+	return _c
+}
+
+func (_c *MockPaymentGateway_GetCustomerPortalMetadata_Call) RunAndReturn(run func(ctx context.Context, userID uint) (map[string]any, error)) *MockPaymentGateway_GetCustomerPortalMetadata_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetCustomerPortalURL provides a mock function for the type MockPaymentGateway
 func (_mock *MockPaymentGateway) GetCustomerPortalURL(ctx context.Context, userID uint, returnUrl string) (string, error) {
 	ret := _mock.Called(ctx, userID, returnUrl)
@@ -237,6 +380,170 @@ func (_c *MockPaymentGateway_GetCustomerPortalURL_Call) Return(s string, err err
 }
 
 func (_c *MockPaymentGateway_GetCustomerPortalURL_Call) RunAndReturn(run func(ctx context.Context, userID uint, returnUrl string) (string, error)) *MockPaymentGateway_GetCustomerPortalURL_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetDescription provides a mock function for the type MockPaymentGateway
+func (_mock *MockPaymentGateway) GetDescription(ctx context.Context) string {
+	ret := _mock.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetDescription")
+	}
+
+	var r0 string
+	if returnFunc, ok := ret.Get(0).(func(context.Context) string); ok {
+		r0 = returnFunc(ctx)
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+	return r0
+}
+
+// MockPaymentGateway_GetDescription_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetDescription'
+type MockPaymentGateway_GetDescription_Call struct {
+	*mock.Call
+}
+
+// GetDescription is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *MockPaymentGateway_Expecter) GetDescription(ctx interface{}) *MockPaymentGateway_GetDescription_Call {
+	return &MockPaymentGateway_GetDescription_Call{Call: _e.mock.On("GetDescription", ctx)}
+}
+
+func (_c *MockPaymentGateway_GetDescription_Call) Run(run func(ctx context.Context)) *MockPaymentGateway_GetDescription_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *MockPaymentGateway_GetDescription_Call) Return(s string) *MockPaymentGateway_GetDescription_Call {
+	_c.Call.Return(s)
+	return _c
+}
+
+func (_c *MockPaymentGateway_GetDescription_Call) RunAndReturn(run func(ctx context.Context) string) *MockPaymentGateway_GetDescription_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetLogo provides a mock function for the type MockPaymentGateway
+func (_mock *MockPaymentGateway) GetLogo(ctx context.Context) ([]byte, error) {
+	ret := _mock.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetLogo")
+	}
+
+	var r0 []byte
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context) ([]byte, error)); ok {
+		return returnFunc(ctx)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context) []byte); ok {
+		r0 = returnFunc(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]byte)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = returnFunc(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockPaymentGateway_GetLogo_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetLogo'
+type MockPaymentGateway_GetLogo_Call struct {
+	*mock.Call
+}
+
+// GetLogo is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *MockPaymentGateway_Expecter) GetLogo(ctx interface{}) *MockPaymentGateway_GetLogo_Call {
+	return &MockPaymentGateway_GetLogo_Call{Call: _e.mock.On("GetLogo", ctx)}
+}
+
+func (_c *MockPaymentGateway_GetLogo_Call) Run(run func(ctx context.Context)) *MockPaymentGateway_GetLogo_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *MockPaymentGateway_GetLogo_Call) Return(bytes []byte, err error) *MockPaymentGateway_GetLogo_Call {
+	_c.Call.Return(bytes, err)
+	return _c
+}
+
+func (_c *MockPaymentGateway_GetLogo_Call) RunAndReturn(run func(ctx context.Context) ([]byte, error)) *MockPaymentGateway_GetLogo_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetName provides a mock function for the type MockPaymentGateway
+func (_mock *MockPaymentGateway) GetName(ctx context.Context) string {
+	ret := _mock.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetName")
+	}
+
+	var r0 string
+	if returnFunc, ok := ret.Get(0).(func(context.Context) string); ok {
+		r0 = returnFunc(ctx)
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+	return r0
+}
+
+// MockPaymentGateway_GetName_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetName'
+type MockPaymentGateway_GetName_Call struct {
+	*mock.Call
+}
+
+// GetName is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *MockPaymentGateway_Expecter) GetName(ctx interface{}) *MockPaymentGateway_GetName_Call {
+	return &MockPaymentGateway_GetName_Call{Call: _e.mock.On("GetName", ctx)}
+}
+
+func (_c *MockPaymentGateway_GetName_Call) Run(run func(ctx context.Context)) *MockPaymentGateway_GetName_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *MockPaymentGateway_GetName_Call) Return(s string) *MockPaymentGateway_GetName_Call {
+	_c.Call.Return(s)
+	return _c
+}
+
+func (_c *MockPaymentGateway_GetName_Call) RunAndReturn(run func(ctx context.Context) string) *MockPaymentGateway_GetName_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -396,6 +703,74 @@ func (_c *MockPaymentGateway_SignatureHeader_Call) Return(s string) *MockPayment
 }
 
 func (_c *MockPaymentGateway_SignatureHeader_Call) RunAndReturn(run func(ctx context.Context) string) *MockPaymentGateway_SignatureHeader_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SyncPlan provides a mock function for the type MockPaymentGateway
+func (_mock *MockPaymentGateway) SyncPlan(ctx context.Context, plan *models.PricingPlan) (*SyncResult, error) {
+	ret := _mock.Called(ctx, plan)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SyncPlan")
+	}
+
+	var r0 *SyncResult
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *models.PricingPlan) (*SyncResult, error)); ok {
+		return returnFunc(ctx, plan)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *models.PricingPlan) *SyncResult); ok {
+		r0 = returnFunc(ctx, plan)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*SyncResult)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, *models.PricingPlan) error); ok {
+		r1 = returnFunc(ctx, plan)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockPaymentGateway_SyncPlan_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SyncPlan'
+type MockPaymentGateway_SyncPlan_Call struct {
+	*mock.Call
+}
+
+// SyncPlan is a helper method to define mock.On call
+//   - ctx context.Context
+//   - plan *models.PricingPlan
+func (_e *MockPaymentGateway_Expecter) SyncPlan(ctx interface{}, plan interface{}) *MockPaymentGateway_SyncPlan_Call {
+	return &MockPaymentGateway_SyncPlan_Call{Call: _e.mock.On("SyncPlan", ctx, plan)}
+}
+
+func (_c *MockPaymentGateway_SyncPlan_Call) Run(run func(ctx context.Context, plan *models.PricingPlan)) *MockPaymentGateway_SyncPlan_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 *models.PricingPlan
+		if args[1] != nil {
+			arg1 = args[1].(*models.PricingPlan)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockPaymentGateway_SyncPlan_Call) Return(syncResult *SyncResult, err error) *MockPaymentGateway_SyncPlan_Call {
+	_c.Call.Return(syncResult, err)
+	return _c
+}
+
+func (_c *MockPaymentGateway_SyncPlan_Call) RunAndReturn(run func(ctx context.Context, plan *models.PricingPlan) (*SyncResult, error)) *MockPaymentGateway_SyncPlan_Call {
 	_c.Call.Return(run)
 	return _c
 }

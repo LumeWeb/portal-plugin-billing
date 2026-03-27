@@ -7,3 +7,9 @@ packages:
     interfaces:
       BillingService: {}
       PaymentGateway: {}
+      PricingService: {}
+  go.lumeweb.com/portal-plugin-billing/internal/service/pricing:
+    config:
+      dir: internal/service/pricing/
+    interfaces:
+      MockablePaymentGateway: {}

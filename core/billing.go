@@ -41,4 +41,13 @@ type BillingService interface {
 	GetActiveSubscribersByGateway(ctx context.Context, gatewayType string) ([]Subscriber, error)
 	// GetActiveSubscription returns the first active subscription for a user across all gateways
 	GetActiveSubscription(ctx context.Context, userID uint) (*Subscriber, error)
+	// GetRegistry returns the gateway registry for querying available gateways
+	GetRegistry(ctx context.Context) GatewayRegistry
+	// GetCheckoutUI returns checkout UI fragments for a plan
+	GetCheckoutUI(ctx context.Context, userID uint, planID uint, gatewayType string) (*CheckoutUIResponse, error)
+}
+
+// GatewayRegistry provides access to gateway information
+type GatewayRegistry interface {
+	GetAllGateways() map[string]PaymentGateway
 }
