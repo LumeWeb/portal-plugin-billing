@@ -1,0 +1,11 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    uses: LumeWeb/workflows/.github/workflows/build-plugin.yml@develop
+    secrets: inherit

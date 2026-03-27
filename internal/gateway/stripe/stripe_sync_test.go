@@ -23,14 +23,16 @@ func TestStripeGateway_SyncPlan_Success(t *testing.T) {
 
 		monthlyPrice := 19.99
 		yearlyPrice := 199.99
-		plan := &billingModels.PricingPlan{
+		planInfo := &pluginCore.PricingPlanInfo{
+			ID:              1,
 			Name:            "Test Plan",
 			Description:     "Test Description",
 			Currency:        "usd",
 			MonthlyPriceUSD: &monthlyPrice,
 			YearlyPriceUSD:  &yearlyPrice,
+			IsActive:        true,
+			IsPublic:        true,
 		}
-		plan.ID = 1 // Set ID after creation since it's from gorm.Model
 
 		mockPricingService := &pluginCore.MockPricingService{}
 
@@ -44,7 +46,7 @@ func TestStripeGateway_SyncPlan_Success(t *testing.T) {
 			Twice()
 
 		mockPricingService.
-			On("GetPriceLinesForPlan", mock.Anything, plan.ID).
+			On("GetPriceLinesForPlan", mock.Anything, planInfo.ID).
 			Return([]*billingModels.PriceLinePlan{}, nil)
 
 		mockQuota := &quotaCore.MockQuotaService{}
@@ -54,7 +56,7 @@ func TestStripeGateway_SyncPlan_Success(t *testing.T) {
 		gateway := New(ctx.Logger(), TestWebhookSecret, "test_key", mockQuota, mockUsers, mockBilling, mockPricingService)
 		gateway.stripeClient = mockStripeClient
 
-		result, err := gateway.SyncPlan(context.Background(), plan)
+		result, err := gateway.SyncPlan(context.Background(), planInfo)
 
 		assert.NoError(t, err)
 		assert.True(t, result.Success)
@@ -71,13 +73,13 @@ func TestStripeGateway_SyncPlan_NilPricingService(t *testing.T) {
 	ctx, _ := coreTesting.NewTestContext(t)
 	gateway := New(ctx.Logger(), TestWebhookSecret, "test_key", nil, nil, nil, nil)
 
-	plan := &billingModels.PricingPlan{
+	planInfo := &pluginCore.PricingPlanInfo{
+		ID:       1,
 		Name:     "Test Plan",
 		Currency: "usd",
 	}
-	plan.ID = 1 // Set ID after creation since it's from gorm.Model
 
-	result, err := gateway.SyncPlan(context.Background(), plan)
+	result, err := gateway.SyncPlan(context.Background(), planInfo)
 
 	assert.Error(t, err)
 	assert.False(t, result.Success)
