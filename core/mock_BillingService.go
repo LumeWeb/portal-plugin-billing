@@ -532,6 +532,86 @@ func (_c *MockBillingService_GetActiveSubscription_Call) RunAndReturn(run func(c
 	return _c
 }
 
+// GetCheckoutUI provides a mock function for the type MockBillingService
+func (_mock *MockBillingService) GetCheckoutUI(ctx context.Context, userID uint, planID uint, gatewayType string) (*CheckoutUIResponse, error) {
+	ret := _mock.Called(ctx, userID, planID, gatewayType)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetCheckoutUI")
+	}
+
+	var r0 *CheckoutUIResponse
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uint, uint, string) (*CheckoutUIResponse, error)); ok {
+		return returnFunc(ctx, userID, planID, gatewayType)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uint, uint, string) *CheckoutUIResponse); ok {
+		r0 = returnFunc(ctx, userID, planID, gatewayType)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*CheckoutUIResponse)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, uint, uint, string) error); ok {
+		r1 = returnFunc(ctx, userID, planID, gatewayType)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockBillingService_GetCheckoutUI_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetCheckoutUI'
+type MockBillingService_GetCheckoutUI_Call struct {
+	*mock.Call
+}
+
+// GetCheckoutUI is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID uint
+//   - planID uint
+//   - gatewayType string
+func (_e *MockBillingService_Expecter) GetCheckoutUI(ctx interface{}, userID interface{}, planID interface{}, gatewayType interface{}) *MockBillingService_GetCheckoutUI_Call {
+	return &MockBillingService_GetCheckoutUI_Call{Call: _e.mock.On("GetCheckoutUI", ctx, userID, planID, gatewayType)}
+}
+
+func (_c *MockBillingService_GetCheckoutUI_Call) Run(run func(ctx context.Context, userID uint, planID uint, gatewayType string)) *MockBillingService_GetCheckoutUI_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 uint
+		if args[1] != nil {
+			arg1 = args[1].(uint)
+		}
+		var arg2 uint
+		if args[2] != nil {
+			arg2 = args[2].(uint)
+		}
+		var arg3 string
+		if args[3] != nil {
+			arg3 = args[3].(string)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+			arg3,
+		)
+	})
+	return _c
+}
+
+func (_c *MockBillingService_GetCheckoutUI_Call) Return(checkoutUIResponse *CheckoutUIResponse, err error) *MockBillingService_GetCheckoutUI_Call {
+	_c.Call.Return(checkoutUIResponse, err)
+	return _c
+}
+
+func (_c *MockBillingService_GetCheckoutUI_Call) RunAndReturn(run func(ctx context.Context, userID uint, planID uint, gatewayType string) (*CheckoutUIResponse, error)) *MockBillingService_GetCheckoutUI_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetConfig provides a mock function for the type MockBillingService
 func (_mock *MockBillingService) GetConfig() (any, error) {
 	ret := _mock.Called()
@@ -651,6 +731,59 @@ func (_c *MockBillingService_GetGateway_Call) Return(paymentGateway PaymentGatew
 }
 
 func (_c *MockBillingService_GetGateway_Call) RunAndReturn(run func(ctx context.Context, gatewayType string) (PaymentGateway, error)) *MockBillingService_GetGateway_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetRegistry provides a mock function for the type MockBillingService
+func (_mock *MockBillingService) GetRegistry(ctx context.Context) GatewayRegistry {
+	ret := _mock.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetRegistry")
+	}
+
+	var r0 GatewayRegistry
+	if returnFunc, ok := ret.Get(0).(func(context.Context) GatewayRegistry); ok {
+		r0 = returnFunc(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(GatewayRegistry)
+		}
+	}
+	return r0
+}
+
+// MockBillingService_GetRegistry_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetRegistry'
+type MockBillingService_GetRegistry_Call struct {
+	*mock.Call
+}
+
+// GetRegistry is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *MockBillingService_Expecter) GetRegistry(ctx interface{}) *MockBillingService_GetRegistry_Call {
+	return &MockBillingService_GetRegistry_Call{Call: _e.mock.On("GetRegistry", ctx)}
+}
+
+func (_c *MockBillingService_GetRegistry_Call) Run(run func(ctx context.Context)) *MockBillingService_GetRegistry_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *MockBillingService_GetRegistry_Call) Return(gatewayRegistry GatewayRegistry) *MockBillingService_GetRegistry_Call {
+	_c.Call.Return(gatewayRegistry)
+	return _c
+}
+
+func (_c *MockBillingService_GetRegistry_Call) RunAndReturn(run func(ctx context.Context) GatewayRegistry) *MockBillingService_GetRegistry_Call {
 	_c.Call.Return(run)
 	return _c
 }

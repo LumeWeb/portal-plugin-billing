@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -39,6 +40,12 @@ var (
 	defaultRegistry = NewRegistry()
 )
 
+// Predefined errors for registry operations
+var (
+	ErrGatewayAlreadyRegistered = errors.New("gateway already registered")
+	ErrGatewayNotFound          = errors.New("gateway not found")
+)
+
 // Register adds a payment gateway to the registry
 func (r *Registry) Register(ctx context.Context, gateway pluginCore.PaymentGateway) error {
 	ctx, span := core.TraceMethod(ctx, "Registry.Register")
@@ -59,7 +66,7 @@ func (r *Registry) Register(ctx context.Context, gateway pluginCore.PaymentGatew
 	}
 	if _, exists := r.gateways[id]; exists {
 		GatewayRegistered.WithLabelValues(id, LabelStatusError).Inc()
-		return fmt.Errorf("gateway %q already registered", id)
+		return fmt.Errorf("%w: %s", ErrGatewayAlreadyRegistered, id)
 	}
 	r.gateways[id] = gateway
 	GatewayRegistered.WithLabelValues(id, LabelStatusSuccess).Inc()
@@ -85,6 +92,19 @@ func (r *Registry) GetAll() []pluginCore.PaymentGateway {
 		gateways = append(gateways, gateway)
 	}
 	return gateways
+}
+
+// GetAllGateways returns all registered payment gateways as a map of ID to gateway
+func (r *Registry) GetAllGateways() map[string]pluginCore.PaymentGateway {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	// Create a new map to avoid external mutation
+	result := make(map[string]pluginCore.PaymentGateway, len(r.gateways))
+	for id, gateway := range r.gateways {
+		result[id] = gateway
+	}
+	return result
 }
 
 // ValidateWebhook validates a webhook for a specific gateway

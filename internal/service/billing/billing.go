@@ -24,8 +24,9 @@ import (
 
 type BillingServiceDefault struct {
 	*core.BaseComponent
-	gateways *gateway.Registry
-	config   *config.ServiceConfig
+	gateways     *gateway.Registry
+	config       *config.ServiceConfig
+	pricingService pluginCore.PricingService
 }
 
 func (s *BillingServiceDefault) GetConfig() (any, error) {
@@ -55,6 +56,12 @@ func NewBillingServiceWithRegistry(registry *gateway.Registry) (core.Service, []
 				// Load service configuration
 				service.config = core.GetServiceConfig[*config.ServiceConfig](c, pluginCore.BILLING_SERVICE)
 
+				// Get pricing service
+				service.pricingService = core.GetService[pluginCore.PricingService](c, pluginCore.PRICING_SERVICE)
+				if service.pricingService == nil {
+					return fmt.Errorf("pricing service is required but not available")
+				}
+
 				// Register Stripe gateway if webhook secret is configured
 				if secret := strings.TrimSpace(service.config.Stripe.WebhookSecret); secret != "" {
 					// Get quota service
@@ -76,6 +83,7 @@ func NewBillingServiceWithRegistry(registry *gateway.Registry) (core.Service, []
 						quotaSvc,
 						userSvc,
 						service,
+						service.pricingService,
 					)); err != nil {
 						return fmt.Errorf("failed to register stripe gateway: %w", err)
 					}
@@ -405,4 +413,12 @@ func (s *BillingServiceDefault) GetActiveSubscription(ctx context.Context, userI
 		return nil, err
 	}
 	return &subscriber, nil
+}
+
+// GetRegistry returns the gateway registry for querying available gateways
+func (s *BillingServiceDefault) GetRegistry(ctx context.Context) pluginCore.GatewayRegistry {
+	ctx, span := core.TraceMethod(ctx, "BillingServiceDefault.GetRegistry")
+	defer span.End()
+
+	return s.gateways
 }
