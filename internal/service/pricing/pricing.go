@@ -333,19 +333,35 @@ func (s *PricingServiceDefault) GetUpgradeDowngradePlans(ctx context.Context, cu
 		Downgrades: []*models.PricingPlan{},
 	}
 
+	planIDs := make([]uint, 0, len(plans))
 	for _, plan := range plans {
-		if plan.Position > currentPlan.Position && plan.PlanID != currentPlan.PlanID {
-			pricingPlan, err := s.fetchPricingPlan(ctx, plan.PlanID)
-			if err != nil {
-				continue
+		if plan.PlanID != currentPlan.PlanID {
+			planIDs = append(planIDs, plan.PlanID)
+		}
+	}
+
+	planMap := make(map[uint]*models.PricingPlan)
+	if len(planIDs) > 0 {
+		var fetchedPlans []*models.PricingPlan
+		err := s.withTracedTransaction(ctx, "GetUpgradeDowngradePlans-FetchPlans", func(tx *gorm.DB) error {
+			return tx.Where("id IN ?", planIDs).Find(&fetchedPlans).Error
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		for _, p := range fetchedPlans {
+			planMap[p.ID] = p
+		}
+	}
+
+	for _, plan := range plans {
+		if pricingPlan, ok := planMap[plan.PlanID]; ok {
+			if plan.Position > currentPlan.Position {
+				paths.Upgrades = append(paths.Upgrades, pricingPlan)
+			} else if plan.Position < currentPlan.Position {
+				paths.Downgrades = append(paths.Downgrades, pricingPlan)
 			}
-			paths.Upgrades = append(paths.Upgrades, pricingPlan)
-		} else if plan.Position < currentPlan.Position && plan.PlanID != currentPlan.PlanID {
-			pricingPlan, err := s.fetchPricingPlan(ctx, plan.PlanID)
-			if err != nil {
-				continue
-			}
-			paths.Downgrades = append(paths.Downgrades, pricingPlan)
 		}
 	}
 
@@ -364,16 +380,31 @@ func (s *PricingServiceDefault) GetPlansForPriceLine(ctx context.Context, priceL
 		return nil, err
 	}
 
-	plans := make([]*models.PricingPlan, 0, len(priceLinePlans))
+	planIDs := make([]uint, 0, len(priceLinePlans))
 	for _, plan := range priceLinePlans {
-		pricingPlan, err := s.fetchPricingPlan(ctx, plan.PlanID)
+		planIDs = append(planIDs, plan.PlanID)
+	}
+
+	plans := make([]*models.PricingPlan, 0, len(priceLinePlans))
+	if len(planIDs) > 0 {
+		var fetchedPlans []*models.PricingPlan
+		err := s.withTracedTransaction(ctx, "GetPlansForPriceLine-FetchPlans", func(tx *gorm.DB) error {
+			return tx.Where("id IN ?", planIDs).Find(&fetchedPlans).Error
+		})
 		if err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				continue
-			}
 			return nil, err
 		}
-		plans = append(plans, pricingPlan)
+
+		planMap := make(map[uint]*models.PricingPlan)
+		for _, p := range fetchedPlans {
+			planMap[p.ID] = p
+		}
+
+		for _, plp := range priceLinePlans {
+			if plan, ok := planMap[plp.PlanID]; ok {
+				plans = append(plans, plan)
+			}
+		}
 	}
 
 	return plans, nil
@@ -547,7 +578,7 @@ func (s *PricingServiceDefault) withTracedTransaction(ctx context.Context, metho
 	defer span.End()
 
 	return db.RetryableComponentTransaction(s, ctx, func(tx *gorm.DB) *gorm.DB {
-		if err := fn(tx); err != nil {
+		if err := fn(tx.WithContext(ctx)); err != nil {
 			_ = tx.AddError(err)
 		}
 		return tx
@@ -561,7 +592,7 @@ func (s *PricingServiceDefault) withTracedTransactionResult(ctx context.Context,
 
 	var result *gorm.DB
 	err := db.RetryableComponentTransaction(s, ctx, func(tx *gorm.DB) *gorm.DB {
-		result = fn(tx)
+		result = fn(tx.WithContext(ctx))
 		return result
 	})
 

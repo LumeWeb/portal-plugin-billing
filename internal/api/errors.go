@@ -142,10 +142,12 @@ func init() {
 		ErrKeyInvalidPriceLineID: {Key: ErrKeyInvalidPriceLineID, Message: "Invalid price line ID format"},
 
 		// Billing/Subscription errors
-		ErrKeySubscriptionCheckFailed:     {Key: ErrKeySubscriptionCheckFailed, Message: "Failed to check subscription status"},
-		ErrKeyNoActiveSubscription:        {Key: ErrKeyNoActiveSubscription, Message: "No active subscription found"},
-		ErrKeyPaymentGatewayFailed:        {Key: ErrKeyPaymentGatewayFailed, Message: "Failed to get payment gateway"},
-		ErrKeyCustomerPortalSessionFailed: {Key: ErrKeyCustomerPortalSessionFailed, Message: "Failed to create customer portal session"},
+		ErrKeySubscriptionCheckFailed:       {Key: ErrKeySubscriptionCheckFailed, Message: "Failed to check subscription status"},
+		ErrKeyNoActiveSubscription:          {Key: ErrKeyNoActiveSubscription, Message: "No active subscription found"},
+		ErrKeyCheckoutSubscriptionActive:    {Key: ErrKeyCheckoutSubscriptionActive, Message: "Checkout subscription already active"},
+		ErrKeyCheckoutUIGenerationFailed:   {Key: ErrKeyCheckoutUIGenerationFailed, Message: "Failed to generate checkout UI"},
+		ErrKeyPaymentGatewayFailed:          {Key: ErrKeyPaymentGatewayFailed, Message: "Failed to get payment gateway"},
+		ErrKeyCustomerPortalSessionFailed:   {Key: ErrKeyCustomerPortalSessionFailed, Message: "Failed to create customer portal session"},
 
 		// Webhook errors
 		ErrKeyPayloadTooLarge:          {Key: ErrKeyPayloadTooLarge, Message: "Payload too large"},
@@ -189,10 +191,12 @@ func init() {
 		ErrKeyInvalidPriceLineID: http.StatusBadRequest,
 
 		// Billing/Subscription errors
-		ErrKeySubscriptionCheckFailed:     http.StatusInternalServerError,
-		ErrKeyNoActiveSubscription:        http.StatusNotFound,
-		ErrKeyPaymentGatewayFailed:        http.StatusInternalServerError,
-		ErrKeyCustomerPortalSessionFailed: http.StatusInternalServerError,
+		ErrKeySubscriptionCheckFailed:       http.StatusInternalServerError,
+		ErrKeyNoActiveSubscription:          http.StatusNotFound,
+		ErrKeyCheckoutSubscriptionActive:    http.StatusConflict,
+		ErrKeyCheckoutUIGenerationFailed:   http.StatusInternalServerError,
+		ErrKeyPaymentGatewayFailed:          http.StatusInternalServerError,
+		ErrKeyCustomerPortalSessionFailed:   http.StatusInternalServerError,
 
 		// Webhook errors
 		ErrKeyPayloadTooLarge:          http.StatusRequestEntityTooLarge,

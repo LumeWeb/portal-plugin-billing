@@ -347,18 +347,8 @@ func (e *APIExtension) handleGetCheckoutUI(c echo.Context) error {
 		gatewayType = "stripe"
 	}
 
-	// Get the gateway for this request
-	gateway, err := e.billingService.GetGateway(c.Request().Context(), gatewayType)
-	if err != nil {
-		e.Logger().Error("failed to get payment gateway",
-			zap.Uint("user_id", userID),
-			zap.String("gateway_type", gatewayType),
-			zap.Error(err))
-		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("failed to get payment gateway")), http.StatusInternalServerError)
-	}
-
-	// Get checkout UI from gateway (gateways handle their specific UI patterns)
-	response, err := gateway.GetCheckoutUI(c.Request().Context(), userID, uint(planID))
+	// Get checkout UI from billing service which includes validation logic
+	response, err := e.billingService.GetCheckoutUI(c.Request().Context(), userID, uint(planID), gatewayType)
 	if err != nil {
 		e.Logger().Error("failed to get checkout UI",
 			zap.Uint("user_id", userID),

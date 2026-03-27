@@ -13,7 +13,6 @@ import (
 	"github.com/stripe/stripe-go/v83"
 	"github.com/stripe/stripe-go/v83/webhook"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
-	billingModels "go.lumeweb.com/portal-plugin-billing/internal/db/models"
 	quotaCore "go.lumeweb.com/portal-plugin-quota/core"
 	"go.lumeweb.com/portal/core"
 	"go.lumeweb.com/portal/db/models"
@@ -1094,7 +1093,7 @@ func (g *StripeGateway) getCheckoutCancelURL() string {
 // getOrCreateStripeCustomer gets an existing or creates a new Stripe customer
 func (g *StripeGateway) getOrCreateStripeCustomer(ctx context.Context, userID uint, email string) (string, error) {
 	// Check if customer already exists in subscriber table
-	subscriber, err := g.billing.GetSubscriberByGatewayID(ctx, "", GatewayID)
+	subscriber, err := g.billing.GetActiveSubscriber(ctx, userID, GatewayID)
 	if err == nil && subscriber != nil && subscriber.GatewayID != "" {
 		return subscriber.GatewayID, nil
 	}
@@ -1131,7 +1130,7 @@ func (g *StripeGateway) SupportsProductSync() bool {
 }
 
 // SyncPlan synchronizes a pricing plan with Stripe
-func (g *StripeGateway) SyncPlan(ctx context.Context, plan *billingModels.PricingPlan) (*pluginCore.SyncResult, error) {
+func (g *StripeGateway) SyncPlan(ctx context.Context, plan *pluginCore.PricingPlanInfo) (*pluginCore.SyncResult, error) {
 	ctx, span := core.TraceMethod(ctx, "StripeGateway.SyncPlan")
 	defer span.End()
 
@@ -1251,7 +1250,7 @@ func (g *StripeGateway) SyncPlan(ctx context.Context, plan *billingModels.Pricin
 				zap.Uint("plan_id", plan.ID),
 				zap.Error(err))
 		} else {
-			configID, err := g.createOrUpdatePortalConfiguration(ctx, plan, priceIDs)
+			configID, err := g.createOrUpdatePortalConfiguration(ctx, plan, stripeProduct.ID, priceIDs)
 			if err != nil {
 				g.logger.Error("failed to create portal configuration",
 					zap.Uint("plan_id", plan.ID),
@@ -1331,7 +1330,7 @@ func (g *StripeGateway) ExtractUserIDFromSubscriptionForTesting(ctx context.Cont
 }
 
 // createOrUpdateStripeProduct creates or updates a Stripe product for a pricing plan
-func (g *StripeGateway) createOrUpdateStripeProduct(ctx context.Context, plan *billingModels.PricingPlan, metadata map[string]string) (*stripe.Product, error) {
+func (g *StripeGateway) createOrUpdateStripeProduct(ctx context.Context, plan *pluginCore.PricingPlanInfo, metadata map[string]string) (*stripe.Product, error) {
 	ctx, span := core.TraceMethod(ctx, "StripeGateway.createOrUpdateStripeProduct")
 	defer span.End()
 
@@ -1410,7 +1409,7 @@ func (g *StripeGateway) createOrUpdateStripePrice(ctx context.Context, amount *f
 
 // createOrUpdatePortalConfiguration creates or updates a billing portal configuration
 // for a plan that restricts upgrade/downgrade paths based on PriceLine position
-func (g *StripeGateway) createOrUpdatePortalConfiguration(ctx context.Context, plan *billingModels.PricingPlan, priceIDs []string) (string, error) {
+func (g *StripeGateway) createOrUpdatePortalConfiguration(ctx context.Context, plan *pluginCore.PricingPlanInfo, stripeProductID string, priceIDs []string) (string, error) {
 	ctx, span := core.TraceMethod(ctx, "StripeGateway.createOrUpdatePortalConfiguration")
 	defer span.End()
 
@@ -1437,7 +1436,7 @@ func (g *StripeGateway) createOrUpdatePortalConfiguration(ctx context.Context, p
 
 	productsParam := []*stripe.BillingPortalConfigurationCreateFeaturesSubscriptionUpdateProductParams{
 		{
-			Product: stripe.String(strconv.FormatUint(uint64(plan.ID), 10)),
+			Product: stripe.String(stripeProductID),
 			Prices:  pricePtrs,
 		},
 	}

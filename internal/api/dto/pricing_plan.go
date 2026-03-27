@@ -120,13 +120,23 @@ func (r PricingPlanUpdateRequest) Schema() *z.StructSchema {
 }
 
 func (r *PricingPlanUpdateRequest) ToModel() (*models.PricingPlan, error) {
-	return &models.PricingPlan{
+	plan := &models.PricingPlan{
 		Name:            r.Name,
 		Description:     r.Description,
 		MonthlyPriceUSD: r.MonthlyPrice,
 		YearlyPriceUSD:  r.YearlyPrice,
 		Currency:        r.Currency,
-	}, nil
+	}
+
+	if r.IsActive != nil {
+		plan.IsActive = *r.IsActive
+	}
+
+	if r.IsPublic != nil {
+		plan.IsPublic = *r.IsPublic
+	}
+
+	return plan, nil
 }
 
 // PricingPlanFilterRequest represents filter options for listing pricing plans

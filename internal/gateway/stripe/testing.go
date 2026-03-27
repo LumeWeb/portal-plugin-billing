@@ -325,6 +325,7 @@ func CreateMockStripeGateway(
 		BillingPortalSessionsService:        &MockBillingPortalSessions{},
 		CustomersService:                    &MockCustomers{},
 		SubscriptionsService:                &MockSubscriptions{},
+		V1CheckoutSessionsService:           &MockCheckoutSessions{},
 	}
 
 	// Create mock retrievers

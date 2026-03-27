@@ -162,7 +162,18 @@ func (s *SyncManager) syncGatewayPlan(
 		zap.Uint("plan_id", plan.ID),
 		zap.String("plan_name", plan.Name))
 
-	syncResult, err := gateway.SyncPlan(ctx, plan)
+	planInfo := &pluginCore.PricingPlanInfo{
+		ID:              plan.ID,
+		Name:            plan.Name,
+		Description:     plan.Description,
+		Currency:        plan.Currency,
+		MonthlyPriceUSD: plan.MonthlyPriceUSD,
+		YearlyPriceUSD:  plan.YearlyPriceUSD,
+		IsActive:        plan.IsActive,
+		IsPublic:        plan.IsPublic,
+	}
+
+	syncResult, err := gateway.SyncPlan(ctx, planInfo)
 	if err != nil {
 		s.ctx.Logger().Error("sync failed for gateway",
 			zap.String("gateway", gatewayID),

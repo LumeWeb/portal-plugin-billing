@@ -4,9 +4,19 @@ import (
 	"context"
 	"errors"
 	"time"
-
-	"go.lumeweb.com/portal-plugin-billing/internal/db/models"
 )
+
+// PricingPlanInfo defines the contract for pricing plan data passed to gateways
+type PricingPlanInfo struct {
+	ID              uint
+	Name            string
+	Description     string
+	Currency        string
+	MonthlyPriceUSD *float64
+	YearlyPriceUSD  *float64
+	IsActive        bool
+	IsPublic        bool
+}
 
 var (
 	ErrGatewayNotFound = errors.New("gateway not found")
@@ -62,7 +72,7 @@ type PaymentGateway interface {
 
 	// SyncPlan synchronizes a pricing plan with the gateway
 	// Creates products and prices in the gateway for the given plan
-	SyncPlan(ctx context.Context, plan *models.PricingPlan) (*SyncResult, error)
+	SyncPlan(ctx context.Context, plan *PricingPlanInfo) (*SyncResult, error)
 
 	// GetLogo returns the logo image data for this gateway
 	// Returns the raw logo bytes for public display

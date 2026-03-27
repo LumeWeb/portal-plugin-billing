@@ -8,7 +8,6 @@ import (
 	"context"
 
 	mock "github.com/stretchr/testify/mock"
-	"go.lumeweb.com/portal-plugin-billing/internal/db/models"
 )
 
 // NewMockPaymentGateway creates a new instance of MockPaymentGateway. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
@@ -708,7 +707,7 @@ func (_c *MockPaymentGateway_SignatureHeader_Call) RunAndReturn(run func(ctx con
 }
 
 // SyncPlan provides a mock function for the type MockPaymentGateway
-func (_mock *MockPaymentGateway) SyncPlan(ctx context.Context, plan *models.PricingPlan) (*SyncResult, error) {
+func (_mock *MockPaymentGateway) SyncPlan(ctx context.Context, plan *PricingPlanInfo) (*SyncResult, error) {
 	ret := _mock.Called(ctx, plan)
 
 	if len(ret) == 0 {
@@ -717,17 +716,17 @@ func (_mock *MockPaymentGateway) SyncPlan(ctx context.Context, plan *models.Pric
 
 	var r0 *SyncResult
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, *models.PricingPlan) (*SyncResult, error)); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *PricingPlanInfo) (*SyncResult, error)); ok {
 		return returnFunc(ctx, plan)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, *models.PricingPlan) *SyncResult); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *PricingPlanInfo) *SyncResult); ok {
 		r0 = returnFunc(ctx, plan)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*SyncResult)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, *models.PricingPlan) error); ok {
+	if returnFunc, ok := ret.Get(1).(func(context.Context, *PricingPlanInfo) error); ok {
 		r1 = returnFunc(ctx, plan)
 	} else {
 		r1 = ret.Error(1)
@@ -742,20 +741,20 @@ type MockPaymentGateway_SyncPlan_Call struct {
 
 // SyncPlan is a helper method to define mock.On call
 //   - ctx context.Context
-//   - plan *models.PricingPlan
+//   - plan *PricingPlanInfo
 func (_e *MockPaymentGateway_Expecter) SyncPlan(ctx interface{}, plan interface{}) *MockPaymentGateway_SyncPlan_Call {
 	return &MockPaymentGateway_SyncPlan_Call{Call: _e.mock.On("SyncPlan", ctx, plan)}
 }
 
-func (_c *MockPaymentGateway_SyncPlan_Call) Run(run func(ctx context.Context, plan *models.PricingPlan)) *MockPaymentGateway_SyncPlan_Call {
+func (_c *MockPaymentGateway_SyncPlan_Call) Run(run func(ctx context.Context, plan *PricingPlanInfo)) *MockPaymentGateway_SyncPlan_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
 			arg0 = args[0].(context.Context)
 		}
-		var arg1 *models.PricingPlan
+		var arg1 *PricingPlanInfo
 		if args[1] != nil {
-			arg1 = args[1].(*models.PricingPlan)
+			arg1 = args[1].(*PricingPlanInfo)
 		}
 		run(
 			arg0,
@@ -770,7 +769,7 @@ func (_c *MockPaymentGateway_SyncPlan_Call) Return(syncResult *SyncResult, err e
 	return _c
 }
 
-func (_c *MockPaymentGateway_SyncPlan_Call) RunAndReturn(run func(ctx context.Context, plan *models.PricingPlan) (*SyncResult, error)) *MockPaymentGateway_SyncPlan_Call {
+func (_c *MockPaymentGateway_SyncPlan_Call) RunAndReturn(run func(ctx context.Context, plan *PricingPlanInfo) (*SyncResult, error)) *MockPaymentGateway_SyncPlan_Call {
 	_c.Call.Return(run)
 	return _c
 }

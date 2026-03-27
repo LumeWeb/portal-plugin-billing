@@ -125,10 +125,18 @@ func (r PriceLineUpdateRequest) Schema() *z.StructSchema {
 }
 
 func (r *PriceLineUpdateRequest) ToModel() (*models.PriceLine, error) {
-	return &models.PriceLine{
+	line := &models.PriceLine{
 		Name:        r.Name,
 		Description: r.Description,
-	}, nil
+	}
+
+	if r.IsActive != nil {
+		line.IsActive = *r.IsActive
+	}
+
+	line.IsDefault = r.IsDefault
+
+	return line, nil
 }
 
 // AddPlanToPriceLineRequest represents a request to add a plan to a price line

@@ -44,12 +44,12 @@ func TestBillingService_GetCheckoutUI_Success(t *testing.T) {
 			IsPublic: true,
 		}, nil)
 
-		err := service.RegisterGateway(context.Background(), mockGateway)
+		err := service.RegisterGateway(ctx, mockGateway)
 		if err != nil && !errors.Is(err, gateway.ErrGatewayAlreadyRegistered) {
 			require.NoError(tb, err)
 		}
 
-		result, err := service.GetCheckoutUI(context.Background(), 1, 42, "stripe")
+		result, err := service.GetCheckoutUI(ctx, 1, 42, "stripe")
 
 		require.NoError(tb, err)
 		require.NotNil(tb, result)
@@ -71,13 +71,13 @@ func TestBillingService_GetCheckoutUI_DifferentGateways(t *testing.T) {
 		mockPaypalGateway := pluginCore.NewMockPaymentGateway(tb)
 
 		mockStripeGateway.EXPECT().ID(mock.Anything).Return("stripe")
-		err := service.RegisterGateway(context.Background(), mockStripeGateway)
+		err := service.RegisterGateway(ctx, mockStripeGateway)
 		if err != nil && !errors.Is(err, gateway.ErrGatewayAlreadyRegistered) {
 			require.NoError(tb, err)
 		}
 
 		mockPaypalGateway.EXPECT().ID(mock.Anything).Return("paypal")
-		err = service.RegisterGateway(context.Background(), mockPaypalGateway)
+		err = service.RegisterGateway(ctx, mockPaypalGateway)
 		if err != nil && !errors.Is(err, gateway.ErrGatewayAlreadyRegistered) {
 			require.NoError(tb, err)
 		}
@@ -88,7 +88,7 @@ func TestBillingService_GetCheckoutUI_DifferentGateways(t *testing.T) {
 		stripeResponse := &pluginCore.CheckoutUIResponse{SessionID: "sess_stripe", Fragments: []pluginCore.CheckoutUIFragment{{Type: pluginCore.FragmentTypeLink}}}
 		mockStripeGateway.EXPECT().GetCheckoutUI(mock.Anything, uint(1), uint(42)).Return(stripeResponse, nil)
 
-		result, err := service.GetCheckoutUI(context.Background(), 1, 42, "stripe")
+		result, err := service.GetCheckoutUI(ctx, 1, 42, "stripe")
 		require.NoError(tb, err)
 		assert.Equal(tb, "sess_stripe", result.SessionID)
 
@@ -96,7 +96,7 @@ func TestBillingService_GetCheckoutUI_DifferentGateways(t *testing.T) {
 		paypalResponse := &pluginCore.CheckoutUIResponse{SessionID: "sess_paypal", Fragments: []pluginCore.CheckoutUIFragment{{Type: pluginCore.FragmentTypeScript}}}
 		mockPaypalGateway.EXPECT().GetCheckoutUI(mock.Anything, uint(1), uint(42)).Return(paypalResponse, nil)
 
-		result, err = service.GetCheckoutUI(context.Background(), 1, 42, "paypal")
+		result, err = service.GetCheckoutUI(ctx, 1, 42, "paypal")
 		require.NoError(tb, err)
 		assert.Equal(tb, "sess_paypal", result.SessionID)
 	}, getBillingTestOptions())
@@ -106,10 +106,10 @@ func TestBillingService_GetCheckoutUI_UserAlreadySubscribed(t *testing.T) {
 	coreTesting.RunTestCaseWithDB(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		service := core.GetService[pluginCore.BillingService](ctx, pluginCore.BILLING_SERVICE)
 
-		err := service.CreateOrUpdateSubscriber(context.Background(), 1, "any-gateway", "sub_test", true, nil)
+		err := service.CreateOrUpdateSubscriber(ctx, 1, "any-gateway", "sub_test", true, nil)
 		require.NoError(tb, err)
 
-		_, err = service.GetCheckoutUI(context.Background(), 1, 42, "stripe")
+		_, err = service.GetCheckoutUI(ctx, 1, 42, "stripe")
 
 		assert.Error(tb, err)
 		assert.Contains(tb, err.Error(), "already has an active subscription")
@@ -123,7 +123,7 @@ func TestBillingService_GetCheckoutUI_PlanNotFound(t *testing.T) {
 
 		pricingSvc.EXPECT().GetPricingPlan(mock.Anything, uint(999)).Return(nil, assert.AnError)
 
-		result, err := service.GetCheckoutUI(context.Background(), 1, 999, "stripe")
+		result, err := service.GetCheckoutUI(ctx, 1, 999, "stripe")
 
 		assert.Error(tb, err)
 		assert.Nil(tb, result)
@@ -143,7 +143,7 @@ func TestBillingService_GetCheckoutUI_PlanNotActive(t *testing.T) {
 			IsPublic: true,
 		}, nil)
 
-		result, err := service.GetCheckoutUI(context.Background(), 1, 42, "stripe")
+		result, err := service.GetCheckoutUI(ctx, 1, 42, "stripe")
 
 		assert.Error(tb, err)
 		assert.Nil(tb, result)
@@ -163,7 +163,7 @@ func TestBillingService_GetCheckoutUI_PlanNotPublic(t *testing.T) {
 			IsPublic: false,
 		}, nil)
 
-		result, err := service.GetCheckoutUI(context.Background(), 1, 42, "stripe")
+		result, err := service.GetCheckoutUI(ctx, 1, 42, "stripe")
 
 		assert.Error(tb, err)
 		assert.Nil(tb, result)
@@ -183,7 +183,7 @@ func TestBillingService_GetCheckoutUI_GatewayNotFound(t *testing.T) {
 			IsPublic: true,
 		}, nil)
 
-		result, err := service.GetCheckoutUI(context.Background(), 1, 42, "nonexistent")
+		result, err := service.GetCheckoutUI(ctx, 1, 42, "nonexistent")
 
 		assert.Error(tb, err)
 		assert.Nil(tb, result)
@@ -201,7 +201,7 @@ func TestBillingService_GetCheckoutUI_GatewayError(t *testing.T) {
 		mockGateway := pluginCore.NewMockPaymentGateway(tb)
 		mockGateway.EXPECT().ID(mock.Anything).Return("stripe")
 		mockGateway.EXPECT().GetCheckoutUI(mock.Anything, uint(1), uint(42)).Return(nil, assert.AnError)
-		err := service.RegisterGateway(context.Background(), mockGateway)
+		err := service.RegisterGateway(ctx, mockGateway)
 		if err != nil && !errors.Is(err, gateway.ErrGatewayAlreadyRegistered) {
 			require.NoError(tb, err)
 		}
@@ -213,7 +213,7 @@ func TestBillingService_GetCheckoutUI_GatewayError(t *testing.T) {
 			IsPublic: true,
 		}, nil)
 
-		result, err := service.GetCheckoutUI(context.Background(), 1, 42, "stripe")
+		result, err := service.GetCheckoutUI(ctx, 1, 42, "stripe")
 
 		assert.Error(tb, err)
 		assert.Nil(tb, result)
@@ -230,7 +230,7 @@ func TestBillingService_GetCheckoutUI_Response(t *testing.T) {
 		mockGateway := pluginCore.NewMockPaymentGateway(tb)
 
 		mockGateway.EXPECT().ID(mock.Anything).Return("stripe")
-		err := service.RegisterGateway(context.Background(), mockGateway)
+		err := service.RegisterGateway(ctx, mockGateway)
 		if err != nil && !errors.Is(err, gateway.ErrGatewayAlreadyRegistered) {
 			require.NoError(tb, err)
 		}
@@ -255,7 +255,7 @@ func TestBillingService_GetCheckoutUI_Response(t *testing.T) {
 			},
 		}, nil)
 
-		result, err := service.GetCheckoutUI(context.Background(), 1, 42, "stripe")
+		result, err := service.GetCheckoutUI(ctx, 1, 42, "stripe")
 
 		require.NoError(tb, err)
 		require.NotNil(tb, result)
