@@ -45,7 +45,6 @@ func GetPluginInfo() core.PluginInfo {
 			}
 
 			plugin.AddMeta("stripe_publishable_key", cfg.Stripe.PublishableKey)
-			plugin.AddMeta("stripe_pricing_table_id", cfg.Stripe.PricingTableID)
 
 			return nil
 		},
