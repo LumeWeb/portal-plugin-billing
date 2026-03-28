@@ -29,10 +29,9 @@ const (
 	ErrKeyInvalidPriceLineID core.ErrorType = "INVALID_PRICE_LINE_ID"
 
 	// Billing/Subscription errors
-	ErrKeySubscriptionCheckFailed     core.ErrorType = "SUBSCRIPTION_CHECK_FAILED"
-	ErrKeyNoActiveSubscription        core.ErrorType = "NO_ACTIVE_SUBSCRIPTION"
-	ErrKeyPaymentGatewayFailed        core.ErrorType = "PAYMENT_GATEWAY_FAILED"
-	ErrKeyCustomerPortalSessionFailed core.ErrorType = "CUSTOMER_PORTAL_SESSION_FAILED"
+	ErrKeySubscriptionCheckFailed core.ErrorType = "SUBSCRIPTION_CHECK_FAILED"
+	ErrKeyNoActiveSubscription    core.ErrorType = "NO_ACTIVE_SUBSCRIPTION"
+	ErrKeyPaymentGatewayFailed    core.ErrorType = "PAYMENT_GATEWAY_FAILED"
 
 	// Webhook errors
 	ErrKeyPayloadTooLarge          core.ErrorType = "PAYLOAD_TOO_LARGE"
@@ -61,6 +60,10 @@ const (
 	// Checkout errors
 	ErrKeyCheckoutSubscriptionActive    core.ErrorType = "CHECKOUT_SUBSCRIPTION_ACTIVE"
 	ErrKeyCheckoutUIGenerationFailed   core.ErrorType = "CHECKOUT_UI_GENERATION_FAILED"
+
+	// Management errors
+	ErrKeyManagementCapabilitiesFailed  core.ErrorType = "MANAGEMENT_CAPABILITIES_FAILED"
+	ErrKeyManagementOperationFailed    core.ErrorType = "MANAGEMENT_OPERATION_FAILED"
 )
 
 var _ router.ResponseError = (*BillingError)(nil)
@@ -142,12 +145,11 @@ func init() {
 		ErrKeyInvalidPriceLineID: {Key: ErrKeyInvalidPriceLineID, Message: "Invalid price line ID format"},
 
 		// Billing/Subscription errors
-		ErrKeySubscriptionCheckFailed:       {Key: ErrKeySubscriptionCheckFailed, Message: "Failed to check subscription status"},
-		ErrKeyNoActiveSubscription:          {Key: ErrKeyNoActiveSubscription, Message: "No active subscription found"},
-		ErrKeyCheckoutSubscriptionActive:    {Key: ErrKeyCheckoutSubscriptionActive, Message: "Checkout subscription already active"},
-		ErrKeyCheckoutUIGenerationFailed:   {Key: ErrKeyCheckoutUIGenerationFailed, Message: "Failed to generate checkout UI"},
-		ErrKeyPaymentGatewayFailed:          {Key: ErrKeyPaymentGatewayFailed, Message: "Failed to get payment gateway"},
-		ErrKeyCustomerPortalSessionFailed:   {Key: ErrKeyCustomerPortalSessionFailed, Message: "Failed to create customer portal session"},
+		ErrKeySubscriptionCheckFailed:      {Key: ErrKeySubscriptionCheckFailed, Message: "Failed to check subscription status"},
+		ErrKeyNoActiveSubscription:         {Key: ErrKeyNoActiveSubscription, Message: "No active subscription found"},
+		ErrKeyCheckoutSubscriptionActive:   {Key: ErrKeyCheckoutSubscriptionActive, Message: "Checkout subscription already active"},
+		ErrKeyCheckoutUIGenerationFailed:  {Key: ErrKeyCheckoutUIGenerationFailed, Message: "Failed to generate checkout UI"},
+		ErrKeyPaymentGatewayFailed:         {Key: ErrKeyPaymentGatewayFailed, Message: "Failed to get payment gateway"},
 
 		// Webhook errors
 		ErrKeyPayloadTooLarge:          {Key: ErrKeyPayloadTooLarge, Message: "Payload too large"},
@@ -172,6 +174,10 @@ func init() {
 		// Gateway errors
 		ErrKeyGatewayNotFound:     {Key: ErrKeyGatewayNotFound, Message: "Gateway not found"},
 		ErrKeyGatewayLogoNotFound: {Key: ErrKeyGatewayLogoNotFound, Message: "Gateway logo not found"},
+
+		// Management errors
+		ErrKeyManagementCapabilitiesFailed: {Key: ErrKeyManagementCapabilitiesFailed, Message: "Failed to get management capabilities"},
+		ErrKeyManagementOperationFailed:    {Key: ErrKeyManagementOperationFailed, Message: "Management operation failed"},
 	})
 
 	core.MustRegisterErrorCodes(Namespace, map[core.ErrorType]int{
@@ -191,12 +197,11 @@ func init() {
 		ErrKeyInvalidPriceLineID: http.StatusBadRequest,
 
 		// Billing/Subscription errors
-		ErrKeySubscriptionCheckFailed:       http.StatusInternalServerError,
-		ErrKeyNoActiveSubscription:          http.StatusNotFound,
-		ErrKeyCheckoutSubscriptionActive:    http.StatusConflict,
-		ErrKeyCheckoutUIGenerationFailed:   http.StatusInternalServerError,
-		ErrKeyPaymentGatewayFailed:          http.StatusInternalServerError,
-		ErrKeyCustomerPortalSessionFailed:   http.StatusInternalServerError,
+		ErrKeySubscriptionCheckFailed:     http.StatusInternalServerError,
+		ErrKeyNoActiveSubscription:        http.StatusNotFound,
+		ErrKeyCheckoutSubscriptionActive:  http.StatusConflict,
+		ErrKeyCheckoutUIGenerationFailed: http.StatusInternalServerError,
+		ErrKeyPaymentGatewayFailed:        http.StatusInternalServerError,
 
 		// Webhook errors
 		ErrKeyPayloadTooLarge:          http.StatusRequestEntityTooLarge,
@@ -221,6 +226,10 @@ func init() {
 		// Gateway errors
 		ErrKeyGatewayNotFound:     http.StatusNotFound,
 		ErrKeyGatewayLogoNotFound: http.StatusNotFound,
+
+		// Management errors
+		ErrKeyManagementCapabilitiesFailed: http.StatusInternalServerError,
+		ErrKeyManagementOperationFailed:    http.StatusInternalServerError,
 	})
 }
 

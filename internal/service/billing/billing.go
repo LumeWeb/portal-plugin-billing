@@ -12,6 +12,7 @@ import (
 	"go.lumeweb.com/portal-plugin-billing/internal/config"
 	"go.lumeweb.com/portal-plugin-billing/internal/db/models"
 	"go.lumeweb.com/portal-plugin-billing/internal/gateway"
+	"go.lumeweb.com/portal-plugin-billing/internal/gateway/atlos"
 	"go.lumeweb.com/portal-plugin-billing/internal/gateway/stripe"
 	quotaCore "go.lumeweb.com/portal-plugin-quota/core"
 	"go.lumeweb.com/portal/core"
@@ -24,8 +25,8 @@ import (
 
 type BillingServiceDefault struct {
 	*core.BaseComponent
-	gateways     *gateway.Registry
-	config       *config.ServiceConfig
+	gateways      *gateway.Registry
+	config        *config.ServiceConfig
 	pricingService pluginCore.PricingService
 }
 
@@ -53,48 +54,82 @@ func NewBillingServiceWithRegistry(registry *gateway.Registry) (core.Service, []
 	return service, core.ContextOptions(
 		core.ContextWithStartupFunc(func(ctx core.Context) error {
 			event.OnBootStartupFuncsCompleted(ctx, func(c core.Context, ctx context.Context) error {
-				// Load service configuration
-				service.config = core.GetServiceConfig[*config.ServiceConfig](c, pluginCore.BILLING_SERVICE)
-
-				// Get pricing service
-				service.pricingService = core.GetService[pluginCore.PricingService](c, pluginCore.PRICING_SERVICE)
-				if service.pricingService == nil {
-					return fmt.Errorf("pricing service is required but not available")
-				}
-
-				// Register Stripe gateway if webhook secret is configured
-				if secret := strings.TrimSpace(service.config.Stripe.WebhookSecret); secret != "" {
-					// Get quota service
-					quotaSvc := core.GetService[quotaCore.QuotaService](c, quotaCore.QUOTA_SERVICE)
-					if quotaSvc == nil {
-						return fmt.Errorf("quota service is required for stripe gateway but not available")
-					}
-
-					// Get user service
-					userSvc := core.GetService[core.UserService](c, core.USER_SERVICE)
-					if userSvc == nil {
-						return fmt.Errorf("user service is required for stripe gateway but not available")
-					}
-
-					if err := service.gateways.Register(ctx, stripe.New(
-						service.Logger(),
-						secret,
-						service.config.Stripe.SecretKey,
-						quotaSvc,
-						userSvc,
-						service,
-						service.pricingService,
-					)); err != nil {
-						return fmt.Errorf("failed to register stripe gateway: %w", err)
-					}
-				}
-
-				return nil
+				return service.registerGateways(c, ctx)
 			})
 
 			return nil
 		}),
 	), nil
+}
+
+// gatewaySetupFunc is a function that sets up a gateway
+type gatewaySetupFunc func() (string, pluginCore.PaymentGateway, error)
+
+// gatewaySetup holds the setup configuration for a gateway
+type gatewaySetup struct {
+	name string
+	fn   gatewaySetupFunc
+}
+
+// registerGateways registers all configured payment gateways
+func (s *BillingServiceDefault) registerGateways(c core.Context, ctx context.Context) error {
+	s.config = core.GetServiceConfig[*config.ServiceConfig](c, pluginCore.BILLING_SERVICE)
+
+	s.pricingService = core.GetService[pluginCore.PricingService](c, pluginCore.PRICING_SERVICE)
+	if s.pricingService == nil {
+		return fmt.Errorf("pricing service is required but not available")
+	}
+
+	opts := pluginCore.GatewaySetupOptions{
+		Logger:     s.Logger(),
+		Ctx:        c,
+		Context:    ctx,
+		BillingSvc: s,
+		PricingSvc: s.pricingService,
+		HTTP:       core.GetService[core.HTTPService](c, core.HTTP_SERVICE),
+		Quota:      core.GetService[quotaCore.QuotaService](c, quotaCore.QUOTA_SERVICE),
+		User:       core.GetService[core.UserService](c, core.USER_SERVICE),
+	}
+
+	return s.setupGateways(ctx, opts)
+}
+
+func (s *BillingServiceDefault) setupGateways(ctx context.Context, opts pluginCore.GatewaySetupOptions) error {
+	setups := s.getGatewaySetups(opts)
+
+	for _, setup := range setups {
+		msg, gw, err := setup.fn()
+		if err != nil {
+			return fmt.Errorf("failed to setup %s gateway: %w", setup.name, err)
+		}
+		if gw != nil {
+			if err := s.gateways.Register(ctx, gw); err != nil {
+				return fmt.Errorf("failed to register %s gateway: %w", setup.name, err)
+			}
+		}
+		if msg != "" {
+			s.Logger().Info(msg)
+		}
+	}
+
+	return nil
+}
+
+func (s *BillingServiceDefault) getGatewaySetups(opts pluginCore.GatewaySetupOptions) []gatewaySetup {
+	return []gatewaySetup{
+		{
+			name: "stripe",
+			fn: func() (string, pluginCore.PaymentGateway, error) {
+				return stripe.Setup(opts, s.config.Stripe.WebhookSecret, s.config.Stripe.SecretKey)
+			},
+		},
+		{
+			name: "atlos",
+			fn: func() (string, pluginCore.PaymentGateway, error) {
+				return atlos.Setup(opts, s.config.Atlos.APIKey, s.config.Atlos.MerchantID)
+			},
+		},
+	}
 }
 
 func (s *BillingServiceDefault) ID() string {
@@ -140,7 +175,6 @@ func (s *BillingServiceDefault) ProcessWebhook(ctx context.Context, gatewayType 
 		return fmt.Errorf("gateway registry not initialized")
 	}
 
-	// Extract event ID and type for logging and deduplication
 	eventID, err := s.gateways.ExtractEventID(ctx, gatewayType, payload)
 	if err != nil {
 		return fmt.Errorf("failed to extract event ID: %w", err)
@@ -155,12 +189,10 @@ func (s *BillingServiceDefault) ProcessWebhook(ctx context.Context, gatewayType 
 		WebhookDuration.WithLabelValues(gatewayType, eventType),
 		WebhookProcessed.WithLabelValues(gatewayType, eventType, LabelStatusError),
 		func() error {
-			// Validate the webhook signature first
 			if err := s.gateways.ValidateWebhook(ctx, gatewayType, signature, payload); err != nil {
 				return fmt.Errorf("webhook validation failed: %w", err)
 			}
 
-			// Claim the event (idempotent insert); if not claimed, skip
 			claimed, claimErr := s.claimWebhookEvent(ctx, gatewayType, eventID, eventType, payload)
 			if claimErr != nil {
 				return fmt.Errorf("failed to claim webhook event: %w", claimErr)
@@ -173,9 +205,7 @@ func (s *BillingServiceDefault) ProcessWebhook(ctx context.Context, gatewayType 
 				return nil
 			}
 
-			// Handle the webhook
 			if err := s.gateways.HandleWebhook(ctx, gatewayType, payload); err != nil {
-				// Release the claim so that redeliveries can retry
 				if releaseErr := s.releaseWebhookEventClaim(ctx, gatewayType, eventID); releaseErr != nil {
 					s.Logger().Error("failed to release webhook event claim",
 						zap.Error(releaseErr),
@@ -185,7 +215,6 @@ func (s *BillingServiceDefault) ProcessWebhook(ctx context.Context, gatewayType 
 				return fmt.Errorf("failed to handle webhook: %w", err)
 			}
 
-			// Mark the event as processed
 			if err := s.markWebhookEventProcessed(ctx, gatewayType, eventID); err != nil {
 				return fmt.Errorf("failed to mark webhook event as processed: %w", err)
 			}
@@ -195,7 +224,6 @@ func (s *BillingServiceDefault) ProcessWebhook(ctx context.Context, gatewayType 
 	)
 }
 
-// claimWebhookEvent tries to insert a row; returns false if it already exists.
 func (s *BillingServiceDefault) claimWebhookEvent(ctx context.Context, gatewayType, eventID, eventType string, payload []byte) (bool, error) {
 	ctx, span := core.TraceMethod(ctx, "BillingServiceDefault.claimWebhookEvent")
 	defer span.End()
@@ -206,9 +234,7 @@ func (s *BillingServiceDefault) claimWebhookEvent(ctx context.Context, gatewayTy
 			GatewayType: gatewayType,
 			EventID:     eventID,
 			EventType:   eventType,
-			// Optional: store payload for observability
-			Payload: payload,
-			// Leave ProcessedAt zero; mark on success.
+			Payload:     payload,
 		}
 		res := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(evt)
 		claimed = res.RowsAffected == 1
@@ -239,8 +265,7 @@ func (s *BillingServiceDefault) releaseWebhookEventClaim(ctx context.Context, ga
 	})
 }
 
-// CreateOrUpdateSubscriber creates or updates a subscriber record
-func (s *BillingServiceDefault) CreateOrUpdateSubscriber(ctx context.Context, userID uint, gatewayType, gatewayID string, isActive bool, planID *uint) error {
+func (s *BillingServiceDefault) CreateOrUpdateSubscriber(ctx context.Context, userID uint, gatewayType, externalID, subscriptionID string, isActive bool, planID *uint) error {
 	ctx, span := core.TraceMethod(ctx, "BillingServiceDefault.CreateOrUpdateSubscriber")
 	defer span.End()
 
@@ -249,32 +274,31 @@ func (s *BillingServiceDefault) CreateOrUpdateSubscriber(ctx context.Context, us
 		SubscriberCreated.WithLabelValues(gatewayType, LabelStatusError),
 		func() error {
 			return db.RetryableComponentTransaction(s, ctx, func(tx *gorm.DB) *gorm.DB {
-				// First try to update existing record (including soft-deleted ones)
 				result := tx.Unscoped().Model(&models.Subscriber{}).
 					Where("user_id = ? AND gateway_type = ?", userID, gatewayType).
 					Updates(map[string]any{
-						"gateway_id": gatewayID,
-						"is_active":  isActive,
-						"plan_id":    planID,
-						"deleted_at": nil,
+						"external_id":     externalID,
+						"subscription_id": subscriptionID,
+						"is_active":       isActive,
+						"plan_id":         planID,
+						"deleted_at":      nil,
 					})
 
 				if result.Error != nil {
 					return result
 				}
 
-				// If we updated a row, we're done
 				if result.RowsAffected > 0 {
 					return result
 				}
 
-				// No existing row found, try to insert
 				sub := models.Subscriber{
-					UserID:      userID,
-					GatewayType: gatewayType,
-					GatewayID:   gatewayID,
-					IsActive:    isActive,
-					PlanID:      planID,
+					UserID:        userID,
+					GatewayType:   gatewayType,
+					ExternalID:    externalID,
+					SubscriptionID: subscriptionID,
+					IsActive:      isActive,
+					PlanID:        planID,
 				}
 
 				result = tx.Create(&sub)
@@ -282,29 +306,26 @@ func (s *BillingServiceDefault) CreateOrUpdateSubscriber(ctx context.Context, us
 					return result
 				}
 
-				// If insert failed due to unique constraint violation, retry update
-				// This handles the race condition where another goroutine inserted between our update and create
 				if strings.Contains(result.Error.Error(), "UNIQUE constraint failed") {
 					result = tx.Unscoped().Model(&models.Subscriber{}).
 						Where("user_id = ? AND gateway_type = ?", userID, gatewayType).
 						Updates(map[string]any{
-							"gateway_id": gatewayID,
-							"is_active":  isActive,
-							"plan_id":    planID,
-							"deleted_at": nil,
+							"external_id":     externalID,
+							"subscription_id": subscriptionID,
+							"is_active":       isActive,
+							"plan_id":         planID,
+							"deleted_at":      nil,
 						})
 
 					return result
 				}
 
-				// For any other error, return it
 				return result
 			})
 		},
 	)
 }
 
-// DeactivateSubscriber deactivates a subscriber
 func (s *BillingServiceDefault) DeactivateSubscriber(ctx context.Context, userID uint, gatewayType string) error {
 	ctx, span := core.TraceMethod(ctx, "BillingServiceDefault.DeactivateSubscriber")
 	defer span.End()
@@ -322,7 +343,6 @@ func (s *BillingServiceDefault) DeactivateSubscriber(ctx context.Context, userID
 	)
 }
 
-// GetActiveSubscriber returns an active subscriber for the given user and gateway
 func (s *BillingServiceDefault) GetActiveSubscriber(ctx context.Context, userID uint, gatewayType string) (*pluginCore.Subscriber, error) {
 	ctx, span := core.TraceMethod(ctx, "BillingServiceDefault.GetActiveSubscriber")
 	defer span.End()
@@ -341,14 +361,13 @@ func (s *BillingServiceDefault) GetActiveSubscriber(ctx context.Context, userID 
 	return &subscriber, nil
 }
 
-// GetSubscriberByGatewayID returns a subscriber by gateway ID and gateway type
-func (s *BillingServiceDefault) GetSubscriberByGatewayID(ctx context.Context, gatewayID, gatewayType string) (*pluginCore.Subscriber, error) {
-	ctx, span := core.TraceMethod(ctx, "BillingServiceDefault.GetSubscriberByGatewayID")
+func (s *BillingServiceDefault) GetSubscriberByExternalID(ctx context.Context, externalID, gatewayType string) (*pluginCore.Subscriber, error) {
+	ctx, span := core.TraceMethod(ctx, "BillingServiceDefault.GetSubscriberByExternalID")
 	defer span.End()
 
 	var subscriber models.Subscriber
 	err := db.RetryableComponentTransaction(s, ctx, func(tx *gorm.DB) *gorm.DB {
-		return tx.Where("gateway_id = ? AND gateway_type = ?", gatewayID, gatewayType).
+		return tx.Where("external_id = ? AND gateway_type = ?", externalID, gatewayType).
 			Order("updated_at DESC").
 			First(&subscriber)
 	})
@@ -361,7 +380,6 @@ func (s *BillingServiceDefault) GetSubscriberByGatewayID(ctx context.Context, ga
 	return &subscriber, nil
 }
 
-// IsUserActiveSubscriber checks if a user has an active subscription with any gateway
 func (s *BillingServiceDefault) IsUserActiveSubscriber(ctx context.Context, userID uint) (bool, error) {
 	ctx, span := core.TraceMethod(ctx, "BillingServiceDefault.IsUserActiveSubscriber")
 	defer span.End()
@@ -375,7 +393,6 @@ func (s *BillingServiceDefault) IsUserActiveSubscriber(ctx context.Context, user
 	return count > 0, err
 }
 
-// GetActiveSubscribersByGateway returns all active subscribers for a specific gateway
 func (s *BillingServiceDefault) GetActiveSubscribersByGateway(ctx context.Context, gatewayType string) ([]pluginCore.Subscriber, error) {
 	ctx, span := core.TraceMethod(ctx, "BillingServiceDefault.GetActiveSubscribersByGateway")
 	defer span.End()
@@ -389,14 +406,12 @@ func (s *BillingServiceDefault) GetActiveSubscribersByGateway(ctx context.Contex
 		return nil, err
 	}
 
-	// Convert to re-exported type using lo.Map
 	result := lo.Map(subscribers, func(sub models.Subscriber, _ int) pluginCore.Subscriber {
 		return sub
 	})
 	return result, nil
 }
 
-// GetActiveSubscription returns the first active subscription for a user across all gateways
 func (s *BillingServiceDefault) GetActiveSubscription(ctx context.Context, userID uint) (*pluginCore.Subscriber, error) {
 	ctx, span := core.TraceMethod(ctx, "BillingServiceDefault.GetActiveSubscription")
 	defer span.End()
@@ -415,7 +430,6 @@ func (s *BillingServiceDefault) GetActiveSubscription(ctx context.Context, userI
 	return &subscriber, nil
 }
 
-// GetRegistry returns the gateway registry for querying available gateways
 func (s *BillingServiceDefault) GetRegistry(ctx context.Context) pluginCore.GatewayRegistry {
 	ctx, span := core.TraceMethod(ctx, "BillingServiceDefault.GetRegistry")
 	defer span.End()

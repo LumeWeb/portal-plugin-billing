@@ -12,6 +12,7 @@ require (
 	github.com/samber/lo v1.53.0
 	github.com/stretchr/testify v1.11.1
 	github.com/stripe/stripe-go/v83 v83.0.1
+	go.lumeweb.com/atlos-sdk v0.1.0
 	go.lumeweb.com/httputil v0.5.4
 	go.lumeweb.com/portal v0.4.2-0.20260326193613-0d8baf399db2
 	go.lumeweb.com/portal-middleware v0.3.7

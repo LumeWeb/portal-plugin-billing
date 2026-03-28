@@ -235,7 +235,7 @@ func setupSubscriptionActivationMocks(mockQuota *quotaCore.MockQuotaService, moc
 	mockQuota.EXPECT().AssignUserToPlan(mock.Anything, userID, quotaPlanID).Return(nil)
 	
 	// Billing service still tracks with PricingPlanID
-	mockBilling.EXPECT().CreateOrUpdateSubscriber(mock.Anything, userID, "stripe", TestCustomerID, true, mock.AnythingOfType("*uint")).Return(nil)
+	mockBilling.EXPECT().CreateOrUpdateSubscriber(mock.Anything, userID, "stripe", TestCustomerID, TestSubscriptionID, true, mock.AnythingOfType("*uint")).Return(nil)
 }
 
 // Helper function to setup mocks for subscription deactivation scenarios
@@ -635,11 +635,12 @@ func TestStripeGateway_GetCustomerPortalURL_Success(t *testing.T) {
 		// Mock active subscription
 		planID := uint(42)
 		mockSubscriber := &pluginCore.Subscriber{
-			UserID:      123,
-			GatewayType: "stripe",
-			GatewayID:   "cus_123",
-			IsActive:    true,
-			PlanID:      &planID,
+			UserID:         123,
+			GatewayType:    "stripe",
+			ExternalID:     "cus_123",
+			SubscriptionID: "sub_123",
+			IsActive:       true,
+			PlanID:         &planID,
 		}
 		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, uint(123)).Return(mockSubscriber, nil)
 
@@ -738,7 +739,7 @@ func TestStripeGateway_HandleWebhook_CheckoutSessionCompleted(t *testing.T) {
 		mockQuota.EXPECT().AssignUserToPlan(mock.Anything, userID, quotaPlanID).Return(nil)
 		
 		// Billing service still tracks with PricingPlanID
-		mockBilling.EXPECT().CreateOrUpdateSubscriber(mock.Anything, userID, "stripe", customerID, true, mock.AnythingOfType("*uint")).Return(nil)
+		mockBilling.EXPECT().CreateOrUpdateSubscriber(mock.Anything, userID, "stripe", customerID, "sub_456", true, mock.AnythingOfType("*uint")).Return(nil)
 
 		gw := New(ctx.Logger(), TestWebhookSecret, "test_api_key", mockQuota, mockUsers, mockBilling, mockPricing)
 		gw.subService = mockSubService
@@ -807,12 +808,13 @@ func TestStripeGateway_ExtractUserIDFromSubscription_DatabaseFallback(t *testing
 
 		// Setup mock billing service to return subscriber
 		mockSubscriber := &pluginCore.Subscriber{
-			UserID:      789,
-			GatewayType: "stripe",
-			GatewayID:   "cus_test_456",
-			IsActive:    true,
+			UserID:         789,
+			GatewayType:    "stripe",
+			ExternalID:     "cus_test_456",
+			SubscriptionID: "sub_test_456",
+			IsActive:       true,
 		}
-		mockBilling.EXPECT().GetSubscriberByGatewayID(mock.Anything, "cus_test_456", "stripe").Return(mockSubscriber, nil)
+		mockBilling.EXPECT().GetSubscriberByExternalID(mock.Anything, "cus_test_456", "stripe").Return(mockSubscriber, nil)
 
 		userID, err = gw.ExtractUserIDFromSubscriptionForTesting(context.Background(), subscription2)
 		assert.NoError(t, err)
@@ -829,7 +831,7 @@ func TestStripeGateway_ExtractUserIDFromSubscription_DatabaseFallback(t *testing
 		}
 
 		// Setup mock billing service to return nil (not found)
-		mockBilling.EXPECT().GetSubscriberByGatewayID(mock.Anything, "cus_test_789", "stripe").Return(nil, nil)
+		mockBilling.EXPECT().GetSubscriberByExternalID(mock.Anything, "cus_test_789", "stripe").Return(nil, nil)
 
 		// Setup mock customer retriever to return customer without metadata
 		mockCustomerRetriever.On("Get", mock.Anything, "cus_test_789", (*stripe.CustomerRetrieveParams)(nil)).Return(customerWithoutMapping, nil)
@@ -847,7 +849,7 @@ func TestStripeGateway_GetCustomerPortalURL_SessionCreateError(t *testing.T) {
 
 		planID := uint(42)
 		mockSubscriber := &pluginCore.Subscriber{
-			UserID: 123, GatewayType: "stripe", GatewayID: "cus_123", IsActive: true, PlanID: &planID,
+			UserID: 123, GatewayType: "stripe", ExternalID: "cus_123", IsActive: true, PlanID: &planID,
 		}
 		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, uint(123)).Return(mockSubscriber, nil)
 
@@ -874,7 +876,6 @@ func TestStripeGateway_GetCustomerPortalURL_NonStripeSubscription(t *testing.T) 
 		mockSubscriber := &pluginCore.Subscriber{
 			UserID:      123,
 			GatewayType: "paypal", // Different gateway
-			GatewayID:   "cus_123",
 			IsActive:    true,
 			PlanID:      &planID,
 		}
@@ -924,14 +925,15 @@ func TestStripeGateway_GetCustomerPortalURL_InvalidCustomerID(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
 
-		// Mock active subscription with invalid GatewayID (not starting with cus_)
+		// Mock active subscription with invalid ExternalID (not starting with cus_)
 		planID := uint(42)
 		mockSubscriber := &pluginCore.Subscriber{
-			UserID:      123,
-			GatewayType: "stripe",
-			GatewayID:   "sub_123", // This is a subscription ID, not a customer ID
-			IsActive:    true,
-			PlanID:      &planID,
+			UserID:         123,
+			GatewayType:    "stripe",
+			ExternalID:     "sub_123", // This is a subscription ID, not a customer ID
+			SubscriptionID: "sub_123",
+			IsActive:       true,
+			PlanID:         &planID,
 		}
 		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, uint(123)).Return(mockSubscriber, nil)
 
@@ -940,7 +942,7 @@ func TestStripeGateway_GetCustomerPortalURL_InvalidCustomerID(t *testing.T) {
 		url, err := gw.GetCustomerPortalURL(context.Background(), 123, "https://example.com/return")
 
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "invalid GatewayID: must be a Stripe customer ID starting with 'cus_'")
+		assert.Contains(t, err.Error(), "invalid ExternalID: must be a Stripe customer ID starting with 'cus_'")
 		assert.Empty(t, url)
 	})
 }
@@ -949,14 +951,15 @@ func TestStripeGateway_GetCustomerPortalURL_EmptyCustomerID(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
 
-		// Mock active subscription with empty GatewayID
+		// Mock active subscription with empty ExternalID
 		planID := uint(42)
 		mockSubscriber := &pluginCore.Subscriber{
-			UserID:      123,
-			GatewayType: "stripe",
-			GatewayID:   "", // Empty GatewayID
-			IsActive:    true,
-			PlanID:      &planID,
+			UserID:         123,
+			GatewayType:    "stripe",
+			ExternalID:     "", // Empty ExternalID
+			SubscriptionID: "sub_123",
+			IsActive:       true,
+			PlanID:         &planID,
 		}
 		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, uint(123)).Return(mockSubscriber, nil)
 
@@ -965,7 +968,7 @@ func TestStripeGateway_GetCustomerPortalURL_EmptyCustomerID(t *testing.T) {
 		url, err := gw.GetCustomerPortalURL(context.Background(), 123, "https://example.com/return")
 
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "subscriber GatewayID is empty")
+		assert.Contains(t, err.Error(), "subscriber ExternalID is empty")
 		assert.Empty(t, url)
 	})
 }

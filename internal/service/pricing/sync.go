@@ -143,9 +143,9 @@ func (s *SyncManager) syncGatewayPlan(
 	ctx, span := core.TraceMethod(ctx, "SyncManager.syncGatewayPlan")
 	defer span.End()
 
-	capabilities, ok := gateway.(pluginCore.GatewayCapabilities)
+	capabilities, ok := gateway.(pluginCore.GatewaySyncCapabilities)
 	if !ok {
-		return nil, fmt.Errorf("gateway %s does not implement GatewayCapabilities", gatewayID)
+		return nil, fmt.Errorf("gateway %s does not implement GatewaySyncCapabilities", gatewayID)
 	}
 
 	if !capabilities.SupportsProductSync() {
