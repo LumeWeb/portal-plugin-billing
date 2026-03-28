@@ -13,8 +13,9 @@ import (
 	"github.com/stripe/stripe-go/v83"
 	"github.com/stripe/stripe-go/v83/webhook"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
-	quotaCore "go.lumeweb.com/portal-plugin-quota/core"
+	"go.lumeweb.com/portal-plugin-billing/internal/gateway"
 	"go.lumeweb.com/portal/core"
+	quotaCore "go.lumeweb.com/portal-plugin-quota/core"
 	"go.lumeweb.com/portal/db/models"
 	"go.uber.org/zap"
 )
@@ -33,6 +34,17 @@ const (
 	UserIDMetadataKey                 = "user_id"
 	CustomerIDPrefix                  = "cus_"
 )
+
+// Setup creates and configures a Stripe gateway if webhook secret is configured.
+// Returns a log message (empty if not configured), the gateway instance (nil if not configured), and an error.
+func Setup(opts pluginCore.GatewaySetupOptions, webhookSecret string, secretKey string) (string, pluginCore.PaymentGateway, error) {
+	if webhookSecret == "" {
+		return "", nil, nil
+	}
+
+	gw := New(opts.Logger, webhookSecret, secretKey, nil, nil, opts.BillingSvc, opts.PricingSvc)
+	return "Stripe gateway registered successfully", gw, nil
+}
 
 // SubscriptionRetriever is an interface for retrieving Stripe subscriptions.
 // It provides a way to fetch subscription details from Stripe by ID, allowing
@@ -275,17 +287,17 @@ func (g *StripeGateway) GetCustomerPortalURL(ctx context.Context, userID uint, r
 				return "", fmt.Errorf("no active stripe subscription found for user %d", userID)
 			}
 
-			// Defensive check: ensure GatewayID is a valid Stripe customer ID
-			if subscriber.GatewayID == "" {
-				return "", fmt.Errorf("subscriber GatewayID is empty")
+			// Defensive check: ensure ExternalID is a valid Stripe customer ID
+			if subscriber.ExternalID == "" {
+				return "", fmt.Errorf("subscriber ExternalID is empty")
 			}
-			if !strings.HasPrefix(subscriber.GatewayID, CustomerIDPrefix) {
-				return "", fmt.Errorf("invalid GatewayID: must be a Stripe customer ID starting with '%s'", CustomerIDPrefix)
+			if !strings.HasPrefix(subscriber.ExternalID, CustomerIDPrefix) {
+				return "", fmt.Errorf("invalid ExternalID: must be a Stripe customer ID starting with '%s'", CustomerIDPrefix)
 			}
 
 			// Create a billing portal session
 			params := &stripe.BillingPortalSessionCreateParams{
-				Customer:  stripe.String(subscriber.GatewayID),
+				Customer:  stripe.String(subscriber.ExternalID),
 				ReturnURL: stripe.String(returnUrl),
 			}
 
@@ -541,9 +553,9 @@ func (g *StripeGateway) extractUserIDFromSubscription(ctx context.Context, subsc
 	if err != nil {
 		// Try fallback if customer metadata is missing
 		if subscription.Customer != nil && subscription.Customer.ID != "" {
-			// First try to look up user_id from our database using gateway_id (customer_id)
+			// First try to look up user_id from our database using external_id (customer_id)
 			if g.billing != nil {
-				subscriber, err := g.billing.GetSubscriberByGatewayID(ctx, subscription.Customer.ID, GatewayID)
+				subscriber, err := g.billing.GetSubscriberByExternalID(ctx, subscription.Customer.ID, GatewayID)
 				if err == nil && subscriber != nil {
 					g.logger.Debug("found user_id from billing_subscribers table",
 						zap.String("customer_id", subscription.Customer.ID),
@@ -837,11 +849,12 @@ func (g *StripeGateway) activateSubscriptionWithPlanID(ctx context.Context, user
 		return fmt.Errorf("subscription missing customer id")
 	}
 
-	if err := g.trackSubscriber(ctx, user.ID, subscription.Customer.ID, true, &pricingPlanID); err != nil {
+	if err := g.trackSubscriber(ctx, user.ID, subscription.Customer.ID, subscription.ID, true, &pricingPlanID); err != nil {
 		g.logger.Error("failed to track subscriber",
 			zap.Error(err),
 			zap.Uint("user_id", userID),
-			zap.String("customer_id", subscription.Customer.ID))
+			zap.String("customer_id", subscription.Customer.ID),
+			zap.String("subscription_id", subscription.ID))
 	}
 
 	// Update customer metadata with user ID
@@ -893,7 +906,7 @@ func (g *StripeGateway) deactivateSubscription(ctx context.Context, userID uint,
 			}
 
 			// Update subscriber status in billing service
-			if err := g.trackSubscriber(ctx, user.ID, subscription.Customer.ID, false, nil); err != nil {
+			if err := g.trackSubscriber(ctx, user.ID, subscription.Customer.ID, "", false, nil); err != nil {
 				g.logger.Error("failed to deactivate subscriber",
 					zap.Error(err),
 					zap.Uint("user_id", userID),
@@ -939,7 +952,7 @@ func (g *StripeGateway) getUser(ctx context.Context, userID uint) (*models.User,
 }
 
 // trackSubscriber handles subscriber tracking in the billing service
-func (g *StripeGateway) trackSubscriber(ctx context.Context, userID uint, gatewayID string, isActive bool, planID *uint) error {
+func (g *StripeGateway) trackSubscriber(ctx context.Context, userID uint, externalID string, subscriptionID string, isActive bool, planID *uint) error {
 	ctx, span := core.TraceMethod(ctx, "StripeGateway.trackSubscriber")
 	defer span.End()
 
@@ -948,7 +961,7 @@ func (g *StripeGateway) trackSubscriber(ctx context.Context, userID uint, gatewa
 	}
 
 	if isActive {
-		return g.billing.CreateOrUpdateSubscriber(ctx, userID, GatewayID, gatewayID, isActive, planID)
+		return g.billing.CreateOrUpdateSubscriber(ctx, userID, GatewayID, externalID, subscriptionID, isActive, planID)
 	} else {
 		return g.billing.DeactivateSubscriber(ctx, userID, GatewayID)
 	}
@@ -1094,8 +1107,8 @@ func (g *StripeGateway) getCheckoutCancelURL() string {
 func (g *StripeGateway) getOrCreateStripeCustomer(ctx context.Context, userID uint, email string) (string, error) {
 	// Check if customer already exists in subscriber table
 	subscriber, err := g.billing.GetActiveSubscriber(ctx, userID, GatewayID)
-	if err == nil && subscriber != nil && subscriber.GatewayID != "" {
-		return subscriber.GatewayID, nil
+	if err == nil && subscriber != nil && subscriber.ExternalID != "" {
+		return subscriber.ExternalID, nil
 	}
 
 	// Create new Stripe customer
@@ -1301,24 +1314,7 @@ func (g *StripeGateway) GetDescription(ctx context.Context) string {
 
 // GetLogo returns the logo image bytes for Stripe gateway
 func (g *StripeGateway) GetLogo(ctx context.Context) ([]byte, error) {
-	// Use provided filesystem if set (for testing), otherwise use embedded files
-	var defaultFS fs.FS = gatewayLogoFiles
-	if g.fs != nil {
-		defaultFS = g.fs
-	}
-
-	// Cast to ReadFileFS to use ReadFile method
-	readFileFS, ok := defaultFS.(fs.ReadFileFS)
-	if !ok {
-		return nil, fmt.Errorf("filesystem does not support reading files")
-	}
-
-	file, err := readFileFS.ReadFile("assets/" + GatewayID + ".svg")
-	if err != nil {
-		return nil, fmt.Errorf("failed to read logo file: %w", err)
-	}
-
-	return file, nil
+	return gateway.ReadGatewayLogo(GatewayID, gatewayLogoFiles, g.fs)
 }
 
 // It first checks the customer metadata for a user_id, then falls back to database lookup.
@@ -1524,6 +1520,50 @@ func (g *StripeGateway) resolvePriceIDsFromPlanIDs(ctx context.Context, upgradeP
 		zap.Int("price_ids_found", len(priceIDs)))
 
 	return priceIDs, nil
+}
+
+// GetManagementInfo returns management capabilities for operations
+func (g *StripeGateway) GetManagementInfo(ctx context.Context, userID uint) (*pluginCore.ManagementCapabilities, error) {
+	ctx, span := core.TraceMethod(ctx, "StripeGateway.GetManagementInfo")
+	defer span.End()
+
+	// Stripe supports portal-based management for all operations
+	operations := map[pluginCore.ManagementOperation]bool{
+		pluginCore.OperationCancel:     true,
+		pluginCore.OperationChangePlan: true,
+	}
+
+	return &pluginCore.ManagementCapabilities{
+		ManagementMode: pluginCore.ModePortal,
+		Operations:     operations,
+	}, nil
+}
+
+// GetManagementURL returns the appropriate action for a management operation
+func (g *StripeGateway) GetManagementURL(ctx context.Context, userID uint, operation pluginCore.ManagementOperation) (*pluginCore.ManagementResult, error) {
+	ctx, span := core.TraceMethod(ctx, "StripeGateway.GetManagementURL")
+	defer span.End()
+
+	// Check if user has an active Stripe subscription
+	subscriber, err := g.billing.GetActiveSubscription(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get active subscription: %w", err)
+	}
+	if subscriber == nil || subscriber.GatewayType != GatewayID {
+		return nil, fmt.Errorf("no active stripe subscription found for user %d", userID)
+	}
+
+	// Get customer portal URL
+	portalURL, err := g.GetCustomerPortalURL(ctx, userID, "")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get customer portal URL: %w", err)
+	}
+
+	// Return portal redirect for all supported operations
+	return &pluginCore.ManagementResult{
+		Action: pluginCore.ActionRedirect,
+		URL:    portalURL,
+	}, nil
 }
 
 var _ pluginCore.PaymentGateway = (*StripeGateway)(nil)

@@ -118,21 +118,83 @@ func (e *APIExtension) Configure(gRouter router.Router, accessSvc core.AccessSer
 			router.WithMiddlewares(authMw, accessMw),
 			router.WithCors(),
 		),
-		// Customer portal endpoint
-		router.NewRoute(http.MethodPost, "/api/account/billing/customer-portal", e.handleCustomerPortal,
+		// Subscription management capabilities endpoint
+		router.NewRoute(http.MethodGet, "/api/account/billing/management/capabilities", e.handleGetManagementCapabilities,
 			router.WithSwagger(
-				router.WithSummary("Get customer portal URL"),
-				router.WithDescription("Creates and returns a customer portal session URL for managing subscriptions"),
+				router.WithSummary("Get subscription management capabilities"),
+				router.WithDescription("Returns the subscription management capabilities for the current user's gateway"),
 				router.WithTags("Billing"),
-				router.WithRequestBody(dto.CustomerPortalRequest{}, "Return URL to redirect to after leaving the customer portal", true),
-				router.WithSuccessResponse(http.StatusOK, "Customer portal URL created successfully",
-					router.WithJSONContent(dto.CustomerPortalResponse{})),
+				router.WithSuccessResponse(http.StatusOK, "Management capabilities retrieved successfully",
+					router.WithJSONContent(dto.ManagementCapabilitiesResponse{})),
 				router.WithErrorResponses(
 					router.DefineSwaggerErrorResponses(
 						router.DefineSwaggerErrorResponse(http.StatusUnauthorized, "Authentication required"),
-						router.DefineSwaggerErrorResponse(http.StatusBadRequest, "Invalid request"),
 						router.DefineSwaggerErrorResponse(http.StatusNotFound, "No active subscription found"),
-						router.DefineSwaggerErrorResponse(http.StatusInternalServerError, "Failed to check subscription status or create customer portal session"),
+						router.DefineSwaggerErrorResponse(http.StatusInternalServerError, "Failed to retrieve management capabilities"),
+					),
+				),
+			),
+			router.WithAccess(core.ACCESS_USER_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
+			router.WithCors(),
+		),
+		// Subscription management operation endpoint
+		router.NewRoute(http.MethodPost, "/api/account/billing/management", e.handleManagementOperation,
+			router.WithSwagger(
+				router.WithSummary("Get subscription management operation details"),
+				router.WithDescription("Returns the action and configuration for a specific management operation"),
+				router.WithTags("Billing"),
+				router.WithRequestBody(dto.ManagementRequest{}, "Operation to perform", true),
+				router.WithSuccessResponse(http.StatusOK, "Management operation details retrieved successfully",
+					router.WithJSONContent(dto.ManagementResultResponse{})),
+				router.WithErrorResponses(
+					router.DefineSwaggerErrorResponses(
+						router.DefineSwaggerErrorResponse(http.StatusUnauthorized, "Authentication required"),
+						router.DefineSwaggerErrorResponse(http.StatusNotFound, "No active subscription found"),
+						router.DefineSwaggerErrorResponse(http.StatusBadRequest, "Invalid request"),
+						router.DefineSwaggerErrorResponse(http.StatusInternalServerError, "Failed to get management operation details"),
+					),
+				),
+			),
+			router.WithAccess(core.ACCESS_USER_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
+			router.WithCors(),
+		),
+		// Predefined cancel operation endpoint
+		router.NewRoute(http.MethodPost, "/api/account/billing/cancel", e.handleCancelOperation,
+			router.WithSwagger(
+				router.WithSummary("Cancel subscription"),
+				router.WithDescription("Executes the cancel operation on the current subscription. Validates that the gateway supports cancellation and returns the appropriate action"),
+				router.WithTags("Billing"),
+				router.WithSuccessResponse(http.StatusOK, "Cancel operation details retrieved successfully",
+					router.WithJSONContent(dto.ManagementResultResponse{})),
+				router.WithErrorResponses(
+					router.DefineSwaggerErrorResponses(
+						router.DefineSwaggerErrorResponse(http.StatusUnauthorized, "Authentication required"),
+						router.DefineSwaggerErrorResponse(http.StatusNotFound, "No active subscription found"),
+						router.DefineSwaggerErrorResponse(http.StatusBadRequest, "Cancellation is not supported by this gateway"),
+						router.DefineSwaggerErrorResponse(http.StatusInternalServerError, "Failed to process cancel operation"),
+					),
+				),
+			),
+			router.WithAccess(core.ACCESS_USER_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
+			router.WithCors(),
+		),
+		// Predefined change-plan operation endpoint
+		router.NewRoute(http.MethodPost, "/api/account/billing/change-plan", e.handleChangePlanOperation,
+			router.WithSwagger(
+				router.WithSummary("Change subscription plan"),
+				router.WithDescription("Executes the change plan operation on the current subscription. Validates that the gateway supports plan changes and returns the appropriate action"),
+				router.WithTags("Billing"),
+				router.WithSuccessResponse(http.StatusOK, "Change plan operation details retrieved successfully",
+					router.WithJSONContent(dto.ManagementResultResponse{})),
+				router.WithErrorResponses(
+					router.DefineSwaggerErrorResponses(
+						router.DefineSwaggerErrorResponse(http.StatusUnauthorized, "Authentication required"),
+						router.DefineSwaggerErrorResponse(http.StatusNotFound, "No active subscription found"),
+						router.DefineSwaggerErrorResponse(http.StatusBadRequest, "Plan change is not supported by this gateway"),
+						router.DefineSwaggerErrorResponse(http.StatusInternalServerError, "Failed to process change plan operation"),
 					),
 				),
 			),
@@ -269,61 +331,6 @@ func (e *APIExtension) handleSubscriptionStatus(c echo.Context) error {
 	return httputil.EncodeResponse[*pluginCore.Subscriber](ctx, sub, &responseDto)
 }
 
-// handleCustomerPortal creates and returns a customer portal session URL
-func (e *APIExtension) handleCustomerPortal(c echo.Context) error {
-	ctx := httputil.Context(c)
-	userID, ok := e.getUser(ctx)
-	if !ok {
-		return ctx.Error(NewError(ErrKeyUnauthorized, fmt.Errorf("failed to get user ID")), http.StatusUnauthorized)
-	}
-
-	// Parse and validate request body
-	var request dto.CustomerPortalRequest
-	_, valid := httputil.DecodeAndValidateRequest[*dto.CustomerPortalRequest, *dto.CustomerPortalRequest](ctx, &request)
-	if !valid {
-		return nil // Error handled by DecodeAndValidateRequest
-	}
-
-	// Get active subscription to determine gateway
-	sub, err := e.billingService.GetActiveSubscription(c.Request().Context(), userID)
-	if err != nil {
-		e.Logger().Error("failed to check subscription status",
-			zap.Uint("user_id", userID),
-			zap.Error(err))
-		return ctx.Error(NewError(ErrKeySubscriptionCheckFailed, fmt.Errorf("failed to check subscription status")), http.StatusInternalServerError)
-	}
-
-	if sub == nil {
-		return ctx.Error(NewError(ErrKeyNoActiveSubscription, fmt.Errorf("no active subscription found")), http.StatusNotFound)
-	}
-
-	// Get the gateway for this subscription
-	gateway, err := e.billingService.GetGateway(c.Request().Context(), sub.GatewayType)
-	if err != nil {
-		e.Logger().Error("failed to get payment gateway",
-			zap.Uint("user_id", userID),
-			zap.String("gateway_type", sub.GatewayType),
-			zap.Error(err))
-		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("failed to get payment gateway")), http.StatusInternalServerError)
-	}
-
-	// Get customer portal URL from the gateway
-	portalURL, err := gateway.GetCustomerPortalURL(c.Request().Context(), userID, request.ReturnURL)
-	if err != nil {
-		e.Logger().Error("failed to create customer portal session",
-			zap.Uint("user_id", userID),
-			zap.String("gateway_type", sub.GatewayType),
-			zap.Error(err))
-		return ctx.Error(NewError(ErrKeyCustomerPortalSessionFailed, fmt.Errorf("failed to create customer portal session: %w", err)), http.StatusInternalServerError)
-	}
-
-	response := dto.CustomerPortalResponse{
-		URL: portalURL,
-	}
-
-	return ctx.JSON(http.StatusOK, response)
-}
-
 // handleGetCheckoutUI returns checkout UI fragments for a plan
 func (e *APIExtension) handleGetCheckoutUI(c echo.Context) error {
 	ctx := httputil.Context(c)
@@ -445,13 +452,13 @@ func (e *APIExtension) handleGetGateways(c echo.Context) error {
 	}
 
 	// Query registry for all gateways and their metadata
-	gateways := []dto.GatewayPublicInfo{}
+	response := dto.GatewayListResponse{}
 
 	// Get active gateways
 	allGateways := registry.GetAllGateways()
 
 	for id, gateway := range allGateways {
-		gateways = append(gateways, dto.GatewayPublicInfo{
+		response = append(response, dto.GatewayPublicInfo{
 			ID:          id,
 			Name:        gateway.GetName(reqCtx),
 			Description: gateway.GetDescription(reqCtx),
@@ -460,7 +467,7 @@ func (e *APIExtension) handleGetGateways(c echo.Context) error {
 		})
 	}
 
-	return ctx.JSON(http.StatusOK, gateways)
+	return httputil.EncodeResponse(ctx, &response, &response)
 }
 
 // handleGetGatewayLogo returns embedded logo for gateway
@@ -565,6 +572,131 @@ func (e *APIExtension) handleGetPricingPlanDetail(c echo.Context) error {
 	return httputil.EncodeResponse(ctx, plan, &resp)
 }
 
+// handleGetManagementCapabilities returns the subscription management capabilities
+func (e *APIExtension) handleGetManagementCapabilities(c echo.Context) error {
+	ctx := httputil.Context(c)
+	userID, ok := e.getUser(ctx)
+	if !ok {
+		return ctx.Error(NewError(ErrKeyUnauthorized, fmt.Errorf("failed to get user ID")), http.StatusUnauthorized)
+	}
+
+	// Get active subscription to determine gateway
+	sub, err := e.billingService.GetActiveSubscription(c.Request().Context(), userID)
+	if err != nil {
+		e.Logger().Error("failed to check subscription status",
+			zap.Uint("user_id", userID),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeySubscriptionCheckFailed, fmt.Errorf("failed to check subscription status")), http.StatusInternalServerError)
+	}
+
+	if sub == nil {
+		return ctx.Error(NewError(ErrKeyNoActiveSubscription, fmt.Errorf("no active subscription found")), http.StatusNotFound)
+	}
+
+	// Get the gateway for this subscription
+	gateway, err := e.billingService.GetGateway(c.Request().Context(), sub.GatewayType)
+	if err != nil {
+		e.Logger().Error("failed to get payment gateway",
+			zap.Uint("user_id", userID),
+			zap.String("gateway_type", sub.GatewayType),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("failed to get payment gateway")), http.StatusInternalServerError)
+	}
+
+	// Check if gateway implements SubscriptionManager
+	manager, ok := gateway.(pluginCore.SubscriptionManager)
+	if !ok {
+		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway does not support subscription management")), http.StatusInternalServerError)
+	}
+
+	// Get management capabilities
+	capabilities, err := manager.GetManagementInfo(c.Request().Context(), userID)
+	if err != nil {
+		e.Logger().Error("failed to get management capabilities",
+			zap.Uint("user_id", userID),
+			zap.String("gateway_type", sub.GatewayType),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeyManagementCapabilitiesFailed, fmt.Errorf("failed to get management capabilities: %w", err)), http.StatusInternalServerError)
+	}
+
+	var response dto.ManagementCapabilitiesResponse
+	return httputil.EncodeResponse(ctx, capabilities, &response)
+}
+
+// handleManagementOperation returns the action and configuration for a management operation
+func (e *APIExtension) handleManagementOperation(c echo.Context) error {
+	ctx := httputil.Context(c)
+	userID, ok := e.getUser(ctx)
+	if !ok {
+		return ctx.Error(NewError(ErrKeyUnauthorized, fmt.Errorf("failed to get user ID")), http.StatusUnauthorized)
+	}
+
+	// Parse and validate request body
+	var request dto.ManagementRequest
+	_, valid := httputil.DecodeAndValidateRequest[*dto.ManagementRequest, *dto.ManagementRequest](ctx, &request)
+	if !valid {
+		return nil // Error handled by DecodeAndValidateRequest
+	}
+
+	// Get active subscription to determine gateway
+	sub, err := e.billingService.GetActiveSubscription(c.Request().Context(), userID)
+	if err != nil {
+		e.Logger().Error("failed to check subscription status",
+			zap.Uint("user_id", userID),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeySubscriptionCheckFailed, fmt.Errorf("failed to check subscription status")), http.StatusInternalServerError)
+	}
+
+	if sub == nil {
+		return ctx.Error(NewError(ErrKeyNoActiveSubscription, fmt.Errorf("no active subscription found")), http.StatusNotFound)
+	}
+
+	// Get the gateway for this subscription
+	gateway, err := e.billingService.GetGateway(c.Request().Context(), sub.GatewayType)
+	if err != nil {
+		e.Logger().Error("failed to get payment gateway",
+			zap.Uint("user_id", userID),
+			zap.String("gateway_type", sub.GatewayType),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("failed to get payment gateway")), http.StatusInternalServerError)
+	}
+
+	// Check if gateway implements SubscriptionManager
+	manager, ok := gateway.(pluginCore.SubscriptionManager)
+	if !ok {
+		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway does not support subscription management")), http.StatusInternalServerError)
+	}
+
+	// Get the operation from the request
+	operation, err := request.GetOperation()
+	if err != nil {
+		return ctx.Error(NewError(ErrKeyInvalidRequest, fmt.Errorf("invalid operation: %w", err)), http.StatusBadRequest)
+	}
+
+	// Get management result
+	result, err := manager.GetManagementURL(c.Request().Context(), userID, *operation)
+	if err != nil {
+		e.Logger().Error("failed to get management operation details",
+			zap.Uint("user_id", userID),
+			zap.String("gateway_type", sub.GatewayType),
+			zap.String("operation", string(*operation)),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("failed to get management operation details: %w", err)), http.StatusInternalServerError)
+	}
+
+	// Build response
+	response := dto.ManagementResultResponse{}
+	if err := response.FromModel(result); err != nil {
+		e.Logger().Error("failed to build management operation response",
+			zap.Uint("user_id", userID),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("failed to build response: %w", err)), http.StatusInternalServerError)
+	}
+
+	return httputil.EncodeResponse(ctx, result, &response)
+}
+
+
 // getUser extracts the user ID from the request context
 func (e *APIExtension) getUser(ctx httputil.RequestContext) (uint, bool) {
 	user, err := mcontext.GetUserID(ctx.Context)
@@ -572,6 +704,186 @@ func (e *APIExtension) getUser(ctx httputil.RequestContext) (uint, bool) {
 		return 0, false
 	}
 	return user, true
+}
+
+// handleCancelOperation handles the predefined cancel operation
+func (e *APIExtension) handleCancelOperation(c echo.Context) error {
+	ctx := httputil.Context(c)
+	userID, ok := e.getUser(ctx)
+	if !ok {
+		return ctx.Error(NewError(ErrKeyUnauthorized, fmt.Errorf("failed to get user ID")), http.StatusUnauthorized)
+	}
+
+	// Get active subscription to determine gateway
+	sub, err := e.billingService.GetActiveSubscription(c.Request().Context(), userID)
+	if err != nil {
+		e.Logger().Error("failed to check subscription status",
+			zap.Uint("user_id", userID),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeySubscriptionCheckFailed, fmt.Errorf("failed to check subscription status")), http.StatusInternalServerError)
+	}
+
+	if sub == nil {
+		return ctx.Error(NewError(ErrKeyNoActiveSubscription, fmt.Errorf("no active subscription found")), http.StatusNotFound)
+	}
+
+	// Get the gateway for this subscription
+	gateway, err := e.billingService.GetGateway(c.Request().Context(), sub.GatewayType)
+	if err != nil {
+		e.Logger().Error("failed to get payment gateway",
+			zap.Uint("user_id", userID),
+			zap.String("gateway_type", sub.GatewayType),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("failed to get payment gateway")), http.StatusInternalServerError)
+	}
+
+	// Check if gateway implements SubscriptionManager
+	manager, ok := gateway.(pluginCore.SubscriptionManager)
+	if !ok {
+		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway does not support subscription management")), http.StatusInternalServerError)
+	}
+
+	// Get management capabilities to check if operation is supported
+	capabilities, err := manager.GetManagementInfo(c.Request().Context(), userID)
+	if err != nil {
+		e.Logger().Error("failed to get management capabilities",
+			zap.Uint("user_id", userID),
+			zap.String("gateway_type", sub.GatewayType),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeyManagementCapabilitiesFailed, fmt.Errorf("failed to get management capabilities: %w", err)), http.StatusInternalServerError)
+	}
+
+	// Check if cancellation is supported
+	supported, exists := capabilities.Operations[pluginCore.OperationCancel]
+	if !exists || !supported {
+		return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("cancellation is not supported by this gateway")), http.StatusBadRequest)
+	}
+
+	// Get management result for cancellation
+	result, err := manager.GetManagementURL(c.Request().Context(), userID, pluginCore.OperationCancel)
+	if err != nil {
+		e.Logger().Error("failed to get cancellation operation details",
+			zap.Uint("user_id", userID),
+			zap.String("gateway_type", sub.GatewayType),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("failed to get cancellation operation details: %w", err)), http.StatusInternalServerError)
+	}
+
+	// For API-based gateways, execute the cancel operation directly
+	if capabilities.ManagementMode == pluginCore.ModeAPI && result.Action == pluginCore.ActionAPIRequired {
+		executor, ok := gateway.(pluginCore.SubscriptionExecutor)
+		if !ok {
+			return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway does not support subscription execution")), http.StatusInternalServerError)
+		}
+
+		if err := executor.ExecuteCancel(c.Request().Context(), userID); err != nil {
+			e.Logger().Error("failed to execute cancellation",
+				zap.Uint("user_id", userID),
+				zap.String("gateway_type", sub.GatewayType),
+				zap.Error(err))
+			return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("failed to cancel subscription: %w", err)), http.StatusInternalServerError)
+		}
+
+		// Return success response
+		successResult := &pluginCore.ManagementResult{
+			Action:              pluginCore.ActionShowUI,
+			RequiresConfirmation: false,
+		}
+		response := dto.ManagementResultResponse{}
+		if err := response.FromModel(successResult); err != nil {
+			e.Logger().Error("failed to build cancellation success response",
+				zap.Uint("user_id", userID),
+				zap.Error(err))
+			return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("failed to build response: %w", err)), http.StatusInternalServerError)
+		}
+		return httputil.EncodeResponse(ctx, successResult, &response)
+	}
+
+	// Build response for non-API gateways (redirect, portal, etc.)
+	response := dto.ManagementResultResponse{}
+	if err := response.FromModel(result); err != nil {
+		e.Logger().Error("failed to build cancellation operation response",
+			zap.Uint("user_id", userID),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("failed to build response: %w", err)), http.StatusInternalServerError)
+	}
+
+	return httputil.EncodeResponse(ctx, result, &response)
+}
+
+// handleChangePlanOperation handles the predefined change-plan operation
+func (e *APIExtension) handleChangePlanOperation(c echo.Context) error {
+	ctx := httputil.Context(c)
+	userID, ok := e.getUser(ctx)
+	if !ok {
+		return ctx.Error(NewError(ErrKeyUnauthorized, fmt.Errorf("failed to get user ID")), http.StatusUnauthorized)
+	}
+
+	// Get active subscription to determine gateway
+	sub, err := e.billingService.GetActiveSubscription(c.Request().Context(), userID)
+	if err != nil {
+		e.Logger().Error("failed to check subscription status",
+			zap.Uint("user_id", userID),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeySubscriptionCheckFailed, fmt.Errorf("failed to check subscription status")), http.StatusInternalServerError)
+	}
+
+	if sub == nil {
+		return ctx.Error(NewError(ErrKeyNoActiveSubscription, fmt.Errorf("no active subscription found")), http.StatusNotFound)
+	}
+
+	// Get the gateway for this subscription
+	gateway, err := e.billingService.GetGateway(c.Request().Context(), sub.GatewayType)
+	if err != nil {
+		e.Logger().Error("failed to get payment gateway",
+			zap.Uint("user_id", userID),
+			zap.String("gateway_type", sub.GatewayType),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("failed to get payment gateway")), http.StatusInternalServerError)
+	}
+
+	// Check if gateway implements SubscriptionManager
+	manager, ok := gateway.(pluginCore.SubscriptionManager)
+	if !ok {
+		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway does not support subscription management")), http.StatusInternalServerError)
+	}
+
+	// Get management capabilities to check if operation is supported
+	capabilities, err := manager.GetManagementInfo(c.Request().Context(), userID)
+	if err != nil {
+		e.Logger().Error("failed to get management capabilities",
+			zap.Uint("user_id", userID),
+			zap.String("gateway_type", sub.GatewayType),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeyManagementCapabilitiesFailed, fmt.Errorf("failed to get management capabilities: %w", err)), http.StatusInternalServerError)
+	}
+
+	// Check if plan change is supported
+	supported, exists := capabilities.Operations[pluginCore.OperationChangePlan]
+	if !exists || !supported {
+		return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("plan change is not supported by this gateway")), http.StatusBadRequest)
+	}
+
+	// Get management result for plan change
+	result, err := manager.GetManagementURL(c.Request().Context(), userID, pluginCore.OperationChangePlan)
+	if err != nil {
+		e.Logger().Error("failed to get plan change operation details",
+			zap.Uint("user_id", userID),
+			zap.String("gateway_type", sub.GatewayType),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("failed to get plan change operation details: %w", err)), http.StatusInternalServerError)
+	}
+
+	// Build response
+	response := dto.ManagementResultResponse{}
+	if err := response.FromModel(result); err != nil {
+		e.Logger().Error("failed to build plan change operation response",
+			zap.Uint("user_id", userID),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("failed to build response: %w", err)), http.StatusInternalServerError)
+	}
+
+	return httputil.EncodeResponse(ctx, result, &response)
 }
 
 // getUserIDFromContext retrieves the authenticated user ID from the echo context

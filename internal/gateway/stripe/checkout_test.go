@@ -113,7 +113,8 @@ func mockStripeCheckoutSession(
 	getSubscriberResp *pluginCore.Subscriber,
 	getSubscriberErr error,
 ) {
-	mockBilling.EXPECT().GetSubscriberByGatewayID(mock.Anything, "", "stripe").Return(getSubscriberResp, getSubscriberErr)
+	// Mock GetActiveSubscriber to return nil (no active subscriber)
+	mockBilling.EXPECT().GetActiveSubscriber(mock.Anything, TestUserID, "stripe").Return(nil, nil)
 
 	if customer != nil {
 		mockStripeClient.SetupCustomerCreate(customer)
@@ -263,13 +264,20 @@ func TestStripeGateway_GetCheckoutUI_ExistingCustomer(t *testing.T) {
 		mockPricingPlan(mockPricing, planID, "Test Plan", "USD", true, "price_123")
 
 		existingSubscriber := &pluginCore.Subscriber{
-			UserID:      userID,
-			GatewayType: "stripe",
-			GatewayID:   customerID,
-			IsActive:    false,
+			UserID:         userID,
+			GatewayType:    "stripe",
+			ExternalID:     customerID,
+			SubscriptionID: "",
+			IsActive:       false,
 		}
 
-		mockStripeCheckoutSession(mockStripeClient, mockBilling, nil, &stripe.CheckoutSession{
+		customer := &stripe.Customer{
+			ID:    customerID,
+			Name:  "Existing User",
+			Email: "existing@example.com",
+		}
+
+		mockStripeCheckoutSession(mockStripeClient, mockBilling, customer, &stripe.CheckoutSession{
 			ID:  "sess_test456",
 			URL: "https://checkout.stripe.com/pay/sess_test456",
 		}, existingSubscriber, nil)

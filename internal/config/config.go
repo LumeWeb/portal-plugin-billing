@@ -13,6 +13,11 @@ type StripeConfig struct {
 	SecretKey        string `config:"secret_key"`
 }
 
+type AtlosConfig struct {
+	MerchantID string `config:"merchant_id"`
+	APIKey     string `config:"api_key"`
+}
+
 func (s StripeConfig) Schema() z.ZogSchema {
 	return z.Struct(z.Shape{
 		"WebhookSecret":  z.String().Required(),
@@ -29,8 +34,23 @@ func (s StripeConfig) Defaults() map[string]any {
 	}
 }
 
+func (s AtlosConfig) Schema() z.ZogSchema {
+	return z.Struct(z.Shape{
+		"MerchantID": z.String().Required(),
+		"APIKey":     z.String().Required(),
+	})
+}
+
+func (s AtlosConfig) Defaults() map[string]any {
+	return map[string]any{
+		"MerchantID": "",
+		"APIKey":     "",
+	}
+}
+
 type ServiceConfig struct {
 	Stripe StripeConfig `config:"stripe"`
+	Atlos  AtlosConfig  `config:"atlos"`
 }
 
 func (s ServiceConfig) Schema() z.ZogSchema {

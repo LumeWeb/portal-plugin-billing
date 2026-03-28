@@ -28,13 +28,13 @@ type BillingService interface {
 
 	// Subscriber management methods
 	// CreateOrUpdateSubscriber creates or updates a subscriber record
-	CreateOrUpdateSubscriber(ctx context.Context, userID uint, gatewayType, gatewayID string, isActive bool, planID *uint) error
+	CreateOrUpdateSubscriber(ctx context.Context, userID uint, gatewayType, externalID, subscriptionID string, isActive bool, planID *uint) error
 	// DeactivateSubscriber deactivates a subscriber
 	DeactivateSubscriber(ctx context.Context, userID uint, gatewayType string) error
 	// GetActiveSubscriber returns an active subscriber for the given user and gateway
 	GetActiveSubscriber(ctx context.Context, userID uint, gatewayType string) (*Subscriber, error)
-	// GetSubscriberByGatewayID returns a subscriber by gateway ID and gateway type
-	GetSubscriberByGatewayID(ctx context.Context, gatewayID, gatewayType string) (*Subscriber, error)
+	// GetSubscriberByExternalID returns a subscriber by external ID and gateway type
+	GetSubscriberByExternalID(ctx context.Context, externalID, gatewayType string) (*Subscriber, error)
 	// IsUserActiveSubscriber checks if a user has an active subscription with any gateway
 	IsUserActiveSubscriber(ctx context.Context, userID uint) (bool, error)
 	// GetActiveSubscribersByGateway returns all active subscribers for a specific gateway

@@ -105,7 +105,7 @@ func TestBillingService_GetCheckoutUI_UserAlreadySubscribed(t *testing.T) {
 	coreTesting.RunTestCaseWithDB(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		service := core.GetService[pluginCore.BillingService](ctx, pluginCore.BILLING_SERVICE)
 
-		err := service.CreateOrUpdateSubscriber(ctx, 1, "any-gateway", "sub_test", true, nil)
+		err := service.CreateOrUpdateSubscriber(ctx, 1, "any-gateway", "sub_test", "", true, nil)
 		require.NoError(tb, err)
 
 		_, err = service.GetCheckoutUI(ctx, 1, 42, "stripe")

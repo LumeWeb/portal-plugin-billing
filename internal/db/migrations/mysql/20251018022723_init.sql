@@ -23,17 +23,25 @@ CREATE TABLE IF NOT EXISTS billing_subscribers (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     user_id BIGINT UNSIGNED NOT NULL,
     gateway_type VARCHAR(255) NOT NULL,
-    gateway_id VARCHAR(255) NOT NULL,
+    external_id VARCHAR(255) NOT NULL,
+    subscription_id VARCHAR(255) NULL,
     is_active BOOLEAN DEFAULT FALSE,
     plan_id BIGINT UNSIGNED NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at TIMESTAMP NULL DEFAULT NULL,
-    UNIQUE KEY uniq_user_gateway (user_id, gateway_type),
+    -- Generated column for partial unique constraint: only active subscriptions
+    active_gateway_key VARCHAR(255) GENERATED ALWAYS AS (
+        CASE 
+            WHEN is_active = TRUE AND deleted_at IS NULL THEN CONCAT(user_id, ':', gateway_type)
+            ELSE NULL
+        END
+    ) STORED,
+    UNIQUE KEY uniq_user_gateway_active (active_gateway_key),
     INDEX idx_user_id (user_id),
     INDEX idx_gateway_type (gateway_type),
     INDEX idx_is_active (is_active),
-    INDEX idx_gateway_id (gateway_id)
+    INDEX idx_external_id (external_id)
 );
 
 -- Pricing Plans Table
@@ -126,11 +134,11 @@ CREATE TABLE IF NOT EXISTS billing_gateway_product_mappings (
 
 -- +goose Down
 -- +goose StatementBegin
-DROP TABLE billing_gateway_product_mappings;
-DROP TABLE billing_priceline_assignments;
-DROP TABLE billing_priceline_plans;
-DROP TABLE billing_pricelines;
-DROP TABLE billing_pricing_plans;
-DROP TABLE billing_subscribers;
-DROP TABLE billing_webhook_events;
+DROP TABLE IF EXISTS billing_gateway_product_mappings;
+DROP TABLE IF EXISTS billing_priceline_assignments;
+DROP TABLE IF EXISTS billing_priceline_plans;
+DROP TABLE IF EXISTS billing_pricelines;
+DROP TABLE IF EXISTS billing_pricing_plans;
+DROP TABLE IF EXISTS billing_subscribers;
+DROP TABLE IF EXISTS billing_webhook_events;
 -- +goose StatementEnd

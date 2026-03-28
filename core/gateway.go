@@ -125,8 +125,8 @@ const (
 	FragmentTypeForm FragmentType = "form"
 )
 
-// GatewayCapabilities declares synchronization capabilities for gateways
-type GatewayCapabilities interface {
+// GatewaySyncCapabilities declares synchronization capabilities for gateways
+type GatewaySyncCapabilities interface {
 	// SupportsProductSync returns true if gateway supports product/price synchronization
 	SupportsProductSync() bool
 

@@ -25,7 +25,8 @@ CREATE TABLE IF NOT EXISTS billing_subscribers (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
     gateway_type VARCHAR(255) NOT NULL,
-    gateway_id VARCHAR(255) NOT NULL,
+    external_id VARCHAR(255) NOT NULL,
+    subscription_id VARCHAR(255) NULL,
     is_active BOOLEAN DEFAULT FALSE,
     plan_id INTEGER NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -36,9 +37,10 @@ CREATE TABLE IF NOT EXISTS billing_subscribers (
 CREATE INDEX IF NOT EXISTS idx_billing_subscribers_user_id ON billing_subscribers(user_id);
 CREATE INDEX IF NOT EXISTS idx_billing_subscribers_gateway_type ON billing_subscribers(gateway_type);
 CREATE INDEX IF NOT EXISTS idx_billing_subscribers_is_active ON billing_subscribers(is_active);
-CREATE INDEX IF NOT EXISTS idx_billing_subscribers_gateway_id ON billing_subscribers(gateway_id);
-CREATE UNIQUE INDEX IF NOT EXISTS uniq_billing_subscribers_user_gateway
-  ON billing_subscribers(user_id, gateway_type) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_billing_subscribers_external_id ON billing_subscribers(external_id);
+-- Partial unique index: only one active subscription per user per gateway
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_billing_subscribers_user_gateway_active
+  ON billing_subscribers(user_id, gateway_type) WHERE is_active = TRUE AND deleted_at IS NULL;
 
 -- Pricing Plans Table
 CREATE TABLE IF NOT EXISTS billing_pricing_plans (
@@ -150,8 +152,8 @@ DROP INDEX IF EXISTS idx_billing_pricing_plans_is_active;
 DROP INDEX IF EXISTS idx_billing_pricing_plans_name;
 DROP TABLE billing_pricing_plans;
 
-DROP INDEX IF EXISTS uniq_billing_subscribers_user_gateway;
-DROP INDEX IF EXISTS idx_billing_subscribers_gateway_id;
+DROP INDEX IF EXISTS uniq_billing_subscribers_user_gateway_active;
+DROP INDEX IF EXISTS idx_billing_subscribers_external_id;
 DROP INDEX IF EXISTS idx_billing_subscribers_is_active;
 DROP INDEX IF EXISTS idx_billing_subscribers_gateway_type;
 DROP INDEX IF EXISTS idx_billing_subscribers_user_id;
