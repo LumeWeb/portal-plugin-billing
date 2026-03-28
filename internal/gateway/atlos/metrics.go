@@ -37,4 +37,5 @@ func init() {
 		},
 		[]string{"status"},
 	)
+	prometheus.MustRegister(CheckoutUIDisplayed, PaymentInitiated)
 }

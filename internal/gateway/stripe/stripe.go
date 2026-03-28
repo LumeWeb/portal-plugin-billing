@@ -41,6 +41,9 @@ func Setup(opts pluginCore.GatewaySetupOptions, webhookSecret string, secretKey 
 	if webhookSecret == "" {
 		return "", nil, nil
 	}
+	if secretKey == "" {
+		return "", nil, fmt.Errorf("secret key is required when webhook secret is configured")
+	}
 
 	gw := New(opts.Logger, webhookSecret, secretKey, nil, nil, opts.BillingSvc, opts.PricingSvc)
 	return "Stripe gateway registered successfully", gw, nil
@@ -1543,6 +1546,10 @@ func (g *StripeGateway) GetManagementInfo(ctx context.Context, userID uint) (*pl
 func (g *StripeGateway) GetManagementURL(ctx context.Context, userID uint, operation pluginCore.ManagementOperation) (*pluginCore.ManagementResult, error) {
 	ctx, span := core.TraceMethod(ctx, "StripeGateway.GetManagementURL")
 	defer span.End()
+
+	if g.billing == nil {
+		return nil, fmt.Errorf("billing service not configured")
+	}
 
 	// Check if user has an active Stripe subscription
 	subscriber, err := g.billing.GetActiveSubscription(ctx, userID)

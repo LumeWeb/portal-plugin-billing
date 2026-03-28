@@ -174,6 +174,10 @@ func init() {
 		// Gateway errors
 		ErrKeyGatewayNotFound:     {Key: ErrKeyGatewayNotFound, Message: "Gateway not found"},
 		ErrKeyGatewayLogoNotFound: {Key: ErrKeyGatewayLogoNotFound, Message: "Gateway logo not found"},
+
+		// Management errors
+		ErrKeyManagementCapabilitiesFailed: {Key: ErrKeyManagementCapabilitiesFailed, Message: "Failed to get management capabilities"},
+		ErrKeyManagementOperationFailed:    {Key: ErrKeyManagementOperationFailed, Message: "Management operation failed"},
 	})
 
 	core.MustRegisterErrorCodes(Namespace, map[core.ErrorType]int{
@@ -222,6 +226,10 @@ func init() {
 		// Gateway errors
 		ErrKeyGatewayNotFound:     http.StatusNotFound,
 		ErrKeyGatewayLogoNotFound: http.StatusNotFound,
+
+		// Management errors
+		ErrKeyManagementCapabilitiesFailed: http.StatusInternalServerError,
+		ErrKeyManagementOperationFailed:    http.StatusInternalServerError,
 	})
 }
 

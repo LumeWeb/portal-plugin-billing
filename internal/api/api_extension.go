@@ -161,7 +161,7 @@ func (e *APIExtension) Configure(gRouter router.Router, accessSvc core.AccessSer
 			router.WithCors(),
 		),
 		// Predefined cancel operation endpoint
-		router.NewRoute(http.MethodPost, "/api/account/billing/cancel", e.handleCancelOperation,
+		router.NewRoute(http.MethodPost, pluginCore.CancelEndpointPath, e.handleCancelOperation,
 			router.WithSwagger(
 				router.WithSummary("Cancel subscription"),
 				router.WithDescription("Executes the cancel operation on the current subscription. Validates that the gateway supports cancellation and returns the appropriate action"),
@@ -182,7 +182,7 @@ func (e *APIExtension) Configure(gRouter router.Router, accessSvc core.AccessSer
 			router.WithCors(),
 		),
 		// Predefined change-plan operation endpoint
-		router.NewRoute(http.MethodPost, "/api/account/billing/change-plan", e.handleChangePlanOperation,
+		router.NewRoute(http.MethodPost, pluginCore.ChangePlanEndpointPath, e.handleChangePlanOperation,
 			router.WithSwagger(
 				router.WithSummary("Change subscription plan"),
 				router.WithDescription("Executes the change plan operation on the current subscription. Validates that the gateway supports plan changes and returns the appropriate action"),
@@ -671,6 +671,23 @@ func (e *APIExtension) handleManagementOperation(c echo.Context) error {
 	operation, err := request.GetOperation()
 	if err != nil {
 		return ctx.Error(NewError(ErrKeyInvalidRequest, fmt.Errorf("invalid operation: %w", err)), http.StatusBadRequest)
+	}
+
+	// Get management capabilities to check if operation is supported
+	capabilities, err := manager.GetManagementInfo(c.Request().Context(), userID)
+	if err != nil {
+		e.Logger().Error("failed to get management capabilities",
+			zap.Uint("user_id", userID),
+			zap.String("gateway_type", sub.GatewayType),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeyManagementCapabilitiesFailed, fmt.Errorf("failed to get management capabilities: %w", err)), http.StatusInternalServerError)
+	}
+
+	// Check if the requested operation is supported
+	supported, exists := capabilities.Operations[*operation]
+	if !exists || !supported {
+		return ctx.Error(NewError(ErrKeyManagementOperationFailed,
+			fmt.Errorf("%s is not supported by this gateway", *operation)), http.StatusBadRequest)
 	}
 
 	// Get management result

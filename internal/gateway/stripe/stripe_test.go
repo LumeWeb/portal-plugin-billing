@@ -849,7 +849,7 @@ func TestStripeGateway_GetCustomerPortalURL_SessionCreateError(t *testing.T) {
 
 		planID := uint(42)
 		mockSubscriber := &pluginCore.Subscriber{
-			UserID: 123, GatewayType: "stripe", IsActive: true, PlanID: &planID,
+			UserID: 123, GatewayType: "stripe", ExternalID: "cus_123", IsActive: true, PlanID: &planID,
 		}
 		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, uint(123)).Return(mockSubscriber, nil)
 

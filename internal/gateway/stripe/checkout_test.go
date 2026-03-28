@@ -113,10 +113,12 @@ func mockStripeCheckoutSession(
 	getSubscriberResp *pluginCore.Subscriber,
 	getSubscriberErr error,
 ) {
-	// Mock GetActiveSubscriber to return nil (no active subscriber)
-	mockBilling.EXPECT().GetActiveSubscriber(mock.Anything, TestUserID, "stripe").Return(nil, nil)
+	// Mock GetActiveSubscriber to return the provided subscriber response
+	mockBilling.EXPECT().GetActiveSubscriber(mock.Anything, TestUserID, "stripe").Return(getSubscriberResp, getSubscriberErr)
 
-	if customer != nil {
+	// Only set up customer creation mock if there's no existing subscriber
+	// (when getSubscriberResp is nil, the code will create a new customer)
+	if customer != nil && getSubscriberResp == nil {
 		mockStripeClient.SetupCustomerCreate(customer)
 	}
 

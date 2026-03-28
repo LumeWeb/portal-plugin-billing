@@ -16,6 +16,12 @@ const (
 	OperationChangePlan ManagementOperation = "change_plan"
 )
 
+// Predefined management endpoint paths
+const (
+	CancelEndpointPath     = "/api/account/billing/cancel"
+	ChangePlanEndpointPath = "/api/account/billing/change-plan"
+)
+
 // ManagementMode defines how a gateway handles subscription management
 type ManagementMode string
 
@@ -123,11 +129,11 @@ type APIEndpointInfo struct {
 var predefinedManagementEndpoints = map[ManagementOperation]*APIEndpointInfo{
 	OperationCancel: {
 		Method: "POST",
-		Path:   "/api/account/billing/cancel",
+		Path:   CancelEndpointPath,
 	},
 	OperationChangePlan: {
 		Method: "POST",
-		Path:   "/api/account/billing/change-plan",
+		Path:   ChangePlanEndpointPath,
 	},
 }
 

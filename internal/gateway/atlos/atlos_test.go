@@ -23,12 +23,16 @@ const (
 	TestUserID         = uint(123)
 	TestPlanID         = uint(1)
 	TestMerchantID     = "merchant_test_123"
-	TestAPISecret      = "api_secret_test_123"
 	TestTransactionID  = "txn_test_123"
 	TestSubscriptionID = "sub_test_123"
 )
 
+var TestAPISecret string
+
 func TestMain(m *testing.M) {
+	// Set test API secret for tests
+	TestAPISecret = "api_secret_test_123"
+
 	coreTesting.WithOptions(m,
 		coreTesting.WithMockServiceFactory(quotaCore.QUOTA_SERVICE, quotaCore.NewMockQuotaService, &quotaCore.QuotaConfig{}),
 		coreTesting.WithMockServiceFactory(pluginCore.BILLING_SERVICE, pluginCore.NewMockBillingService, &pluginConfig.ServiceConfig{}),
