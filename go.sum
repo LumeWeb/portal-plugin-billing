@@ -636,6 +636,8 @@ github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
 github.com/stripe/stripe-go/v83 v83.0.1 h1:HvUXOw0AcjYJ9zUTN5XW+k7HvkM1AY9zxbpOFN9bhRA=
 github.com/stripe/stripe-go/v83 v83.0.1/go.mod h1:nRyDcLrJtwPPQUnKAFs9Bt1NnQvNhNiF6V19XHmPISE=
+github.com/stripe/stripe-go/v83 v83.2.1 h1:8WPhpMjr8VyMWKUsCMoVvlWxYazuL5edajKX/RulfbA=
+github.com/stripe/stripe-go/v83 v83.2.1/go.mod h1:nRyDcLrJtwPPQUnKAFs9Bt1NnQvNhNiF6V19XHmPISE=
 github.com/tidwall/pretty v1.0.0/go.mod h1:XNkn88O1ChpSDQmQeStsy+sBenx6DDtFZJxhVysOjyk=
 github.com/tus/tusd/v2 v2.9.2 h1:Dd/Dh0CG7+/wom4lDQnnhca+1p5qVwgnbyEBacj1v7c=
 github.com/tus/tusd/v2 v2.9.2/go.mod h1:+a9uNLru2Qy+CUu7QUIshmQ+X0fLNw77eu8voKVxmgA=
