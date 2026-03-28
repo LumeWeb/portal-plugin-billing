@@ -143,9 +143,9 @@ func (s *SyncManager) syncGatewayPlan(
 	ctx, span := core.TraceMethod(ctx, "SyncManager.syncGatewayPlan")
 	defer span.End()
 
-	capabilities, ok := gateway.(pluginCore.GatewaySyncCapabilities)
-	if !ok {
-		return nil, fmt.Errorf("gateway %s does not implement GatewaySyncCapabilities", gatewayID)
+	capabilities, err := pluginCore.AsGatewayCapabilities(gateway)
+	if err != nil {
+		return nil, fmt.Errorf("gateway %s does not implement GatewayCapabilities", gatewayID)
 	}
 
 	if !capabilities.SupportsProductSync() {
@@ -173,7 +173,12 @@ func (s *SyncManager) syncGatewayPlan(
 		IsPublic:        plan.IsPublic,
 	}
 
-	syncResult, err := gateway.SyncPlan(ctx, planInfo)
+	syncGateway, syncErr := pluginCore.AsGatewaySync(gateway)
+	if syncErr != nil {
+		return nil, fmt.Errorf("gateway %s does not implement GatewaySync", gatewayID)
+	}
+
+	syncResult, err := syncGateway.SyncPlan(ctx, planInfo)
 	if err != nil {
 		s.ctx.Logger().Error("sync failed for gateway",
 			zap.String("gateway", gatewayID),

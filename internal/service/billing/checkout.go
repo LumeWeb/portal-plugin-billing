@@ -45,7 +45,11 @@ func (s *BillingServiceDefault) GetCheckoutUI(
 	}
 
 	// 5. Get checkout UI from gateway
-	return gateway.GetCheckoutUI(ctx, userID, planID)
+	checkoutProvider, err := pluginCore.AsCheckoutProvider(gateway)
+	if err != nil {
+		return nil, fmt.Errorf("gateway %s does not implement CheckoutProvider", gatewayType)
+	}
+	return checkoutProvider.GetCheckoutUI(ctx, userID, planID)
 }
 
 // Predefined checkout errors

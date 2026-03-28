@@ -5,11 +5,16 @@ import (
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
 )
 
-// MockablePaymentGateway is a composite interface that combines PaymentGateway and GatewaySyncCapabilities
+// MockablePaymentGateway is a composite interface that combines all payment gateway related interfaces
 // for easier mocking in tests. This interface is used specifically for testing purposes.
+//go:generate mockery --output=../../mocks --name=MockablePaymentGateway
 type MockablePaymentGateway interface {
 	pluginCore.PaymentGateway
-	pluginCore.GatewaySyncCapabilities
+	pluginCore.GatewayCapabilities
+	pluginCore.WebhookHandler
+	pluginCore.CustomerPortal
+	pluginCore.CheckoutProvider
+	pluginCore.GatewaySync
 }
 
 // MockableBillingService extends the core BillingService for testing purposes

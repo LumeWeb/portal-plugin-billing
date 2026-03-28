@@ -20,26 +20,36 @@ type PricingPlanInfo struct {
 
 var (
 	ErrGatewayNotFound = errors.New("gateway not found")
+	ErrGatewayNotSupported = errors.New("gateway does not support this interface")
 )
 
-// PaymentGateway defines the interface for payment gateway implementations.
-// Implementations should handle payment processing, subscriptions, and webhook validation
-// for specific payment providers like Stripe, PayPal, etc.
-type PaymentGateway interface {
+// GatewayIdentity defines methods for gateway identification and display information.
+// All gateways must implement this interface.
+type GatewayIdentity interface {
 	// ID returns the unique identifier for this gateway (e.g. "stripe", "paypal")
 	ID(ctx context.Context) string
 
-	// HandleWebhook processes an incoming webhook event from the payment provider
-	// Returns an error if processing failed
-	HandleWebhook(ctx context.Context, payload []byte) error
+	// GetName returns display name for the gateway
+	GetName(ctx context.Context) string
+
+	// GetDescription returns description for the gateway
+	GetDescription(ctx context.Context) string
+
+	// GetLogo returns the logo image data for this gateway
+	// Returns the raw logo bytes for public display
+	GetLogo(ctx context.Context) ([]byte, error)
+}
+
+// WebhookHandler defines methods for processing webhook events.
+// Only gateways that receive webhooks need to implement this interface.
+type WebhookHandler interface {
+	// SignatureHeader returns the HTTP header name that contains the webhook signature
+	// This is provider-specific (e.g. "Stripe-Signature" for Stripe)
+	SignatureHeader(ctx context.Context) string
 
 	// ValidateWebhook verifies the authenticity of an incoming webhook request
 	// using the provider's signature verification mechanism
 	ValidateWebhook(ctx context.Context, signature string, payload []byte) error
-
-	// SignatureHeader returns the HTTP header name that contains the webhook signature
-	// This is provider-specific (e.g. "Stripe-Signature" for Stripe)
-	SignatureHeader(ctx context.Context) string
 
 	// ExtractEventID extracts the unique event identifier from the webhook payload
 	// This is used for deduplication purposes
@@ -49,48 +59,79 @@ type PaymentGateway interface {
 	// This is used for logging and monitoring purposes
 	ExtractEventType(ctx context.Context, payload []byte) (string, error)
 
+	// HandleWebhook processes an incoming webhook event from the payment provider
+	// Returns an error if processing failed
+	HandleWebhook(ctx context.Context, payload []byte) error
+}
+
+// CustomerPortal defines methods for customer portal functionality.
+// Only gateways that support customer portals need to implement this interface.
+type CustomerPortal interface {
 	// GetCustomerPortalURL creates and returns a customer portal session URL for the given user
 	// Returns the URL where the user can manage their subscription and payment methods
 	GetCustomerPortalURL(ctx context.Context, userID uint, returnUrl string) (string, error)
 
+	// GetCustomerPortalMetadata returns metadata for customer portal configuration
+	// Returns configuration options for customer portal rendering
+	GetCustomerPortalMetadata(ctx context.Context, userID uint) (map[string]any, error)
+}
+
+// CheckoutProvider defines methods for providing checkout UI.
+// Only gateways that handle checkout UI need to implement this interface.
+type CheckoutProvider interface {
 	// GetCheckoutUI returns UI fragments for checkout flows
 	// Each gateway returns fragments appropriate for their payment method:
 	// - Redirect-based gateways (Stripe): return link fragment
 	// - Embedded gateways (PayPal/Braintree): return script, button, or form fragments
 	// - Custom gateways: return html, iframe, or modal fragments
 	GetCheckoutUI(ctx context.Context, userID uint, planID uint) (*CheckoutUIResponse, error)
+}
 
-	// GetCustomerPortalMetadata returns metadata for customer portal configuration
-	// Returns configuration options for customer portal rendering
-	GetCustomerPortalMetadata(ctx context.Context, userID uint) (map[string]any, error)
+// GatewayCapabilities declares synchronization capabilities for gateways.
+// Only gateways that support synchronization need to implement this interface.
+type GatewayCapabilities interface {
+	// SupportsProductSync returns true if gateway supports product/price synchronization
+	SupportsProductSync() bool
 
-	// GetName returns display name for the gateway
-	GetName(ctx context.Context) string
+	// SupportsPriceUpdates returns true if gateway supports updating existing prices
+	SupportsPriceUpdates() bool
 
-	// GetDescription returns description for the gateway
-	GetDescription(ctx context.Context) string
+	// SupportsPlanDeletion returns true if gateway supports deleting plans
+	SupportsPlanDeletion() bool
 
+	// RequiredPricingFields returns fields required for pricing plan creation
+	RequiredPricingFields() []string
+}
+
+// GatewaySync defines the interface for gateways that support synchronization.
+// This combines GatewayCapabilities with the sync operation.
+type GatewaySync interface {
+	GatewayCapabilities
 	// SyncPlan synchronizes a pricing plan with the gateway
 	// Creates products and prices in the gateway for the given plan
 	SyncPlan(ctx context.Context, plan *PricingPlanInfo) (*SyncResult, error)
+}
 
-	// GetLogo returns the logo image data for this gateway
-	// Returns the raw logo bytes for public display
-	GetLogo(ctx context.Context) ([]byte, error)
+// PaymentGateway defines the interface for payment gateway implementations.
+// It composes all the optional interfaces, allowing gateways to implement only the functionality they support.
+// All gateways must implement at least GatewayIdentity.
+type PaymentGateway interface {
+	// All gateways must implement GatewayIdentity
+	GatewayIdentity
 }
 
 // CheckoutUIResponse represents UI fragments for checkout flows
 type CheckoutUIResponse struct {
 	// Fragments provide flexible UI rendering - gateways return what they need
-	Fragments []CheckoutUIFragment `json:"fragments"`
-	
+	Fragments []CheckoutUIFragment `json:"fragements"`
+
 	// Session identifier for tracking (gateway-specific)
 	// e.g., Stripe session ID, PayPal order ID
 	SessionID string `json:"session_id,omitempty"`
-	
+
 	// When this checkout UI expires (if applicable)
 	ExpiresAt time.Time `json:"expires_at,omitempty"`
-	
+
 	// Gateway-specific metadata
 	Metadata map[string]any `json:"metadata,omitempty"`
 }
@@ -125,21 +166,6 @@ const (
 	FragmentTypeForm FragmentType = "form"
 )
 
-// GatewaySyncCapabilities declares synchronization capabilities for gateways
-type GatewaySyncCapabilities interface {
-	// SupportsProductSync returns true if gateway supports product/price synchronization
-	SupportsProductSync() bool
-
-	// SupportsPriceUpdates returns true if gateway supports updating existing prices
-	SupportsPriceUpdates() bool
-
-	// SupportsPlanDeletion returns true if gateway supports deleting plans
-	SupportsPlanDeletion() bool
-
-	// RequiredPricingFields returns fields required for pricing plan creation
-	RequiredPricingFields() []string
-}
-
 // SyncResult represents the result of pricing plan synchronization with a gateway
 type SyncResult struct {
 	Success               bool   // Whether synchronization succeeded
@@ -148,4 +174,98 @@ type SyncResult struct {
 	YearlyPriceID         string // Gateway's yearly price identifier
 	PortalConfigurationID string // Gateway's portal configuration identifier
 	Error                 error  // Error if synchronization failed
+}
+
+// GatewayHelpers provides utility functions for checking and accessing gateway sub-interfaces.
+// These helpers provide a safe, idiomatic way to check for and cast to specific gateway capabilities.
+
+// IsWebhookHandler checks if the gateway implements the WebhookHandler interface.
+func IsWebhookHandler(gateway PaymentGateway) bool {
+	_, ok := gateway.(WebhookHandler)
+	return ok
+}
+
+// AsWebhookHandler attempts to cast the gateway to WebhookHandler.
+// Returns nil and an error if the gateway does not implement WebhookHandler.
+func AsWebhookHandler(gateway PaymentGateway) (WebhookHandler, error) {
+	handler, ok := gateway.(WebhookHandler)
+	if !ok {
+		return nil, ErrGatewayNotSupported
+	}
+	return handler, nil
+}
+
+// IsCustomerPortal checks if the gateway implements the CustomerPortal interface.
+func IsCustomerPortal(gateway PaymentGateway) bool {
+	_, ok := gateway.(CustomerPortal)
+	return ok
+}
+
+// AsCustomerPortal attempts to cast the gateway to CustomerPortal.
+// Returns nil and an error if the gateway does not implement CustomerPortal.
+func AsCustomerPortal(gateway PaymentGateway) (CustomerPortal, error) {
+	portal, ok := gateway.(CustomerPortal)
+	if !ok {
+		return nil, ErrGatewayNotSupported
+	}
+	return portal, nil
+}
+
+// IsCheckoutProvider checks if the gateway implements the CheckoutProvider interface.
+func IsCheckoutProvider(gateway PaymentGateway) bool {
+	_, ok := gateway.(CheckoutProvider)
+	return ok
+}
+
+// AsCheckoutProvider attempts to cast the gateway to CheckoutProvider.
+// Returns nil and an error if the gateway does not implement CheckoutProvider.
+func AsCheckoutProvider(gateway PaymentGateway) (CheckoutProvider, error) {
+	provider, ok := gateway.(CheckoutProvider)
+	if !ok {
+		return nil, ErrGatewayNotSupported
+	}
+	return provider, nil
+}
+
+// IsGatewayCapabilities checks if the gateway implements the GatewayCapabilities interface.
+func IsGatewayCapabilities(gateway PaymentGateway) bool {
+	_, ok := gateway.(GatewayCapabilities)
+	return ok
+}
+
+// AsGatewayCapabilities attempts to cast the gateway to GatewayCapabilities.
+// Returns nil and an error if the gateway does not implement GatewayCapabilities.
+func AsGatewayCapabilities(gateway PaymentGateway) (GatewayCapabilities, error) {
+	caps, ok := gateway.(GatewayCapabilities)
+	if !ok {
+		return nil, ErrGatewayNotSupported
+	}
+	return caps, nil
+}
+
+// IsGatewaySync checks if the gateway implements the GatewaySync interface.
+func IsGatewaySync(gateway PaymentGateway) bool {
+	_, ok := gateway.(GatewaySync)
+	return ok
+}
+
+// AsGatewaySync attempts to cast the gateway to GatewaySync.
+// Returns nil and an error if the gateway does not implement GatewaySync.
+func AsGatewaySync(gateway PaymentGateway) (GatewaySync, error) {
+	sync, ok := gateway.(GatewaySync)
+	if !ok {
+		return nil, ErrGatewayNotSupported
+	}
+	return sync, nil
+}
+
+// FullPaymentGateway is a composite interface for testing that includes all gateway sub-interfaces.
+// This interface is used for mocking in tests where all gateway functionality is needed.
+type FullPaymentGateway interface {
+	PaymentGateway
+	WebhookHandler
+	CustomerPortal
+	CheckoutProvider
+	GatewayCapabilities
+	GatewaySync
 }
