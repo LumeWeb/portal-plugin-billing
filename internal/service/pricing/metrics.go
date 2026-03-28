@@ -19,6 +19,9 @@ var (
 	SyncDuration *prometheus.HistogramVec
 )
 
+// metricLabelReasonError is the label value for sync errors due to interface not implemented
+const metricLabelReasonInterfaceNotImplemented = "interface_not_implemented"
+
 func init() {
 	SyncAttempts = prometheus.NewCounterVec(
 		prometheus.CounterOpts{

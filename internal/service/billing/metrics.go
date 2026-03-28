@@ -11,6 +11,7 @@ const (
 	MetricSubscriberCreated     = "subscriber_created_total"
 	MetricSubscriberUpdated     = "subscriber_updated_total"
 	MetricSubscriberDeactivated = "subscriber_deactivated_total"
+	MetricCheckoutUIErrorsTotal = "checkout_ui_errors_total"
 )
 
 const (
@@ -24,6 +25,7 @@ var (
 	SubscriberCreated     *prometheus.CounterVec
 	SubscriberUpdated     *prometheus.CounterVec
 	SubscriberDeactivated *prometheus.CounterVec
+	CheckoutUIErrors      *prometheus.CounterVec
 )
 
 func init() {
@@ -67,5 +69,13 @@ func init() {
 			Help:      "Total number of subscribers deactivated",
 		},
 		[]string{"gateway_type", "status"},
+	)
+	CheckoutUIErrors = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name:      MetricCheckoutUIErrorsTotal,
+			Subsystem: pluginCore.BILLING_SERVICE,
+			Help:      "Total number of checkout UI errors",
+		},
+		[]string{"gateway_type", "error_type"},
 	)
 }

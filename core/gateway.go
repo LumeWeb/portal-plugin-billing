@@ -122,8 +122,8 @@ type PaymentGateway interface {
 
 // CheckoutUIResponse represents UI fragments for checkout flows
 type CheckoutUIResponse struct {
-	// Fragments provide flexible UI rendering - gateways return what they need
-	Fragments []CheckoutUIFragment `json:"fragements"`
+		// Fragments provide flexible UI rendering - gateways return what they need
+	Fragments []CheckoutUIFragment `json:"fragments"`
 
 	// Session identifier for tracking (gateway-specific)
 	// e.g., Stripe session ID, PayPal order ID

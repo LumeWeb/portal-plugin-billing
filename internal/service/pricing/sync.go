@@ -145,6 +145,7 @@ func (s *SyncManager) syncGatewayPlan(
 
 	capabilities, err := pluginCore.AsGatewayCapabilities(gateway)
 	if err != nil {
+		SyncFailures.WithLabelValues(gatewayID).Inc()
 		return nil, fmt.Errorf("gateway %s does not implement GatewayCapabilities", gatewayID)
 	}
 
