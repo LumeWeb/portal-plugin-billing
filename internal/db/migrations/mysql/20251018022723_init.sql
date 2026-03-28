@@ -1,5 +1,4 @@
 -- +goose Up
--- +goose StatementBegin
 -- Webhook Events Table
 CREATE TABLE IF NOT EXISTS billing_webhook_events (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -107,7 +106,6 @@ CREATE TABLE IF NOT EXISTS billing_priceline_assignments (
     CONSTRAINT fk_billing_priceline_assignments_price_lines FOREIGN KEY (price_line_id) REFERENCES billing_pricelines(id) ON DELETE CASCADE,
     UNIQUE KEY uniq_user_assignment (user_id)
 );
--- +goose StatementEnd
 
 -- Gateway Product Mappings Table
 CREATE TABLE IF NOT EXISTS billing_gateway_product_mappings (
@@ -133,7 +131,6 @@ CREATE TABLE IF NOT EXISTS billing_gateway_product_mappings (
 );
 
 -- +goose Down
--- +goose StatementBegin
 DROP TABLE IF EXISTS billing_gateway_product_mappings;
 DROP TABLE IF EXISTS billing_priceline_assignments;
 DROP TABLE IF EXISTS billing_priceline_plans;
@@ -141,4 +138,3 @@ DROP TABLE IF EXISTS billing_pricelines;
 DROP TABLE IF EXISTS billing_pricing_plans;
 DROP TABLE IF EXISTS billing_subscribers;
 DROP TABLE IF EXISTS billing_webhook_events;
--- +goose StatementEnd
