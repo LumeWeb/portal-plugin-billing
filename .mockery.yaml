@@ -6,10 +6,15 @@ packages:
   go.lumeweb.com/portal-plugin-billing/core:
     interfaces:
       BillingService: {}
-      PaymentGateway: {}
       PricingService: {}
-      SubscriptionExecutor: {}
-      SubscriptionManager: {}
+      GatewayIdentity: {}
+      WebhookHandler: {}
+      CustomerPortal: {}
+      CheckoutProvider: {}
+      GatewayCapabilities: {}
+      GatewaySync: {}
+      # Test-specific composite interface that includes all gateway interfaces
+      FullPaymentGateway: {}
   go.lumeweb.com/portal-plugin-billing/internal/service/pricing:
     config:
       dir: internal/service/pricing/

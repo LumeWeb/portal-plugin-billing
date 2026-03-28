@@ -118,10 +118,16 @@ func (r *Registry) ValidateWebhook(ctx context.Context, gatewayType string, sign
 		return pluginCore.ErrGatewayNotFound
 	}
 
-	err := gw.ValidateWebhook(ctx, signature, payload)
-	if err != nil {
+	webhookHandler, handlerErr := pluginCore.AsWebhookHandler(gw)
+	if handlerErr != nil {
 		WebhookValidated.WithLabelValues(gatewayType, LabelStatusError).Inc()
-		return err
+		return fmt.Errorf("gateway %s does not implement WebhookHandler", gatewayType)
+	}
+
+	validationErr := webhookHandler.ValidateWebhook(ctx, signature, payload)
+	if validationErr != nil {
+		WebhookValidated.WithLabelValues(gatewayType, LabelStatusError).Inc()
+		return validationErr
 	}
 	WebhookValidated.WithLabelValues(gatewayType, LabelStatusSuccess).Inc()
 	return nil
@@ -136,7 +142,12 @@ func (r *Registry) GetSignatureHeader(ctx context.Context, gatewayType string) (
 	if !exists {
 		return "", pluginCore.ErrGatewayNotFound
 	}
-	return gw.SignatureHeader(ctx), nil
+
+	webhookHandler, err := pluginCore.AsWebhookHandler(gw)
+	if err != nil {
+		return "", fmt.Errorf("gateway %s does not implement WebhookHandler", gatewayType)
+	}
+	return webhookHandler.SignatureHeader(ctx), nil
 }
 
 // HandleWebhook handles a webhook for a specific gateway
@@ -150,10 +161,16 @@ func (r *Registry) HandleWebhook(ctx context.Context, gatewayType string, payloa
 		return pluginCore.ErrGatewayNotFound
 	}
 
-	err := gw.HandleWebhook(ctx, payload)
-	if err != nil {
+	webhookHandler, handlerErr := pluginCore.AsWebhookHandler(gw)
+	if handlerErr != nil {
 		WebhookHandled.WithLabelValues(gatewayType, LabelStatusError).Inc()
-		return err
+		return fmt.Errorf("gateway %s does not implement WebhookHandler", gatewayType)
+	}
+
+	handleErr := webhookHandler.HandleWebhook(ctx, payload)
+	if handleErr != nil {
+		WebhookHandled.WithLabelValues(gatewayType, LabelStatusError).Inc()
+		return handleErr
 	}
 	WebhookHandled.WithLabelValues(gatewayType, LabelStatusSuccess).Inc()
 	return nil
@@ -169,7 +186,12 @@ func (r *Registry) ExtractEventID(ctx context.Context, gatewayType string, paylo
 		return "", pluginCore.ErrGatewayNotFound
 	}
 
-	return gw.ExtractEventID(ctx, payload)
+	webhookHandler, err := pluginCore.AsWebhookHandler(gw)
+	if err != nil {
+		return "", fmt.Errorf("gateway %s does not implement WebhookHandler", gatewayType)
+	}
+
+	return webhookHandler.ExtractEventID(ctx, payload)
 }
 
 // ExtractEventType extracts the event type from a webhook payload for a specific gateway
@@ -182,5 +204,10 @@ func (r *Registry) ExtractEventType(ctx context.Context, gatewayType string, pay
 		return "", pluginCore.ErrGatewayNotFound
 	}
 
-	return gw.ExtractEventType(ctx, payload)
+	webhookHandler, err := pluginCore.AsWebhookHandler(gw)
+	if err != nil {
+		return "", fmt.Errorf("gateway %s does not implement WebhookHandler", gatewayType)
+	}
+
+	return webhookHandler.ExtractEventType(ctx, payload)
 }
