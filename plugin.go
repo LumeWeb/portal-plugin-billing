@@ -14,6 +14,7 @@ import (
 	"go.lumeweb.com/portal-plugin-billing/internal/gateway"
 	"go.lumeweb.com/portal-plugin-billing/internal/gateway/stripe"
 	billing "go.lumeweb.com/portal-plugin-billing/internal/service/billing"
+	"go.lumeweb.com/portal-plugin-billing/internal/service/credit"
 	"go.lumeweb.com/portal-plugin-billing/internal/service/pricing"
 	"go.lumeweb.com/portal/core"
 )
@@ -27,8 +28,9 @@ func GetPluginInfo() core.PluginInfo {
 		Depends: []string{"quota"},
 		Services: func() ([]core.ServiceInfo, error) {
 			return []core.ServiceInfo{
-				{ID: internal.PLUGIN_NAME, Factory: billing.NewBillingService},
+				{ID: internal.PLUGIN_NAME, Factory: billing.NewBillingService, Depends: []string{PRICING_SERVICE, pluginCore.CREDIT_SERVICE}},
 				{ID: PRICING_SERVICE, Factory: pricing.NewPricingService},
+				{ID: pluginCore.CREDIT_SERVICE, Factory: credit.NewCreditService},
 			}, nil
 		},
 		APIExtensions: func(ctx core.Context) ([]core.APIExtensionFactory, error) {
@@ -56,6 +58,9 @@ func GetPluginInfo() core.PluginInfo {
 			&models.PriceLinePlan{},
 			&models.PriceLineAssignment{},
 			&models.GatewayProductMapping{},
+			&models.CreditModel{},
+			&models.CreditActiveView{},
+			&models.CreditsBalanceView{},
 		},
 		Migrations: core.DBMigration{
 			core.DB_TYPE_MYSQL:  migrations.GetMySQL(),
