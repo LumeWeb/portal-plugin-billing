@@ -132,13 +132,13 @@ CREATE TABLE IF NOT EXISTS billing_gateway_product_mappings (
 
 -- Credits Table
 CREATE TABLE IF NOT EXISTS billing_credits (
-    id TEXT PRIMARY KEY,
+    id CHAR(36) PRIMARY KEY,
     user_id BIGINT UNSIGNED NOT NULL,
     amount DECIMAL(10, 2) NOT NULL,
-    type TEXT NOT NULL,
-    direction TEXT NOT NULL,
-    reference_id TEXT,
-    reference_type TEXT,
+    type VARCHAR(100) NOT NULL,
+    direction VARCHAR(50) NOT NULL,
+    reference_id VARCHAR(255),
+    reference_type VARCHAR(100),
     description TEXT,
     metadata TEXT,
     created_by BIGINT UNSIGNED NOT NULL,
