@@ -31,5 +31,7 @@ func getAdminAPITestOptions() coreTesting.TestContextBuilderOption {
 		coreTesting.WithMockServiceFactory(pluginCore.BILLING_SERVICE, pluginCore.NewMockBillingService, &pluginConfig.ServiceConfig{}),
 		// Add PricingService mock for pricing plan tests
 		coreTesting.WithMockServiceFactory(pluginCore.PRICING_SERVICE, pluginCore.NewMockPricingService, &pluginConfig.ServiceConfig{}),
+		// Add CreditService mock for credit endpoint tests
+		coreTesting.WithMockServiceFactory(pluginCore.CREDIT_SERVICE, pluginCore.NewMockCreditService, &pluginConfig.ServiceConfig{}),
 	)
 }

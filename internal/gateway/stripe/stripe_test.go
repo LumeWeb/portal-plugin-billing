@@ -13,10 +13,10 @@ import (
 	"github.com/stripe/stripe-go/v83/webhook"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
 	pluginConfig "go.lumeweb.com/portal-plugin-billing/internal/config"
+	billingModels "go.lumeweb.com/portal-plugin-billing/internal/db/models"
 	quotaCore "go.lumeweb.com/portal-plugin-quota/core"
 	"go.lumeweb.com/portal/core"
 	coreTesting "go.lumeweb.com/portal/core/testing"
-	billingModels "go.lumeweb.com/portal-plugin-billing/internal/db/models"
 	portalModels "go.lumeweb.com/portal/db/models"
 	"gorm.io/gorm"
 )
@@ -38,18 +38,19 @@ func TestMain(m *testing.M) {
 		coreTesting.WithMockServiceFactory(quotaCore.QUOTA_SERVICE, quotaCore.NewMockQuotaService, &quotaCore.QuotaConfig{}),
 		coreTesting.WithMockServiceFactory(pluginCore.BILLING_SERVICE, pluginCore.NewMockBillingService, &pluginConfig.ServiceConfig{}),
 		coreTesting.WithMockServiceFactory(pluginCore.PRICING_SERVICE, pluginCore.NewMockPricingService, coreTesting.NewConfigBuilder().Build()),
+		coreTesting.WithMockServiceFactory(pluginCore.CREDIT_SERVICE, pluginCore.NewMockCreditService, coreTesting.NewConfigBuilder().Build()),
 	)
 }
 
 func TestStripeGateway_ID(t *testing.T) {
 	ctx, _ := coreTesting.NewTestContext(t)
-	gw := New(ctx.Logger(), TestWebhookSecret, "", nil, nil, nil, nil)
+	gw := New(ctx.Logger(), TestWebhookSecret, "", nil, nil, nil, nil, nil)
 	assert.Equal(t, "stripe", gw.ID(context.Background()))
 }
 
 func TestStripeGateway_SignatureHeader(t *testing.T) {
 	ctx, _ := coreTesting.NewTestContext(t)
-	gw := New(ctx.Logger(), TestWebhookSecret, "", nil, nil, nil, nil)
+	gw := New(ctx.Logger(), TestWebhookSecret, "", nil, nil, nil, nil, nil)
 	assert.Equal(t, "Stripe-Signature", gw.SignatureHeader(context.Background()))
 }
 
@@ -144,7 +145,7 @@ func TestStripeGateway_ValidateWebhook(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx, _ := coreTesting.NewTestContext(t)
-			gw := New(ctx.Logger(), tt.secret, "", nil, nil, nil, nil)
+			gw := New(ctx.Logger(), tt.secret, "", nil, nil, nil, nil, nil)
 
 			err := gw.ValidateWebhook(context.Background(), tt.signature, tt.payload)
 			if tt.expectError {
@@ -220,20 +221,20 @@ func setupMockServices(ctx coreTesting.TestContext) (*quotaCore.MockQuotaService
 // Helper function to setup mocks for subscription activation scenarios
 func setupSubscriptionActivationMocks(mockQuota *quotaCore.MockQuotaService, mockUsers *coreTesting.MockUserService, mockBilling *pluginCore.MockBillingService, mockPricing *pluginCore.MockPricingService, userID uint, pricingPlanID, quotaPlanID uint) {
 	mockUsers.EXPECT().AccountExists(mock.Anything, userID).Return(true, createTestUser(userID), nil)
-	
+
 	// Mock pricing service to return PricingPlan with QuotaPlanID
 	pricingPlan := &billingModels.PricingPlan{
-		Model:      gorm.Model{ID: pricingPlanID},
+		Model:       gorm.Model{ID: pricingPlanID},
 		QuotaPlanID: &quotaPlanID,
-		Name:       "Test Plan",
+		Name:        "Test Plan",
 		Description: "Test Description",
 	}
 	mockPricing.EXPECT().GetPricingPlan(mock.Anything, pricingPlanID).Return(pricingPlan, nil)
-	
+
 	// Mock quota service calls with QuotaPlanID (not PricingPlanID)
 	mockQuota.EXPECT().GetQuotaPlan(mock.Anything, quotaPlanID).Return(&quotaCore.QuotaPlan{}, nil)
 	mockQuota.EXPECT().AssignUserToPlan(mock.Anything, userID, quotaPlanID).Return(nil)
-	
+
 	// Billing service still tracks with PricingPlanID
 	mockBilling.EXPECT().CreateOrUpdateSubscriber(mock.Anything, userID, "stripe", TestCustomerID, TestSubscriptionID, true, mock.AnythingOfType("*uint")).Return(nil)
 }
@@ -259,7 +260,7 @@ func runSubscriptionActivationTest(t *testing.T, eventType string, pricingPlanID
 		mockSubService.SetupGetSuccess(&subscription)
 		setupSubscriptionActivationMocks(mockQuota, mockUsers, mockBilling, mockPricing, TestUserID, pricingPlanID, quotaPlanID)
 
-		gw := New(ctx.Logger(), TestWebhookSecret, "", mockQuota, mockUsers, mockBilling, mockPricing)
+		gw := New(ctx.Logger(), TestWebhookSecret, "", mockQuota, mockUsers, mockBilling, mockPricing, nil)
 		gw.subService = mockSubService
 		err := gw.HandleWebhook(context.Background(), payload)
 
@@ -281,7 +282,7 @@ func runSubscriptionDeactivationTest(t *testing.T, eventType string) {
 		mockSubService.SetupGetSuccess(&subscription)
 		setupSubscriptionDeactivationMocks(mockQuota, mockUsers, mockBilling, TestUserID)
 
-		gw := New(ctx.Logger(), TestWebhookSecret, "", mockQuota, mockUsers, mockBilling, nil)
+		gw := New(ctx.Logger(), TestWebhookSecret, "", mockQuota, mockUsers, mockBilling, nil, nil)
 		gw.subService = mockSubService
 		err := gw.HandleWebhook(context.Background(), payload)
 
@@ -305,7 +306,7 @@ func TestStripeGateway_HandleWebhook_UnknownEvent(t *testing.T) {
 
 	ctx, _ := coreTesting.NewTestContext(t)
 
-	gw := New(ctx.Logger(), TestWebhookSecret, "", nil, nil, nil, nil)
+	gw := New(ctx.Logger(), TestWebhookSecret, "", nil, nil, nil, nil, nil)
 	err := gw.HandleWebhook(context.Background(), payload)
 	assert.NoError(t, err)
 }
@@ -349,7 +350,7 @@ func TestStripeGateway_ExtractEventID(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx, _ := coreTesting.NewTestContext(t)
-			gw := New(ctx.Logger(), TestWebhookSecret, "", nil, nil, nil, nil)
+			gw := New(ctx.Logger(), TestWebhookSecret, "", nil, nil, nil, nil, nil)
 
 			eventID, err := gw.ExtractEventID(context.Background(), tt.payload)
 			if tt.expectError {
@@ -401,7 +402,7 @@ func TestStripeGateway_ExtractEventType(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx, _ := coreTesting.NewTestContext(t)
-			gw := New(ctx.Logger(), TestWebhookSecret, "", nil, nil, nil, nil)
+			gw := New(ctx.Logger(), TestWebhookSecret, "", nil, nil, nil, nil, nil)
 
 			eventType, err := gw.ExtractEventType(context.Background(), tt.payload)
 			if tt.expectError {
@@ -427,7 +428,7 @@ func TestStripeGateway_HandleWebhook_InvalidPayload(t *testing.T) {
 	signedPayload := webhook.GenerateTestSignedPayload(unsignedPayload)
 
 	ctx, _ := coreTesting.NewTestContext(t)
-	gw := New(ctx.Logger(), secret, "", nil, nil, nil, nil)
+	gw := New(ctx.Logger(), secret, "", nil, nil, nil, nil, nil)
 	err := gw.HandleWebhook(context.Background(), signedPayload.Payload)
 	assert.Error(t, err)
 }
@@ -445,7 +446,7 @@ func TestStripeGateway_HandleWebhook_UserNotFound(t *testing.T) {
 		mockSubService.SetupGetSuccess(&subscription)
 		mockUsers.EXPECT().AccountExists(mock.Anything, TestUserID).Return(false, nil, nil)
 
-		gw := New(ctx.Logger(), TestWebhookSecret, "", mockQuota, mockUsers, nil, nil)
+		gw := New(ctx.Logger(), TestWebhookSecret, "", mockQuota, mockUsers, nil, nil, nil)
 		gw.subService = mockSubService
 		err := gw.HandleWebhook(context.Background(), payload)
 
@@ -467,7 +468,7 @@ func TestStripeGateway_HandleWebhook_MissingPlanID(t *testing.T) {
 		mockSubService.SetupGetSuccess(&subscription)
 		setupSubscriptionDeactivationMocks(mockQuota, mockUsers, mockBilling, TestUserID)
 
-		gw := New(ctx.Logger(), TestWebhookSecret, "", mockQuota, mockUsers, mockBilling, nil)
+		gw := New(ctx.Logger(), TestWebhookSecret, "", mockQuota, mockUsers, mockBilling, nil, nil)
 		gw.subService = mockSubService
 		err := gw.HandleWebhook(context.Background(), payload)
 
@@ -503,7 +504,7 @@ func TestStripeGateway_HandleWebhook_NilSubscriptionItems(t *testing.T) {
 		mockSubService.SetupGetSuccess(&subscription)
 		setupSubscriptionDeactivationMocks(mockQuota, mockUsers, mockBilling, TestUserID)
 
-		gw := New(ctx.Logger(), TestWebhookSecret, "", mockQuota, mockUsers, mockBilling, nil)
+		gw := New(ctx.Logger(), TestWebhookSecret, "", mockQuota, mockUsers, mockBilling, nil, nil)
 		gw.subService = mockSubService
 		err := gw.HandleWebhook(context.Background(), payload)
 
@@ -557,7 +558,7 @@ func TestStripeGateway_HandleWebhook_SubscriptionUpdated_CancellationRequest(t *
 
 		mockSubService.SetupGetSuccess(&subscription)
 
-		gw := New(ctx.Logger(), TestWebhookSecret, "", mockQuota, mockUsers, mockBilling, nil)
+		gw := New(ctx.Logger(), TestWebhookSecret, "", mockQuota, mockUsers, mockBilling, nil, nil)
 		gw.subService = mockSubService
 		err := gw.HandleWebhook(context.Background(), payload)
 
@@ -609,7 +610,7 @@ func TestStripeGateway_HandleWebhook_SubscriptionUpdated_AllPricesNil(t *testing
 		mockSubService.SetupGetSuccess(&subscription)
 		setupSubscriptionDeactivationMocks(mockQuota, mockUsers, mockBilling, TestUserID)
 
-		gw := New(ctx.Logger(), TestWebhookSecret, "", mockQuota, mockUsers, mockBilling, nil)
+		gw := New(ctx.Logger(), TestWebhookSecret, "", mockQuota, mockUsers, mockBilling, nil, nil)
 		gw.subService = mockSubService
 		err := gw.HandleWebhook(context.Background(), payload)
 
@@ -658,7 +659,7 @@ func TestStripeGateway_GetCustomerPortalURL_Success(t *testing.T) {
 			}).
 			Return(mockSession, nil)
 
-		gw := New(ctx.Logger(), TestWebhookSecret, "test_api_key", nil, nil, mockBilling, nil)
+		gw := New(ctx.Logger(), TestWebhookSecret, "test_api_key", nil, nil, mockBilling, nil, nil)
 		gw.stripeClient = mockStripeClient
 
 		url, err := gw.GetCustomerPortalURL(context.Background(), 123, "https://example.com/return")
@@ -671,16 +672,14 @@ func TestStripeGateway_GetCustomerPortalURL_Success(t *testing.T) {
 func TestStripeGateway_HandleWebhook_CheckoutSessionCompleted(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		mockQuota, mockUsers, mockBilling, mockPricing := setupMockServices(ctx)
-		mockSubService := &MockSubscriptionRetriever{}
 
-		pricingPlanID := uint(3)
-		quotaPlanID := uint(30) // Different ID to test the mapping
 		userID := uint(456)
 		customerID := "cus_456"
 
 		checkoutSession := stripe.CheckoutSession{
 			ID:                "cs_test_123",
 			ClientReferenceID: strconv.FormatUint(uint64(userID), 10),
+			Customer:          &stripe.Customer{ID: customerID},
 			Subscription:      &stripe.Subscription{ID: "sub_456"},
 			Mode:              stripe.CheckoutSessionModeSubscription,
 		}
@@ -688,61 +687,13 @@ func TestStripeGateway_HandleWebhook_CheckoutSessionCompleted(t *testing.T) {
 		event := createTestEvent(EventTypeCheckoutSessionCompleted, rawData)
 		payload, _ := json.Marshal(event)
 
-		// Setup subscription mock for the expanded subscription call
-		testSubscription := &stripe.Subscription{
-			ID: "sub_456",
-			Customer: &stripe.Customer{
-				ID: customerID,
-			},
-			Items: &stripe.SubscriptionItemList{
-				Data: []*stripe.SubscriptionItem{
-					{
-						Price: &stripe.Price{
-							ID: "price_456",
-							Product: &stripe.Product{
-								ID: "prod_456",
-								Metadata: map[string]string{
-									PlanIDMetadataKey: strconv.FormatUint(uint64(pricingPlanID), 10),
-								},
-							},
-						},
-					},
-				},
-			},
-		}
-		mockSubService.On("Get", mock.Anything, "sub_456", mock.MatchedBy(func(params *stripe.SubscriptionRetrieveParams) bool {
-			if params == nil {
-				return false
-			}
-			for _, expand := range params.Expand {
-				if *expand == "items.data.price.product" {
-					return true
-				}
-			}
-			return false
-		})).Return(testSubscription, nil)
+		// Setup mocks - checkout.session.completed only creates pending subscriber, does not activate
+		// No user check needed in checkout.session.completed flow
 
-		// Setup mocks
-		mockUsers.EXPECT().AccountExists(mock.Anything, userID).Return(true, createTestUser(userID), nil)
-		
-		// Mock pricing service to return PricingPlan with QuotaPlanID
-		pricingPlan := &billingModels.PricingPlan{
-			Model:      gorm.Model{ID: pricingPlanID},
-			QuotaPlanID: &quotaPlanID,
-			Name:       "Test Plan",
-			Description: "Test Description",
-		}
-		mockPricing.EXPECT().GetPricingPlan(mock.Anything, pricingPlanID).Return(pricingPlan, nil)
-		
-		// Mock quota service calls with QuotaPlanID (not PricingPlanID)
-		mockQuota.EXPECT().GetQuotaPlan(mock.Anything, quotaPlanID).Return(&quotaCore.QuotaPlan{}, nil)
-		mockQuota.EXPECT().AssignUserToPlan(mock.Anything, userID, quotaPlanID).Return(nil)
-		
-		// Billing service still tracks with PricingPlanID
-		mockBilling.EXPECT().CreateOrUpdateSubscriber(mock.Anything, userID, "stripe", customerID, "sub_456", true, mock.AnythingOfType("*uint")).Return(nil)
+		// Billing service creates a pending (inactive) subscriber
+		mockBilling.EXPECT().CreateOrUpdateSubscriber(mock.Anything, userID, "stripe", customerID, "sub_456", false, mock.AnythingOfType("*uint")).Return(nil)
 
-		gw := New(ctx.Logger(), TestWebhookSecret, "test_api_key", mockQuota, mockUsers, mockBilling, mockPricing)
-		gw.subService = mockSubService
+		gw := New(ctx.Logger(), TestWebhookSecret, "test_api_key", mockQuota, mockUsers, mockBilling, mockPricing, nil)
 
 		err := gw.HandleWebhook(context.Background(), payload)
 
@@ -757,7 +708,7 @@ func TestStripeGateway_GetCustomerPortalURL_NoActiveSubscription(t *testing.T) {
 		// Mock no active subscription
 		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, uint(123)).Return((*pluginCore.Subscriber)(nil), nil)
 
-		gw := New(ctx.Logger(), TestWebhookSecret, "", nil, nil, mockBilling, nil)
+		gw := New(ctx.Logger(), TestWebhookSecret, "", nil, nil, mockBilling, nil, nil)
 
 		url, err := gw.GetCustomerPortalURL(context.Background(), 123, "https://example.com/return")
 
@@ -777,7 +728,7 @@ func TestStripeGateway_ExtractUserIDFromSubscription_DatabaseFallback(t *testing
 		mockCustomerRetriever := &mockCustomerRetriever{}
 
 		// Setup gateway with mock services and inject the mock customer retriever
-		gw := New(ctx.Logger(), TestWebhookSecret, "", nil, mockUser, mockBilling, nil)
+		gw := New(ctx.Logger(), TestWebhookSecret, "", nil, mockUser, mockBilling, nil, nil)
 		gw.SetCustomerRetrieverForTesting(mockCustomerRetriever)
 
 		// Test case 1: Customer metadata has user_id
@@ -858,7 +809,7 @@ func TestStripeGateway_GetCustomerPortalURL_SessionCreateError(t *testing.T) {
 			On("Create", mock.Anything, mock.AnythingOfType("*stripe.BillingPortalSessionCreateParams")).
 			Return((*stripe.BillingPortalSession)(nil), assert.AnError)
 
-		gw := New(ctx.Logger(), TestWebhookSecret, "test_api_key", nil, nil, mockBilling, nil)
+		gw := New(ctx.Logger(), TestWebhookSecret, "test_api_key", nil, nil, mockBilling, nil, nil)
 		gw.stripeClient = mockStripeClient
 
 		url, err := gw.GetCustomerPortalURL(context.Background(), 123, "https://example.com/return")
@@ -881,7 +832,7 @@ func TestStripeGateway_GetCustomerPortalURL_NonStripeSubscription(t *testing.T) 
 		}
 		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, uint(123)).Return(mockSubscriber, nil)
 
-		gw := New(ctx.Logger(), TestWebhookSecret, "", nil, nil, mockBilling, nil)
+		gw := New(ctx.Logger(), TestWebhookSecret, "", nil, nil, mockBilling, nil, nil)
 
 		url, err := gw.GetCustomerPortalURL(context.Background(), 123, "https://example.com/return")
 
@@ -911,7 +862,7 @@ func TestStripeGateway_GetCustomerPortalURL_BillingServiceError(t *testing.T) {
 		// Mock billing service error
 		mockBilling.On("GetActiveSubscription", mock.Anything, uint(123)).Return((*pluginCore.Subscriber)(nil), assert.AnError)
 
-		gw := New(ctx.Logger(), TestWebhookSecret, "", nil, nil, mockBilling, nil)
+		gw := New(ctx.Logger(), TestWebhookSecret, "", nil, nil, mockBilling, nil, nil)
 
 		url, err := gw.GetCustomerPortalURL(context.Background(), 123, "https://example.com/return")
 
@@ -937,7 +888,7 @@ func TestStripeGateway_GetCustomerPortalURL_InvalidCustomerID(t *testing.T) {
 		}
 		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, uint(123)).Return(mockSubscriber, nil)
 
-		gw := New(ctx.Logger(), TestWebhookSecret, "", nil, nil, mockBilling, nil)
+		gw := New(ctx.Logger(), TestWebhookSecret, "", nil, nil, mockBilling, nil, nil)
 
 		url, err := gw.GetCustomerPortalURL(context.Background(), 123, "https://example.com/return")
 
@@ -963,7 +914,7 @@ func TestStripeGateway_GetCustomerPortalURL_EmptyCustomerID(t *testing.T) {
 		}
 		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, uint(123)).Return(mockSubscriber, nil)
 
-		gw := New(ctx.Logger(), TestWebhookSecret, "", nil, nil, mockBilling, nil)
+		gw := New(ctx.Logger(), TestWebhookSecret, "", nil, nil, mockBilling, nil, nil)
 
 		url, err := gw.GetCustomerPortalURL(context.Background(), 123, "https://example.com/return")
 

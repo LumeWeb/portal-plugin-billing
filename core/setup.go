@@ -21,4 +21,5 @@ type GatewaySetupOptions struct {
 	HTTP       core.HTTPService
 	Quota      quotaCore.QuotaService
 	User       core.UserService
+	CreditSvc  CreditService
 }

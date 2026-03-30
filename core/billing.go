@@ -35,6 +35,8 @@ type BillingService interface {
 	GetActiveSubscriber(ctx context.Context, userID uint, gatewayType string) (*Subscriber, error)
 	// GetSubscriberByExternalID returns a subscriber by external ID and gateway type
 	GetSubscriberByExternalID(ctx context.Context, externalID, gatewayType string) (*Subscriber, error)
+	// GetSubscriberBySubscriptionID returns a subscriber by subscription ID and gateway type
+	GetSubscriberBySubscriptionID(ctx context.Context, subscriptionID, gatewayType string) (*Subscriber, error)
 	// IsUserActiveSubscriber checks if a user has an active subscription with any gateway
 	IsUserActiveSubscriber(ctx context.Context, userID uint) (bool, error)
 	// GetActiveSubscribersByGateway returns all active subscribers for a specific gateway

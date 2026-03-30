@@ -6,12 +6,15 @@ import (
 )
 
 const (
-	MetricCheckoutCompletedTotal    = "checkout_completed_total"
-	MetricCheckoutSessionCreated   = "checkout_session_created_total"
-	MetricSubscriptionActivated     = "subscription_activated_total"
-	MetricSubscriptionDeactivated   = "subscription_deactivated_total"
-	MetricSubscriptionUpdated       = "subscription_updated_total"
-	MetricCustomerPortalCreated     = "customer_portal_created_total"
+	MetricCheckoutCompletedTotal            = "checkout_completed_total"
+	MetricCheckoutSessionCreated           = "checkout_session_created_total"
+	MetricSubscriptionActivated             = "subscription_activated_total"
+	MetricSubscriptionDeactivated           = "subscription_deactivated_total"
+	MetricSubscriptionUpdated               = "subscription_updated_total"
+	MetricCustomerPortalCreated             = "customer_portal_created_total"
+	MetricInvoicePaidTotal                  = "invoice_paid_total"
+	MetricInvoicePaymentFailedTotal         = "invoice_payment_failed_total"
+	MetricInvoicePaymentActionRequiredTotal = "invoice_payment_action_required_total"
 )
 
 const (
@@ -20,12 +23,15 @@ const (
 )
 
 var (
-	CheckoutCompleted       *prometheus.CounterVec
-	CheckoutSessionCreated  *prometheus.CounterVec
-	SubscriptionActivated   *prometheus.CounterVec
-	SubscriptionDeactivated *prometheus.CounterVec
-	SubscriptionUpdated     *prometheus.CounterVec
-	CustomerPortalCreated   *prometheus.CounterVec
+	CheckoutCompleted            *prometheus.CounterVec
+	CheckoutSessionCreated       *prometheus.CounterVec
+	SubscriptionActivated        *prometheus.CounterVec
+	SubscriptionDeactivated      *prometheus.CounterVec
+	SubscriptionUpdated          *prometheus.CounterVec
+	CustomerPortalCreated        *prometheus.CounterVec
+	InvoicePaid                  *prometheus.CounterVec
+	InvoicePaymentFailed         *prometheus.CounterVec
+	InvoicePaymentActionRequired *prometheus.CounterVec
 )
 
 func init() {
@@ -75,5 +81,27 @@ func init() {
 			Help:      "Total number of customer portal sessions created",
 		},
 		[]string{"status"},
+	)
+	InvoicePaid = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name:      MetricInvoicePaidTotal,
+			Subsystem: pluginCore.BILLING_SERVICE,
+			Help:      "Total number of invoice payments processed",
+		},
+		[]string{"status"},
+	)
+	InvoicePaymentFailed = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name:      MetricInvoicePaymentFailedTotal,
+			Help:      "Total number of invoice payment failures",
+		},
+		[]string{},
+	)
+	InvoicePaymentActionRequired = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name:      MetricInvoicePaymentActionRequiredTotal,
+			Help:      "Total number of invoice payments requiring customer action",
+		},
+		[]string{},
 	)
 }

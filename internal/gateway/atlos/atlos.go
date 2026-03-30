@@ -11,6 +11,7 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/shopspring/decimal"
 	"go.lumeweb.com/atlos-sdk"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
 	"go.lumeweb.com/portal-plugin-billing/internal/gateway"
@@ -41,7 +42,7 @@ func Setup(opts pluginCore.GatewaySetupOptions, apiSecret string, merchantID str
 		return "", nil, nil
 	}
 
-	gw := New(opts.Logger, apiSecret, merchantID, opts.HTTP, opts.Quota, opts.User, opts.BillingSvc, opts.PricingSvc)
+	gw := New(opts.Logger, apiSecret, merchantID, opts.HTTP, opts.Quota, opts.User, opts.BillingSvc, opts.PricingSvc, opts.CreditSvc)
 	return fmt.Sprintf("ATLOS gateway registered successfully (merchant_id=%s)", merchantID), gw, nil
 }
 
@@ -55,6 +56,7 @@ type AtlosGateway struct {
 	users      core.UserService
 	billing    pluginCore.BillingService
 	pricing    pluginCore.PricingService
+	credit     pluginCore.CreditService
 }
 
 // New creates a new AtlosGateway instance
@@ -67,6 +69,7 @@ func New(
 	users core.UserService,
 	billing pluginCore.BillingService,
 	pricing pluginCore.PricingService,
+	credit pluginCore.CreditService,
 ) *AtlosGateway {
 	return &AtlosGateway{
 		logger:     logger,
@@ -77,6 +80,7 @@ func New(
 		users:      users,
 		billing:    billing,
 		pricing:    pricing,
+		credit:     credit,
 	}
 }
 
@@ -268,6 +272,36 @@ func (g *AtlosGateway) HandleWebhook(ctx context.Context, payload []byte) error 
 	// Create or update subscriber
 	if err := g.billing.CreateOrUpdateSubscriber(ctx, userID, g.ID(ctx), externalID, subscriptionID, true, &planID); err != nil {
 		return fmt.Errorf("failed to create or update subscriber: %w", err)
+	}
+
+	// Issue payment credit (if credit service available)
+	if g.credit != nil && notification.Amount > 0 {
+		g.logger.Debug("atlos payment has amount - credit integration available",
+			zap.Uint("user_id", userID),
+			zap.String("transaction_id", notification.TransactionId),
+			zap.Float64("amount", notification.Amount))
+
+		// Convert amount to decimal
+		amount := decimal.NewFromFloat(notification.Amount)
+
+		// Issue credit with idempotency to prevent duplicate credits from webhook retries
+		if err := g.credit.IssueCreditWithIdempotency(
+			ctx,
+			uint64(userID),
+			pluginCore.CreditTypeCharge,
+			amount,
+			pluginCore.ReferenceTypeAtlosPayment,
+			notification.TransactionId,
+			"ATLOS payment completed",
+			0, // createdBy: 0 for system
+		); err != nil {
+			return fmt.Errorf("failed to issue ATLOS payment credit: %w", err)
+		}
+
+		g.logger.Info("ATLOS payment credit issued successfully",
+			zap.Uint("user_id", userID),
+			zap.String("transaction_id", notification.TransactionId),
+			zap.String("amount", amount.String()))
 	}
 
 	g.logger.Debug("ATLOS payment webhook processed successfully",

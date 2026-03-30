@@ -89,6 +89,7 @@ func (s *BillingServiceDefault) registerGateways(c core.Context, ctx context.Con
 		HTTP:       core.GetService[core.HTTPService](c, core.HTTP_SERVICE),
 		Quota:      core.GetService[quotaCore.QuotaService](c, quotaCore.QUOTA_SERVICE),
 		User:       core.GetService[core.UserService](c, core.USER_SERVICE),
+		CreditSvc:  core.GetService[pluginCore.CreditService](c, pluginCore.CREDIT_SERVICE),
 	}
 
 	return s.setupGateways(ctx, opts)
@@ -368,6 +369,25 @@ func (s *BillingServiceDefault) GetSubscriberByExternalID(ctx context.Context, e
 	var subscriber models.Subscriber
 	err := db.RetryableComponentTransaction(s, ctx, func(tx *gorm.DB) *gorm.DB {
 		return tx.Where("external_id = ? AND gateway_type = ?", externalID, gatewayType).
+			Order("updated_at DESC").
+			First(&subscriber)
+	})
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &subscriber, nil
+}
+
+func (s *BillingServiceDefault) GetSubscriberBySubscriptionID(ctx context.Context, subscriptionID, gatewayType string) (*pluginCore.Subscriber, error) {
+	ctx, span := core.TraceMethod(ctx, "BillingServiceDefault.GetSubscriberBySubscriptionID")
+	defer span.End()
+
+	var subscriber models.Subscriber
+	err := db.RetryableComponentTransaction(s, ctx, func(tx *gorm.DB) *gorm.DB {
+		return tx.Where("subscription_id = ? AND gateway_type = ?", subscriptionID, gatewayType).
 			Order("updated_at DESC").
 			First(&subscriber)
 	})

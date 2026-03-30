@@ -64,6 +64,15 @@ const (
 	// Management errors
 	ErrKeyManagementCapabilitiesFailed  core.ErrorType = "MANAGEMENT_CAPABILITIES_FAILED"
 	ErrKeyManagementOperationFailed    core.ErrorType = "MANAGEMENT_OPERATION_FAILED"
+
+	// Credit errors
+	ErrKeyCreditCreateFailed   core.ErrorType = "CREDIT_CREATE_FAILED"
+	ErrKeyCreditNotFound       core.ErrorType = "CREDIT_NOT_FOUND"
+	ErrKeyCreditDeleteFailed   core.ErrorType = "CREDIT_DELETE_FAILED"
+	ErrKeyCreditRestoreFailed  core.ErrorType = "CREDIT_RESTORE_FAILED"
+	ErrKeyInvalidCreditType    core.ErrorType = "INVALID_CREDIT_TYPE"
+	ErrKeyInvalidCreditAmount  core.ErrorType = "INVALID_CREDIT_AMOUNT"
+	ErrKeyInvalidCreditDirection core.ErrorType = "INVALID_CREDIT_DIRECTION"
 )
 
 var _ router.ResponseError = (*BillingError)(nil)
@@ -178,6 +187,15 @@ func init() {
 		// Management errors
 		ErrKeyManagementCapabilitiesFailed: {Key: ErrKeyManagementCapabilitiesFailed, Message: "Failed to get management capabilities"},
 		ErrKeyManagementOperationFailed:    {Key: ErrKeyManagementOperationFailed, Message: "Management operation failed"},
+
+		// Credit errors
+		ErrKeyCreditCreateFailed:   {Key: ErrKeyCreditCreateFailed, Message: "Failed to create credit"},
+		ErrKeyCreditNotFound:       {Key: ErrKeyCreditNotFound, Message: "Credit not found"},
+		ErrKeyCreditDeleteFailed:   {Key: ErrKeyCreditDeleteFailed, Message: "Failed to delete credit"},
+		ErrKeyCreditRestoreFailed:  {Key: ErrKeyCreditRestoreFailed, Message: "Failed to restore credit"},
+		ErrKeyInvalidCreditType:    {Key: ErrKeyInvalidCreditType, Message: "Invalid credit type"},
+		ErrKeyInvalidCreditAmount:  {Key: ErrKeyInvalidCreditAmount, Message: "Invalid credit amount"},
+		ErrKeyInvalidCreditDirection: {Key: ErrKeyInvalidCreditDirection, Message: "Invalid credit direction"},
 	})
 
 	core.MustRegisterErrorCodes(Namespace, map[core.ErrorType]int{
@@ -230,6 +248,15 @@ func init() {
 		// Management errors
 		ErrKeyManagementCapabilitiesFailed: http.StatusInternalServerError,
 		ErrKeyManagementOperationFailed:    http.StatusInternalServerError,
+
+		// Credit errors
+		ErrKeyCreditCreateFailed:     http.StatusInternalServerError,
+		ErrKeyCreditNotFound:         http.StatusNotFound,
+		ErrKeyCreditDeleteFailed:     http.StatusInternalServerError,
+		ErrKeyCreditRestoreFailed:    http.StatusInternalServerError,
+		ErrKeyInvalidCreditType:      http.StatusBadRequest,
+		ErrKeyInvalidCreditAmount:    http.StatusBadRequest,
+		ErrKeyInvalidCreditDirection: http.StatusBadRequest,
 	})
 }
 

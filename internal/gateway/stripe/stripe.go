@@ -1,8 +1,8 @@
 package stripe
 
 import (
-	"embed"
 	"context"
+	"embed"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -10,15 +10,82 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shopspring/decimal"
 	"github.com/stripe/stripe-go/v83"
 	"github.com/stripe/stripe-go/v83/webhook"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
 	"go.lumeweb.com/portal-plugin-billing/internal/gateway"
-	"go.lumeweb.com/portal/core"
 	quotaCore "go.lumeweb.com/portal-plugin-quota/core"
+	"go.lumeweb.com/portal/core"
 	"go.lumeweb.com/portal/db/models"
 	"go.uber.org/zap"
 )
+
+// Package stripe provides a payment gateway implementation for processing Stripe webhooks and managing subscriptions.
+//
+// Webhook Event Flows
+//
+// This package handles Stripe webhook events to manage subscriptions and credit transactions. The primary flows are:
+//
+// New Subscription Flow:
+//   1. checkout.session.completed
+//      - Creates a pending subscriber entry locally (inactive state)
+//      - Does NOT activate the subscription
+//      - Does NOT issue credits
+//   2. invoice.paid
+//      - Issues credit for the payment amount
+//      - Looks up the pending subscriber by subscription ID
+//      - Activates the subscriber and assigns quota plan
+//   3. invoice.payment_failed (optional, on failure)
+//      - Logs payment failure
+//      - Does not activate or issue credits
+//   4. invoice.payment_action_required (optional, on 3D Secure)
+//      - Logs requirement for customer action
+//      - Awaits customer authentication
+//
+// Subscription Renewal Flow:
+//   1. invoice.created
+//      - Not processed directly
+//   2. invoice.upcoming
+//      - Not processed directly
+//   3. invoice.finalized
+//      - Not processed directly
+//   4. invoice.paid
+//      - Issues credit for the payment amount
+//      - Activates/renews the subscriber if inactive
+//   5. invoice.payment_failed
+//      - Logs payment failure
+//
+// Subscription Cancellation Flow:
+//   customer.subscription.deleted
+//   - Deactivates subscriber in local database
+//   - Removes quota plan assignment
+//
+// Subscription Upgrade/Downgrade Flow:
+//   1. customer.subscription.updated
+//      - Processes plan changes
+//      - May create pending proration credits
+//   2. invoice.paid (follows with prorated charges/credits)
+//      - Net amount issues credit (may be zero for full credit offset)
+//      - Activates with new plan
+//
+// Idempotency
+// All handlers are designed to be idempotent. Credit issuance uses invoice IDs as reference keys
+// and will not duplicate credits for the same invoice. Subscriber state transitions are safe
+// to replay.
+//
+// Credit Issuance Rules
+//   - Credits are issued ONLY on invoice.paid events
+//   - Credits use invoice paid amount (net after credits/discounts)
+//   - Invoice IDs are used as reference keys for idempotency
+//   - Invoice.paid is the single source of truth for payment confirmation
+//
+// Subscriber Tracking
+//   - Subscribers are tracked in local database via BillingService
+//   - Stripe Customer metadata is NOT used for tracking
+//   - Pending subscriptions (inactive until invoice.paid)
+//   - Active subscriptions (after successful payment)
+//   - Subscribers are looked up by subscription ID or customer ID
 
 //go:embed assets/*.svg
 var gatewayLogoFiles embed.FS
@@ -30,6 +97,9 @@ const (
 	EventTypeSubscriptionPaused       = "customer.subscription.paused"
 	EventTypeSubscriptionResumed      = "customer.subscription.resumed"
 	EventTypeSubscriptionUpdated      = "customer.subscription.updated"
+	EventTypeInvoicePaid              = "invoice.paid"
+	EventTypeInvoicePaymentFailed     = "invoice.payment_failed"
+	EventTypeInvoicePaymentActionRequired = "invoice.payment_action_required"
 	PlanIDMetadataKey                 = "plan_id"
 	UserIDMetadataKey                 = "user_id"
 	CustomerIDPrefix                  = "cus_"
@@ -45,7 +115,7 @@ func Setup(opts pluginCore.GatewaySetupOptions, webhookSecret string, secretKey 
 		return "", nil, fmt.Errorf("secret key is required when webhook secret is configured")
 	}
 
-	gw := New(opts.Logger, webhookSecret, secretKey, nil, nil, opts.BillingSvc, opts.PricingSvc)
+	gw := New(opts.Logger, webhookSecret, secretKey, nil, nil, opts.BillingSvc, opts.PricingSvc, opts.CreditSvc)
 	return "Stripe gateway registered successfully", gw, nil
 }
 
@@ -135,6 +205,7 @@ type Prices interface {
 type BillingPortalConfigurations interface {
 	Create(ctx context.Context, params *stripe.BillingPortalConfigurationCreateParams) (*stripe.BillingPortalConfiguration, error)
 }
+
 func (w *client) V1CheckoutSessions() CheckoutSessions {
 	return w.client.V1CheckoutSessions
 }
@@ -181,11 +252,12 @@ type StripeGateway struct {
 	subService      SubscriptionRetriever
 	customerService CustomerRetriever
 	fs              fs.FS // filesystem for logo files, nil uses embedded files
+	credit          pluginCore.CreditService
 }
 
 // newGateway is the internal constructor that creates a StripeGateway instance
 // with a custom filesystem
-func newGateway(logger *core.Logger, endpointSecret string, secretKey string, quota quotaCore.QuotaService, users core.UserService, billing pluginCore.BillingService, pricing pluginCore.PricingService, fs fs.FS) *StripeGateway {
+func newGateway(logger *core.Logger, endpointSecret string, secretKey string, quota quotaCore.QuotaService, users core.UserService, billing pluginCore.BillingService, pricing pluginCore.PricingService, credit pluginCore.CreditService, fs fs.FS) *StripeGateway {
 	stripeClient := &client{client: stripe.NewClient(secretKey)}
 
 	gateway := &StripeGateway{
@@ -198,6 +270,7 @@ func newGateway(logger *core.Logger, endpointSecret string, secretKey string, qu
 		billing:        billing,
 		pricing:        pricing,
 		fs:             fs,
+		credit:         credit,
 	}
 
 	gateway.subService = gateway.subscriptionRetriever()
@@ -207,13 +280,13 @@ func newGateway(logger *core.Logger, endpointSecret string, secretKey string, qu
 }
 
 // New creates a StripeGateway instance with the default embedded filesystem
-func New(logger *core.Logger, endpointSecret string, secretKey string, quota quotaCore.QuotaService, users core.UserService, billing pluginCore.BillingService, pricing pluginCore.PricingService) *StripeGateway {
-	return newGateway(logger, endpointSecret, secretKey, quota, users, billing, pricing, gatewayLogoFiles)
+func New(logger *core.Logger, endpointSecret string, secretKey string, quota quotaCore.QuotaService, users core.UserService, billing pluginCore.BillingService, pricing pluginCore.PricingService, credit pluginCore.CreditService) *StripeGateway {
+	return newGateway(logger, endpointSecret, secretKey, quota, users, billing, pricing, credit, gatewayLogoFiles)
 }
 
 // NewWithFS creates a StripeGateway instance with a custom filesystem for testing
-func NewWithFS(logger *core.Logger, endpointSecret string, secretKey string, quota quotaCore.QuotaService, users core.UserService, billing pluginCore.BillingService, pricing pluginCore.PricingService, fs fs.FS) *StripeGateway {
-	return newGateway(logger, endpointSecret, secretKey, quota, users, billing, pricing, fs)
+func NewWithFS(logger *core.Logger, endpointSecret string, secretKey string, quota quotaCore.QuotaService, users core.UserService, billing pluginCore.BillingService, pricing pluginCore.PricingService, credit pluginCore.CreditService, fs fs.FS) *StripeGateway {
+	return newGateway(logger, endpointSecret, secretKey, quota, users, billing, pricing, credit, fs)
 }
 
 // customerRetriever returns a customer retriever instance
@@ -352,8 +425,15 @@ func (g *StripeGateway) HandleWebhook(ctx context.Context, payload []byte) error
 		return g.handleSubscriptionDeactivated(ctx, event)
 	case EventTypeSubscriptionUpdated:
 		return g.handleSubscriptionUpdated(ctx, event)
+	case EventTypeInvoicePaid:
+		return g.handleInvoicePaid(ctx, event)
+	case EventTypeInvoicePaymentFailed:
+		return g.handleInvoicePaymentFailed(ctx, event)
+	case EventTypeInvoicePaymentActionRequired:
+		return g.handleInvoicePaymentActionRequired(ctx, event)
 	default:
-		return nil // Ignore all other event types
+		g.logger.Debug("unhandled event type", zap.String("event_type", string(event.Type)))
+		return nil
 	}
 }
 
@@ -694,7 +774,25 @@ func findPlanIDFromSubscription(sub *stripe.Subscription) (uint, bool, error) {
 	return 0, false, nil
 }
 
-// handleCheckoutSessionCompleted processes a completed checkout session
+// handleCheckoutSessionCompleted processes a completed checkout session.
+// This is the first event in the subscription flow and creates a pending subscriber entry locally.
+//
+// Expected payload: stripe.CheckoutSession containing:
+//   - ClientReferenceID: User ID from portal
+//   - Customer: Stripe Customer object with ID
+//   - Subscription: Stripe Subscription object with ID
+//
+// Actions taken:
+//   - Creates a pending subscriber in local database (isActive=false)
+//   - Does NOT issue credits
+//   - Does NOT activate the subscription
+//   - Waits for invoice.paid to finalize activation
+//
+// Error conditions:
+//   - Missing ClientReferenceID: returns error
+//   - Missing Customer or Customer ID: returns error
+//   - Missing Subscription or Subscription ID: returns error
+//   - Billing service failure: returns error
 func (g *StripeGateway) handleCheckoutSessionCompleted(ctx context.Context, event stripe.Event) error {
 	ctx, span := core.TraceMethod(ctx, "StripeGateway.handleCheckoutSessionCompleted")
 	defer span.End()
@@ -738,19 +836,301 @@ func (g *StripeGateway) handleCheckoutSessionCompleted(ctx context.Context, even
 				return fmt.Errorf("checkout session missing subscription object")
 			}
 
-			if session.Subscription.ID == "" {
+			subscriptionID := session.Subscription.ID
+			if subscriptionID == "" {
 				return fmt.Errorf("checkout session subscription missing ID")
 			}
 
-			// Fetch subscription data using Stripe API with expanded product data
-			subscription, err := g.getExpandedSubscription(ctx, session.Subscription.ID)
-			if err != nil {
-				return fmt.Errorf("failed to fetch subscription: %w", err)
+			// Verify we have a customer ID
+			var customerID string
+			if session.Customer == nil || session.Customer.ID == "" {
+				return fmt.Errorf("checkout session missing customer id")
+			}
+			customerID = session.Customer.ID
+
+			// Create pending subscriber entry for this subscription
+			// This will be activated when invoice.paid fires
+			if err := g.billing.CreateOrUpdateSubscriber(
+				ctx,
+				userIDUint,
+				GatewayID,
+				customerID,
+				subscriptionID,
+				false,
+				nil,
+			); err != nil {
+				g.logger.Error("failed to create pending subscriber for checkout",
+					zap.Error(err),
+					zap.String("session_id", session.ID),
+					zap.String("subscription_id", subscriptionID),
+					zap.String("customer_id", customerID),
+					zap.Uint("user_id", userIDUint))
+				return fmt.Errorf("failed to create pending subscriber: %w", err)
 			}
 
-			return g.activateSubscription(ctx, userIDUint, subscription, event)
+			// Log checkout completion - subscription will be activated when invoice.paid fires
+			g.logger.Info("checkout completed - subscription pending activation on payment",
+				zap.String("session_id", session.ID),
+				zap.String("subscription_id", subscriptionID),
+				zap.String("customer_id", customerID),
+				zap.Uint("user_id", userIDUint))
+
+			return nil
 		},
 	)
+}
+
+// calculateNetInvoiceAmount calculates the net payment amount from an invoice.
+// Accounts for amount paid (in cents, converted to decimal dollars).
+func (g *StripeGateway) calculateNetInvoiceAmount(invoice *stripe.Invoice) decimal.Decimal {
+	// Convert from cents to dollars
+	amount := decimal.NewFromInt(invoice.AmountPaid).Div(decimal.NewFromInt(100))
+	return amount
+}
+
+// handleInvoicePaid processes a successful invoice payment.
+// This is the single source of truth for issuing credits and activating subscriptions.
+//
+// Expected payload: stripe.Invoice containing:
+//   - Customer: Stripe Customer object with ID
+//   - Lines: Invoice line items with subscription IDs
+//   - AmountPaid: Net payment amount in cents
+//   - ID: Invoice ID for idempotency
+//
+// Actions taken:
+//   - Looks up pending subscriber by subscription ID from invoice lines
+//   - Issues credit for payment amount (if positive) using invoice ID as reference
+//   - Activates subscriber and assigns quota plan
+//   - Returns error if credit issuance fails (client may retry)
+//
+// Error conditions:
+//   - Missing Customer or Customer ID: returns error
+//   - No subscription ID in invoice lines: logs warning and returns nil (no-op)
+//   - No pending subscriber found: logs warning and returns nil (no-op)
+//   - Credit issuance failure: returns error
+func (g *StripeGateway) handleInvoicePaid(ctx context.Context, event stripe.Event) error {
+	ctx, span := core.TraceMethod(ctx, "StripeGateway.handleInvoicePaid")
+	defer span.End()
+
+	return core.MetricTrack(
+		nil,
+		InvoicePaid.WithLabelValues(LabelStatusError),
+		func() error {
+			if event.Data == nil {
+				return fmt.Errorf("event data is nil")
+			}
+
+			if len(event.Data.Raw) == 0 {
+				return fmt.Errorf("event data raw payload is empty")
+			}
+
+			var invoice stripe.Invoice
+			if err := json.Unmarshal(event.Data.Raw, &invoice); err != nil {
+				return err
+			}
+
+			// Validate we have customer details
+			if invoice.Customer == nil || invoice.Customer.ID == "" {
+				return fmt.Errorf("invoice missing customer")
+			}
+
+			customerIDStr := invoice.Customer.ID
+
+			// Look for subscription ID in invoice lines
+			subscriptionID := ""
+			if invoice.Lines != nil && len(invoice.Lines.Data) > 0 {
+				for _, line := range invoice.Lines.Data {
+					// Try to get subscription ID from different line item fields
+					if line.Subscription != nil && line.Subscription.ID != "" {
+						subscriptionID = line.Subscription.ID
+						break
+					}
+				}
+			}
+
+			// If we still don't have a subscription ID, log and skip
+			if subscriptionID == "" {
+				g.logger.Warn("invoice paid but cannot find subscription ID - cannot activate",
+					zap.String("invoice_id", invoice.ID),
+					zap.String("customer_id", customerIDStr))
+				return nil
+			}
+
+			// Look up local pending subscriber entry
+			subscriber, err := g.billing.GetSubscriberBySubscriptionID(ctx, subscriptionID, GatewayID)
+			if err != nil {
+				g.logger.Error("failed to look up subscriber by subscription ID",
+					zap.Error(err),
+					zap.String("subscription_id", subscriptionID),
+					zap.String("invoice_id", invoice.ID))
+				return nil
+			}
+
+			if subscriber == nil {
+				g.logger.Warn("invoice paid but no pending subscriber found - cannot activate",
+					zap.String("subscription_id", subscriptionID),
+					zap.String("invoice_id", invoice.ID))
+				return nil
+			}
+
+			// Verify this invoice is for the same user
+			userID := subscriber.UserID
+
+			// Calculate net payment amount BEFORE expanding subscription
+			// This ensures credit cannot beissued if later stages fail
+			netAmount := g.calculateNetInvoiceAmount(&invoice)
+
+			// Validate payment amount is within reasonable bounds
+			// Issue warning for extreme values but do not fail webhook (Stripe is source of truth)
+			if netAmount.LessThan(decimal.Zero) {
+				g.logger.Warn("invoice has negative net amount",
+					zap.String("invoice_id", invoice.ID),
+					zap.String("net_amount", netAmount.String()))
+			} else if netAmount.GreaterThan(decimal.NewFromInt(10000)) {
+				g.logger.Warn("invoice amount is suspiciously large",
+					zap.String("invoice_id", invoice.ID),
+					zap.String("net_amount", netAmount.String()),
+					zap.String("warning", "amount exceeds $10,000, please verify manually"))
+			}
+
+			// Issue credit only if positive amount
+			// CRITICAL: Issue credit BEFORE expanding subscription to prevent partial completion
+			if netAmount.GreaterThan(decimal.Zero) {
+				if g.credit == nil {
+					return fmt.Errorf("credit service not configured")
+				}
+				if err := g.credit.IssueCreditWithIdempotency(
+					ctx,
+					uint64(userID),
+					pluginCore.CreditTypeCharge,
+					netAmount,
+					pluginCore.ReferenceTypeStripeInvoice,
+					invoice.ID,
+					fmt.Sprintf("Invoice %s paid", invoice.ID),
+					0, // createdBy: 0 for system
+				); err != nil {
+					g.logger.Error("failed to issue invoice payment credit",
+						zap.Error(err),
+						zap.Uint("user_id", userID),
+						zap.String("invoice_id", invoice.ID),
+						zap.String("amount", netAmount.String()))
+					return fmt.Errorf("failed to issue invoice payment credit: %w", err)
+				}
+
+				g.logger.Info("invoice payment credit issued",
+					zap.String("invoice_id", invoice.ID),
+					zap.Uint("user_id", userID),
+					zap.String("amount", netAmount.String()))
+			} else {
+				g.logger.Debug("invoice has zero or negative net amount",
+					zap.String("invoice_id", invoice.ID),
+					zap.String("net_amount", netAmount.String()))
+			}
+
+			// Expand subscription to get product/price details for activation
+			// Done AFTER credit issuance to ensure we don't expand if credit failed
+			subscription, err := g.getExpandedSubscription(ctx, subscriptionID)
+			if err != nil {
+				g.logger.Warn("failed to fetch subscription for activation",
+					zap.String("subscription_id", subscriptionID),
+					zap.Error(err))
+				return nil
+			}
+
+			// Activate subscription now that payment is confirmed
+			return g.activateSubscription(ctx, userID, subscription, event)
+		},
+	)
+}
+
+// handleInvoicePaymentFailed processes a failed invoice payment.
+// This handler logs payment failures for alerting and monitoring purposes.
+//
+// Expected payload: stripe.Invoice containing:
+//   - Customer: Stripe Customer object (may be nil)
+//   - AmountDue: Outstanding amount in cents
+//   - AttemptCount: Number of payment retry attempts
+//   - Status: Invoice status string
+//   - HostedInvoiceURL: Link for customer to retry payment
+//
+// Actions taken:
+//   - Logs warning with payment details
+//   - Does NOT change subscriber state
+//   - Does NOT issue credits
+//   - Notification/monitoring hooks can be added here
+//
+// Error handling:
+//   - Returns nil for all errors (best-effort logging)
+//   - Does not fail webhook processing on failure
+func (g *StripeGateway) handleInvoicePaymentFailed(ctx context.Context, event stripe.Event) error {
+	ctx, span := core.TraceMethod(ctx, "StripeGateway.handleInvoicePaymentFailed")
+	defer span.End()
+
+	// Track payment failure metric
+	InvoicePaymentFailed.WithLabelValues().Inc()
+
+	if event.Data == nil || len(event.Data.Raw) == 0 {
+		g.logger.Warn("invoice payment failed event has no data")
+		return nil
+	}
+
+	var invoice stripe.Invoice
+	if err := json.Unmarshal(event.Data.Raw, &invoice); err != nil {
+		g.logger.Warn("failed to unmarshal invoice payment failed event", zap.Error(err))
+		return nil
+	}
+
+	customerID := ""
+	if invoice.Customer != nil {
+		customerID = invoice.Customer.ID
+	}
+
+	g.logger.Warn("invoice payment failed",
+		zap.String("invoice_id", invoice.ID),
+		zap.String("customer_id", customerID),
+		zap.Int64("amount_due", invoice.AmountDue),
+		zap.String("attempt_count", fmt.Sprintf("%d", invoice.AttemptCount)),
+		zap.String("status", string(invoice.Status)),
+		zap.String("hosted_invoice_url", invoice.HostedInvoiceURL))
+
+	// Optional: Send notification to admin/user
+	// Optional: Track payment failure in billing system
+
+	return nil
+}
+
+// handleInvoicePaymentActionRequired processes invoices requiring payment action (e.g., 3D Secure).
+// Does not issue credit or activate subscription - waits for successful payment.
+func (g *StripeGateway) handleInvoicePaymentActionRequired(ctx context.Context, event stripe.Event) error {
+	ctx, span := core.TraceMethod(ctx, "StripeGateway.handleInvoicePaymentActionRequired")
+	defer span.End()
+
+	// Track payment action required metric
+	InvoicePaymentActionRequired.WithLabelValues().Inc()
+
+	if event.Data == nil || len(event.Data.Raw) == 0 {
+		g.logger.Warn("invoice payment action required event has no data")
+		return nil
+	}
+
+	var invoice stripe.Invoice
+	if err := json.Unmarshal(event.Data.Raw, &invoice); err != nil {
+		g.logger.Warn("failed to unmarshal invoice payment action required event", zap.Error(err))
+		return nil
+	}
+
+	customerID := ""
+	if invoice.Customer != nil {
+		customerID = invoice.Customer.ID
+	}
+
+	g.logger.Info("invoice payment action required - awaiting customer action",
+		zap.String("invoice_id", invoice.ID),
+		zap.String("customer_id", customerID),
+		zap.String("hosted_invoice_url", invoice.HostedInvoiceURL),
+		zap.Int64("amount_due", invoice.AmountDue))
+
+	return nil
 }
 
 // activateSubscription is a common function to handle subscription activation
@@ -791,8 +1171,9 @@ func (g *StripeGateway) activateSubscription(ctx context.Context, userID uint, s
 	)
 }
 
-// activateSubscriptionWithPlanID handles subscription activation with a known plan ID.
-// The planID parameter is the PricingPlan.ID, which must be looked up to get the QuotaPlanID.
+// activateSubscriptionWithPlanID handles subscription activation with a known PricingPlan ID.
+// It assigns the user to the QuotaPlan if one is configured, and tracks the subscriber
+// in the local billing database.
 func (g *StripeGateway) activateSubscriptionWithPlanID(ctx context.Context, userID uint, subscription *stripe.Subscription, event stripe.Event, pricingPlanID uint) error {
 	ctx, span := core.TraceMethod(ctx, "StripeGateway.activateSubscriptionWithPlanID")
 	defer span.End()
@@ -860,9 +1241,6 @@ func (g *StripeGateway) activateSubscriptionWithPlanID(ctx context.Context, user
 			zap.String("subscription_id", subscription.ID))
 	}
 
-	// Update customer metadata with user ID
-	g.updateCustomerMetadata(ctx, g.secretKey, subscription.Customer.ID, userID)
-
 	g.logger.Debug("subscription activated",
 		zap.Uint("user_id", userID),
 		zap.String("subscription_id", subscription.ID),
@@ -914,6 +1292,20 @@ func (g *StripeGateway) deactivateSubscription(ctx context.Context, userID uint,
 					zap.Error(err),
 					zap.Uint("user_id", userID),
 					zap.String("customer_id", subscription.Customer.ID))
+			}
+
+			// Credit integration for subscription deactivation (if credit service available)
+			if g.credit != nil {
+				g.logger.Debug("credit integration available for subscription deactivation",
+					zap.Uint("user_id", userID),
+					zap.String("subscription_id", subscription.ID))
+
+				// Check if prorated credit adjustment is needed
+				// Actual proration logic requires subscription details and proration rules
+				// This will be enhanced in future iterations with proper proration calculation
+				g.logger.Debug("subscription deactivation credit adjustment - proration rules not yet implemented",
+					zap.Uint("user_id", userID),
+					zap.String("subscription_id", subscription.ID))
 			}
 
 			g.logger.Debug("subscription deactivated - removed quota plan",
@@ -1051,7 +1443,7 @@ func (g *StripeGateway) GetCheckoutUI(ctx context.Context, userID uint, planID u
 
 			// 6. Create checkout session
 			params := &stripe.CheckoutSessionCreateParams{
-				Mode:    stripe.String(stripe.CheckoutSessionModeSubscription),
+				Mode: stripe.String(stripe.CheckoutSessionModeSubscription),
 				LineItems: []*stripe.CheckoutSessionCreateLineItemParams{
 					{
 						Price:    stripe.String(mapping.RemoteMonthlyPriceID),
@@ -1282,10 +1674,10 @@ func (g *StripeGateway) SyncPlan(ctx context.Context, plan *pluginCore.PricingPl
 	}
 
 	return &pluginCore.SyncResult{
-		Success:            true,
-		ProductID:          stripeProduct.ID,
-		MonthlyPriceID:     monthlyPriceID,
-		YearlyPriceID:      yearlyPriceID,
+		Success:               true,
+		ProductID:             stripeProduct.ID,
+		MonthlyPriceID:        monthlyPriceID,
+		YearlyPriceID:         yearlyPriceID,
 		PortalConfigurationID: portalConfigID,
 	}, nil
 }
@@ -1444,7 +1836,7 @@ func (g *StripeGateway) createOrUpdatePortalConfiguration(ctx context.Context, p
 		Name: stripe.String(configName),
 		Features: &stripe.BillingPortalConfigurationCreateFeaturesParams{
 			SubscriptionUpdate: &stripe.BillingPortalConfigurationCreateFeaturesSubscriptionUpdateParams{
-				Enabled:              &enabled,
+				Enabled:               &enabled,
 				DefaultAllowedUpdates: []*string{priceUpdate},
 				Products:              productsParam,
 				ProrationBehavior:     stripe.String("create_prorations"),

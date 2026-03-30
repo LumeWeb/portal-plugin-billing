@@ -127,6 +127,56 @@ CREATE INDEX IF NOT EXISTS idx_billing_gateway_product_mappings_gateway_type ON 
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_billing_gateway_product_mappings_plan_gateway
   ON billing_gateway_product_mappings(plan_id, gateway_type) WHERE deleted_at IS NULL;
 
+-- Credits Table
+CREATE TABLE IF NOT EXISTS billing_credits (
+    id TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    amount DECIMAL NOT NULL,
+    type TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    reference_id TEXT,
+    reference_type TEXT,
+    description TEXT,
+    metadata TEXT,
+    created_by INTEGER NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    deleted_at DATETIME
+);
+
+CREATE INDEX IF NOT EXISTS idx_credits_user_id ON billing_credits(user_id);
+CREATE INDEX IF NOT EXISTS idx_credits_reference_id ON billing_credits(reference_id);
+CREATE INDEX IF NOT EXISTS idx_credits_deleted_at ON billing_credits(deleted_at);
+
+-- Credits Views
+
+-- Active credits (non-deleted) view
+CREATE VIEW IF NOT EXISTS billing_credits_active AS
+SELECT
+    id,
+    user_id,
+    amount,
+    type,
+    direction,
+    reference_id,
+    reference_type,
+    description,
+    metadata,
+    created_by,
+    created_at,
+    updated_at
+FROM billing_credits
+WHERE deleted_at IS NULL;
+
+-- User balance view (pre-computed balances)
+CREATE VIEW IF NOT EXISTS billing_credits_balance AS
+SELECT
+    user_id,
+    SUM(CASE WHEN direction = 'credit' THEN amount ELSE -amount END) as balance
+FROM billing_credits
+WHERE deleted_at IS NULL
+GROUP BY user_id;
+
 -- +goose StatementEnd
 
 -- +goose Down
@@ -134,6 +184,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS uniq_billing_gateway_product_mappings_plan_gat
 DROP INDEX IF EXISTS idx_billing_gateway_product_mappings_gateway_type;
 DROP INDEX IF EXISTS idx_billing_gateway_product_mappings_plan_id;
 DROP TABLE IF EXISTS billing_gateway_product_mappings;
+
+DROP INDEX IF EXISTS idx_credits_deleted_at;
+DROP INDEX IF EXISTS idx_credits_reference_id;
+DROP INDEX IF EXISTS idx_credits_user_id;
+DROP TABLE IF EXISTS billing_credits;
 
 DROP INDEX IF EXISTS idx_billing_priceline_assignments_price_line_id;
 DROP TABLE IF EXISTS billing_priceline_assignments;
