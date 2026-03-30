@@ -130,7 +130,27 @@ CREATE TABLE IF NOT EXISTS billing_gateway_product_mappings (
     UNIQUE KEY uniq_plan_gateway (plan_id, gateway_type)
 );
 
+-- Credits Table
+CREATE TABLE IF NOT EXISTS billing_credits (
+    id TEXT PRIMARY KEY,
+    user_id BIGINT UNSIGNED NOT NULL,
+    amount DECIMAL(10, 2) NOT NULL,
+    type TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    reference_id TEXT,
+    reference_type TEXT,
+    description TEXT,
+    metadata TEXT,
+    created_by BIGINT UNSIGNED NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMP NULL DEFAULT NULL,
+    INDEX idx_user_id (user_id),
+    INDEX idx_deleted_at (deleted_at)
+);
+
 -- +goose Down
+DROP TABLE IF EXISTS billing_credits;
 DROP TABLE IF EXISTS billing_gateway_product_mappings;
 DROP TABLE IF EXISTS billing_priceline_assignments;
 DROP TABLE IF EXISTS billing_priceline_plans;

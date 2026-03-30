@@ -22,13 +22,14 @@ import (
 // setupCheckoutMocks configures all mock services for checkout tests
 func setupCheckoutMocks(
 	ctx coreTesting.TestContext,
-) (*quotaCore.MockQuotaService, *coreTesting.MockUserService, *pluginCore.MockBillingService, *pluginCore.MockPricingService) {
+) (*quotaCore.MockQuotaService, *coreTesting.MockUserService, *pluginCore.MockBillingService, *pluginCore.MockPricingService, *pluginCore.MockCreditService) {
 	mockQuota := core.GetService[*quotaCore.MockQuotaService](ctx, quotaCore.QUOTA_SERVICE)
 	mockUsers := core.GetService[*coreTesting.MockUserService](ctx, core.USER_SERVICE)
 	mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
 	mockPricing := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
+	mockCredit := core.GetService[*pluginCore.MockCreditService](ctx, pluginCore.CREDIT_SERVICE)
 
-	return mockQuota, mockUsers, mockBilling, mockPricing
+	return mockQuota, mockUsers, mockBilling, mockPricing, mockCredit
 }
 
 // createGateway creates a new StripeGateway with standard test configuration
@@ -41,8 +42,9 @@ func createGateway(
 	mockUsers *coreTesting.MockUserService,
 	mockBilling *pluginCore.MockBillingService,
 	mockPricing *pluginCore.MockPricingService,
+	mockCredit *pluginCore.MockCreditService,
 ) *StripeGateway {
-	gw := New(ctx.Logger(), TestWebhookSecret, apiKey, mockQuota, mockUsers, mockBilling, mockPricing)
+	gw := New(ctx.Logger(), TestWebhookSecret, apiKey, mockQuota, mockUsers, mockBilling, mockPricing, mockCredit)
 	if stripeClient != nil {
 		gw.stripeClient = stripeClient
 	}
@@ -129,7 +131,7 @@ func mockStripeCheckoutSession(
 
 func TestStripeGateway_GetCheckoutUI_Success(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
-		mockQuota, mockUsers, mockBilling, mockPricing := setupCheckoutMocks(ctx)
+		mockQuota, mockUsers, mockBilling, mockPricing, mockCredit := setupCheckoutMocks(ctx)
 		mockStripeClient := NewMockStripeClient()
 
 		userID := TestUserID
@@ -151,7 +153,7 @@ func TestStripeGateway_GetCheckoutUI_Success(t *testing.T) {
 
 		mockStripeCheckoutSession(mockStripeClient, mockBilling, customer, checkoutSession, nil, nil)
 
-		gw := createGateway(ctx, "sk_test", mockStripeClient, mockQuota, mockUsers, mockBilling, mockPricing)
+		gw := createGateway(ctx, "sk_test", mockStripeClient, mockQuota, mockUsers, mockBilling, mockPricing, mockCredit)
 
 		response, err := gw.GetCheckoutUI(context.Background(), userID, planID)
 
@@ -165,7 +167,7 @@ func TestStripeGateway_GetCheckoutUI_Success(t *testing.T) {
 
 func TestStripeGateway_GetCheckoutUI_UserNotFound(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
-		mockQuota, mockUsers, mockBilling, mockPricing := setupCheckoutMocks(ctx)
+		mockQuota, mockUsers, mockBilling, mockPricing, mockCredit := setupCheckoutMocks(ctx)
 
 		userID := TestUserID
 		planID := TestPlanID
@@ -174,7 +176,7 @@ func TestStripeGateway_GetCheckoutUI_UserNotFound(t *testing.T) {
 
 		mockUsers.EXPECT().AccountExists(mock.Anything, userID).Return(false, nil, nil)
 
-		gw := createGateway(ctx, "", nil, mockQuota, mockUsers, mockBilling, mockPricing)
+		gw := createGateway(ctx, "", nil, mockQuota, mockUsers, mockBilling, mockPricing, mockCredit)
 
 		response, err := gw.GetCheckoutUI(context.Background(), userID, planID)
 
@@ -184,14 +186,14 @@ func TestStripeGateway_GetCheckoutUI_UserNotFound(t *testing.T) {
 
 func TestStripeGateway_GetCheckoutUI_PlanNotFound(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
-		mockQuota, mockUsers, mockBilling, mockPricing := setupCheckoutMocks(ctx)
+		mockQuota, mockUsers, mockBilling, mockPricing, mockCredit := setupCheckoutMocks(ctx)
 
 		userID := TestUserID
 		planID := uint(999)
 
 		mockPricing.EXPECT().GetPricingPlan(mock.Anything, planID).Return(nil, assert.AnError)
 
-		gw := createGateway(ctx, "", nil, mockQuota, mockUsers, mockBilling, mockPricing)
+		gw := createGateway(ctx, "", nil, mockQuota, mockUsers, mockBilling, mockPricing, mockCredit)
 
 		response, err := gw.GetCheckoutUI(context.Background(), userID, planID)
 
@@ -202,7 +204,7 @@ func TestStripeGateway_GetCheckoutUI_PlanNotFound(t *testing.T) {
 
 func TestStripeGateway_GetCheckoutUI_PlanNotActive(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
-		mockQuota, mockUsers, mockBilling, mockPricing := setupCheckoutMocks(ctx)
+		mockQuota, mockUsers, mockBilling, mockPricing, mockCredit := setupCheckoutMocks(ctx)
 
 		userID := TestUserID
 		planID := TestPlanID
@@ -214,7 +216,7 @@ func TestStripeGateway_GetCheckoutUI_PlanNotActive(t *testing.T) {
 		}
 		mockPricing.EXPECT().GetPricingPlan(mock.Anything, planID).Return(plan, nil)
 
-		gw := createGateway(ctx, "", nil, mockQuota, mockUsers, mockBilling, mockPricing)
+		gw := createGateway(ctx, "", nil, mockQuota, mockUsers, mockBilling, mockPricing, mockCredit)
 
 		response, err := gw.GetCheckoutUI(context.Background(), userID, planID)
 
@@ -224,7 +226,7 @@ func TestStripeGateway_GetCheckoutUI_PlanNotActive(t *testing.T) {
 
 func TestStripeGateway_GetCheckoutUI_MissingPriceID(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
-		mockQuota, mockUsers, mockBilling, mockPricing := setupCheckoutMocks(ctx)
+		mockQuota, mockUsers, mockBilling, mockPricing, mockCredit := setupCheckoutMocks(ctx)
 
 		userID := TestUserID
 		planID := TestPlanID
@@ -245,7 +247,7 @@ func TestStripeGateway_GetCheckoutUI_MissingPriceID(t *testing.T) {
 		}
 		mockPricing.EXPECT().GetGatewayProductMapping(mock.Anything, planID, "stripe").Return(mapping, nil)
 
-		gw := createGateway(ctx, "", nil, mockQuota, mockUsers, mockBilling, mockPricing)
+		gw := createGateway(ctx, "", nil, mockQuota, mockUsers, mockBilling, mockPricing, mockCredit)
 
 		response, err := gw.GetCheckoutUI(context.Background(), userID, planID)
 
@@ -255,7 +257,7 @@ func TestStripeGateway_GetCheckoutUI_MissingPriceID(t *testing.T) {
 
 func TestStripeGateway_GetCheckoutUI_ExistingCustomer(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
-		mockQuota, mockUsers, mockBilling, mockPricing := setupCheckoutMocks(ctx)
+		mockQuota, mockUsers, mockBilling, mockPricing, mockCredit := setupCheckoutMocks(ctx)
 		mockStripeClient := NewMockStripeClient()
 
 		userID := TestUserID
@@ -284,7 +286,7 @@ func TestStripeGateway_GetCheckoutUI_ExistingCustomer(t *testing.T) {
 			URL: "https://checkout.stripe.com/pay/sess_test456",
 		}, existingSubscriber, nil)
 
-		gw := createGateway(ctx, "sk_test", mockStripeClient, mockQuota, mockUsers, mockBilling, mockPricing)
+		gw := createGateway(ctx, "sk_test", mockStripeClient, mockQuota, mockUsers, mockBilling, mockPricing, mockCredit)
 
 		response, err := gw.GetCheckoutUI(context.Background(), userID, planID)
 

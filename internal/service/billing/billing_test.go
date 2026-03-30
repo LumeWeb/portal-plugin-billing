@@ -29,6 +29,7 @@ func getBillingTestOptions() coreTesting.TestContextBuilderOption {
 			WithService(pluginCore.BILLING_SERVICE, NewBillingService).
 			WithServiceConfig(pluginCore.BILLING_SERVICE, &config.ServiceConfig{}).
 			WithMockServiceFactory(pluginCore.PRICING_SERVICE, pluginCore.NewMockPricingService).
+			WithMockServiceFactory(pluginCore.CREDIT_SERVICE, pluginCore.NewMockCreditService).
 			WithServiceConfig(pluginCore.PRICING_SERVICE, coreTesting.NewConfigBuilder().Build()).
 			BuilderOption(),
 	)
@@ -283,6 +284,98 @@ func TestBillingService_CreateOrUpdateSubscriber(t *testing.T) {
 		assert.Equal(t, "sub_123", subscriber.SubscriptionID)
 		assert.True(t, subscriber.IsActive)
 		assert.Nil(t, subscriber.PlanID)
+	},
+		getBillingTestOptions())
+}
+
+func TestBillingService_GetSubscriberBySubscriptionID(t *testing.T) {
+	coreTesting.RunTestCaseWithDB(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		service := core.GetService[pluginCore.BillingService](ctx, pluginCore.BILLING_SERVICE)
+
+		// Test case 1: Subscriber not found
+		subscriber, err := service.GetSubscriberBySubscriptionID(context.Background(), "nonexistent_sub_id", "stripe")
+		assert.NoError(tb, err)
+		assert.Nil(tb, subscriber)
+
+		// Test case 2: Create subscriber and find by subscription ID and gateway type
+		err = service.CreateOrUpdateSubscriber(context.Background(), 123, "stripe", "cus_test_12345", "sub_test_12345", true, nil)
+		assert.NoError(tb, err)
+
+		subscriber, err = service.GetSubscriberBySubscriptionID(context.Background(), "sub_test_12345", "stripe")
+		assert.NoError(tb, err)
+		assert.NotNil(tb, subscriber)
+		assert.Equal(tb, uint(123), subscriber.UserID)
+		assert.Equal(tb, "stripe", subscriber.GatewayType)
+		assert.Equal(tb, "sub_test_12345", subscriber.SubscriptionID)
+		assert.Equal(tb, "cus_test_12345", subscriber.ExternalID)
+		assert.True(tb, subscriber.IsActive)
+
+		// Test case 3: Multiple subscribers with same subscription ID but different timestamps
+		// Should return the most recent (ordered by updated_at DESC)
+		err = service.CreateOrUpdateSubscriber(context.Background(), 456, "stripe", "cus_test_67890", "sub_test_12345", true, nil)
+		assert.NoError(tb, err)
+
+		subscriber, err = service.GetSubscriberBySubscriptionID(context.Background(), "sub_test_12345", "stripe")
+		assert.NoError(tb, err)
+		assert.NotNil(tb, subscriber)
+		// Should return the most recently updated subscriber (user 456)
+		assert.Equal(tb, uint(456), subscriber.UserID)
+
+		// Test case 4: Different gateway types with same subscription ID (should work independently)
+		err = service.CreateOrUpdateSubscriber(context.Background(), 789, "paypal", "cus_test_paypal", "sub_test_12345", true, nil)
+		assert.NoError(tb, err)
+
+		// Should find the stripe subscriber (not paypal) when querying for stripe
+		subscriber, err = service.GetSubscriberBySubscriptionID(context.Background(), "sub_test_12345", "stripe")
+		assert.NoError(tb, err)
+		assert.NotNil(tb, subscriber)
+		assert.Equal(tb, uint(456), subscriber.UserID)
+		assert.Equal(tb, "stripe", subscriber.GatewayType)
+
+		// Should find the paypal subscriber when querying for paypal
+		paypalSubscriber, err := service.GetSubscriberBySubscriptionID(context.Background(), "sub_test_12345", "paypal")
+		assert.NoError(tb, err)
+		assert.NotNil(tb, paypalSubscriber)
+		assert.Equal(tb, uint(789), paypalSubscriber.UserID)
+		assert.Equal(tb, "paypal", paypalSubscriber.GatewayType)
+
+		// Test case 5: Deactivated subscriber should still be found
+		// (method doesn't filter by active status, only by subscription_id and gateway_type)
+		err = service.DeactivateSubscriber(context.Background(), 456, "stripe")
+		assert.NoError(tb, err)
+
+		subscriber, err = service.GetSubscriberBySubscriptionID(context.Background(), "sub_test_12345", "stripe")
+		assert.NoError(tb, err)
+		assert.NotNil(tb, subscriber)
+		assert.Equal(tb, uint(456), subscriber.UserID)
+		assert.False(tb, subscriber.IsActive)
+
+		// Test case 6: Verify all subscriber fields are correctly populated
+		planID := uint(99)
+		err = service.CreateOrUpdateSubscriber(context.Background(), 101, "stripe", "cus_field_test", "sub_field_test", true, &planID)
+		assert.NoError(tb, err)
+
+		subscriber, err = service.GetSubscriberBySubscriptionID(context.Background(), "sub_field_test", "stripe")
+		assert.NoError(tb, err)
+		assert.NotNil(tb, subscriber)
+		assert.Equal(tb, uint(101), subscriber.UserID)
+		assert.Equal(tb, "stripe", subscriber.GatewayType)
+		assert.Equal(tb, "sub_field_test", subscriber.SubscriptionID)
+		assert.Equal(tb, "cus_field_test", subscriber.ExternalID)
+		assert.True(tb, subscriber.IsActive)
+		assert.Equal(tb, planID, *subscriber.PlanID)
+
+		// Test case 7: Subscribers with different subscription IDs don't interfere
+		err = service.CreateOrUpdateSubscriber(context.Background(), 202, "stripe", "cus_202", "sub_202", true, nil)
+		assert.NoError(tb, err)
+
+		sub1, err := service.GetSubscriberBySubscriptionID(context.Background(), "sub_field_test", "stripe")
+		assert.NoError(tb, err)
+		assert.Equal(tb, uint(101), sub1.UserID)
+
+		sub2, err := service.GetSubscriberBySubscriptionID(context.Background(), "sub_202", "stripe")
+		assert.NoError(tb, err)
+		assert.Equal(tb, uint(202), sub2.UserID)
 	},
 		getBillingTestOptions())
 }

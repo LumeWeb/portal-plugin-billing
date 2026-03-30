@@ -6,6 +6,7 @@ packages:
   go.lumeweb.com/portal-plugin-billing/core:
     interfaces:
       BillingService: {}
+      CreditService: {}
       PricingService: {}
       GatewayIdentity: {}
       WebhookHandler: {}
@@ -20,3 +21,9 @@ packages:
       dir: internal/service/pricing/
     interfaces:
       MockablePaymentGateway: {}
+  go.lumeweb.com/portal-plugin-billing/pkg/ledger:
+    config:
+      dir: pkg/ledger/mocks/
+    interfaces:
+      CreditRepository: {}
+      TransactionContext: {}

@@ -1,15 +1,22 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
+	"github.com/samber/lo"
+	"github.com/shopspring/decimal"
 	"go.lumeweb.com/httputil"
+	"gorm.io/datatypes"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
 	"go.lumeweb.com/portal-plugin-billing/internal/api/dto"
 	"go.lumeweb.com/portal-plugin-billing/internal/db/models"
+	"go.lumeweb.com/portal-plugin-billing/pkg/ledger"
 	"go.lumeweb.com/portal/config"
 	"go.lumeweb.com/portal/core"
 	router "go.lumeweb.com/portal-router"
@@ -24,6 +31,7 @@ type AdminExtension struct {
 	*core.BaseComponent
 	config         config.Manager
 	pricingService pluginCore.PricingService
+	creditService  pluginCore.CreditService
 }
 
 // NewAdminExtension creates a new Admin API extension for billing
@@ -41,6 +49,11 @@ func NewAdminExtension() core.APIExtensionFactory {
 				return fmt.Errorf("pricing service not available")
 			}
 
+			ext.creditService = core.GetService[pluginCore.CreditService](ctx, pluginCore.CREDIT_SERVICE)
+			if ext.creditService == nil {
+				return fmt.Errorf("credit service not available")
+			}
+
 			return nil
 		})), nil
 	}
@@ -53,6 +66,9 @@ func (e *AdminExtension) TargetAPI() string {
 
 // Configure is called to set up routes on the admin API router
 func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessService) error {
+	// Initialize schema provider for filter/sort support
+	schemaProvider := queryutil.NewSchemaProvider()
+	creditItemSchema := schemaProvider.ForType(&dto.CreditItem{})
 	// Define admin billing routes
 	routes := router.DefineRoutes(
 		router.NewRoute(http.MethodPost, "/api/billing/plans/:id/sync", e.handleSyncPricingPlan,
@@ -106,6 +122,148 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 				router.WithSummary("List Price Lines"),
 				router.WithDescription("Retrieves all price lines with filtering, sorting, and pagination support"),
 				router.WithTags("Billing Admin"),
+			)),
+		router.NewRoute(http.MethodPost, "/api/billing/credits", e.handleCreateCredit,
+			router.WithSwagger(
+				router.WithSummary("Create Credit"),
+				router.WithDescription("Creates a new credit entry"),
+				router.WithTags("Billing Admin"),
+				router.WithRequestBody(dto.CreditCreateRequest{}, "Credit creation request", true),
+				router.WithSuccessResponse(http.StatusCreated, "Credit created successfully",
+					router.WithJSONContent(dto.CreditResponse{})),
+				router.WithErrorResponses(
+					router.DefineSwaggerErrorResponses(
+						router.DefineSwaggerErrorResponse(http.StatusUnauthorized, "Authentication required"),
+						router.DefineSwaggerErrorResponse(http.StatusForbidden, "Insufficient permissions"),
+						router.DefineSwaggerErrorResponse(http.StatusBadRequest, "Invalid request"),
+						router.DefineSwaggerErrorResponse(http.StatusInternalServerError, "Server error"),
+					),
+				),
+			)),
+		router.NewRoute(http.MethodGet, "/api/billing/credits/:id", e.handleGetCredit,
+			router.WithSwagger(
+				router.WithSummary("Get Credit"),
+				router.WithDescription("Retrieves a credit by ID"),
+				router.WithTags("Billing Admin"),
+				router.WithPathParam("id", "Credit ID", "uuid"),
+				router.WithSuccessResponse(http.StatusOK, "Credit retrieved successfully",
+					router.WithJSONContent(dto.CreditResponse{})),
+				router.WithErrorResponses(
+					router.DefineSwaggerErrorResponses(
+						router.DefineSwaggerErrorResponse(http.StatusUnauthorized, "Authentication required"),
+						router.DefineSwaggerErrorResponse(http.StatusForbidden, "Insufficient permissions"),
+						router.DefineSwaggerErrorResponse(http.StatusBadRequest, "Invalid request"),
+						router.DefineSwaggerErrorResponse(http.StatusNotFound, "Resource not found"),
+						router.DefineSwaggerErrorResponse(http.StatusInternalServerError, "Server error"),
+					),
+				),
+			)),
+		router.NewRoute(http.MethodGet, "/api/billing/credits", e.handleListCredits,
+			router.WithSwagger(
+				router.WithSummary("List Credits"),
+				router.WithDescription("Retrieves all credits with filtering, sorting, and pagination support"),
+				router.WithTags("Billing Admin"),
+				router.WithSchema(creditItemSchema),
+				router.WithFilterParamsFromSchema(creditItemSchema),
+				router.WithSuccessResponse(http.StatusOK, "Credits retrieved successfully",
+					router.WithJSONContent(dto.CreditsListResponse{})),
+				router.WithErrorResponses(
+					router.DefineSwaggerErrorResponses(
+						router.DefineSwaggerErrorResponse(http.StatusUnauthorized, "Authentication required"),
+						router.DefineSwaggerErrorResponse(http.StatusForbidden, "Insufficient permissions"),
+						router.DefineSwaggerErrorResponse(http.StatusBadRequest, "Invalid request"),
+						router.DefineSwaggerErrorResponse(http.StatusInternalServerError, "Server error"),
+					),
+				),
+			)),
+		router.NewRoute(http.MethodDelete, "/api/billing/credits/:id", e.handleDeleteCredit,
+			router.WithSwagger(
+				router.WithSummary("Delete Credit"),
+				router.WithDescription("Soft deletes a credit entry"),
+				router.WithTags("Billing Admin"),
+				router.WithPathParam("id", "Credit ID", "uuid"),
+				router.WithSuccessResponse(http.StatusNoContent, "Credit deleted successfully"),
+				router.WithErrorResponses(
+					router.DefineSwaggerErrorResponses(
+						router.DefineSwaggerErrorResponse(http.StatusUnauthorized, "Authentication required"),
+						router.DefineSwaggerErrorResponse(http.StatusForbidden, "Insufficient permissions"),
+						router.DefineSwaggerErrorResponse(http.StatusBadRequest, "Invalid request"),
+						router.DefineSwaggerErrorResponse(http.StatusNotFound, "Resource not found"),
+						router.DefineSwaggerErrorResponse(http.StatusInternalServerError, "Server error"),
+					),
+				),
+			)),
+		router.NewRoute(http.MethodPost, "/api/billing/credits/:id/restore", e.handleRestoreCredit,
+			router.WithSwagger(
+				router.WithSummary("Restore Credit"),
+				router.WithDescription("Restores a soft-deleted credit"),
+				router.WithTags("Billing Admin"),
+				router.WithPathParam("id", "Credit ID", "uuid"),
+				router.WithSuccessResponse(http.StatusOK, "Credit restored successfully",
+					router.WithJSONContent(dto.CreditResponse{})),
+				router.WithErrorResponses(
+					router.DefineSwaggerErrorResponses(
+						router.DefineSwaggerErrorResponse(http.StatusUnauthorized, "Authentication required"),
+						router.DefineSwaggerErrorResponse(http.StatusForbidden, "Insufficient permissions"),
+						router.DefineSwaggerErrorResponse(http.StatusBadRequest, "Invalid request"),
+						router.DefineSwaggerErrorResponse(http.StatusNotFound, "Resource not found"),
+						router.DefineSwaggerErrorResponse(http.StatusInternalServerError, "Server error"),
+					),
+				),
+			)),
+		router.NewRoute(http.MethodGet, "/api/billing/users/:userId/deleted-credits", e.handleListDeletedCredits,
+			router.WithSwagger(
+				router.WithSummary("List Deleted Credits"),
+				router.WithDescription("Retrieves soft-deleted credits for a user"),
+				router.WithTags("Billing Admin"),
+				router.WithPathParam("userId", "User ID", "123"),
+				router.WithSchema(creditItemSchema),
+				router.WithFilterParamsFromSchema(creditItemSchema),
+				router.WithSuccessResponse(http.StatusOK, "Deleted credits retrieved successfully",
+					router.WithJSONContent(dto.DeletedCreditsListResponse{})),
+				router.WithErrorResponses(
+					router.DefineSwaggerErrorResponses(
+						router.DefineSwaggerErrorResponse(http.StatusUnauthorized, "Authentication required"),
+						router.DefineSwaggerErrorResponse(http.StatusForbidden, "Insufficient permissions"),
+						router.DefineSwaggerErrorResponse(http.StatusBadRequest, "Invalid request"),
+						router.DefineSwaggerErrorResponse(http.StatusInternalServerError, "Server error"),
+					),
+				),
+			)),
+		router.NewRoute(http.MethodGet, "/api/billing/users/:userId/balance", e.handleGetUserBalance,
+			router.WithSwagger(
+				router.WithSummary("Get User Balance"),
+				router.WithDescription("Retrieves the current balance for a user"),
+				router.WithTags("Billing Admin"),
+				router.WithPathParam("userId", "User ID", "123"),
+				router.WithSuccessResponse(http.StatusOK, "Balance retrieved successfully",
+					router.WithJSONContent(dto.BalanceResponse{})),
+				router.WithErrorResponses(
+					router.DefineSwaggerErrorResponses(
+						router.DefineSwaggerErrorResponse(http.StatusUnauthorized, "Authentication required"),
+						router.DefineSwaggerErrorResponse(http.StatusForbidden, "Insufficient permissions"),
+						router.DefineSwaggerErrorResponse(http.StatusBadRequest, "Invalid request"),
+						router.DefineSwaggerErrorResponse(http.StatusNotFound, "Resource not found"),
+						router.DefineSwaggerErrorResponse(http.StatusInternalServerError, "Server error"),
+					),
+				),
+			)),
+		router.NewRoute(http.MethodPost, "/api/billing/credits/purge", e.handlePurgeCredits,
+			router.WithSwagger(
+				router.WithSummary("Purge Credits"),
+				router.WithDescription("Permanently removes soft-deleted credits older than specified duration"),
+				router.WithTags("Billing Admin"),
+				router.WithRequestBody(dto.CreditPurgeRequest{}, "Purge request with duration", true),
+				router.WithSuccessResponse(http.StatusOK, "Credits purged successfully",
+					router.WithJSONContent(map[string]interface{}{"purged_count": 0})),
+				router.WithErrorResponses(
+					router.DefineSwaggerErrorResponses(
+						router.DefineSwaggerErrorResponse(http.StatusUnauthorized, "Authentication required"),
+						router.DefineSwaggerErrorResponse(http.StatusForbidden, "Insufficient permissions"),
+						router.DefineSwaggerErrorResponse(http.StatusBadRequest, "Invalid request"),
+						router.DefineSwaggerErrorResponse(http.StatusInternalServerError, "Server error"),
+					),
+				),
 			)),
 	)
 
@@ -349,4 +507,280 @@ func (e *AdminExtension) handleDeletePriceLine(c echo.Context) error {
 	}
 
 	return ctx.NoContent(http.StatusNoContent)
+}
+
+// handleCreateCredit creates a new credit entry
+func (e *AdminExtension) handleCreateCredit(c echo.Context) error {
+	ctx := httputil.Context(c)
+	reqCtx := ctx.Context.Request().Context()
+
+	// Parse and validate request body using DTO
+	var req dto.CreditCreateRequest
+	if _, ok := httputil.DecodeAndValidateRequest(ctx, &req); !ok {
+		return nil
+	}
+
+	// Convert DTO to ledger Credit
+	amount := decimal.Zero
+	if req.Amount != nil {
+		parsedAmount, err := decimal.NewFromString(*req.Amount)
+		if err != nil {
+			return ctx.Error(NewError(ErrKeyInvalidRequest, fmt.Errorf("invalid amount format: %w", err)), http.StatusBadRequest)
+		}
+		amount = parsedAmount
+	}
+	credit := &ledger.Credit{
+		ID:            uuid.New(),
+		UserID:        req.UserID,
+		Amount:        amount,
+		Type:          req.CreditType,
+		Direction:     req.Direction,
+		Description:   req.Description,
+		ReferenceID:   req.ReferenceID,
+		ReferenceType: req.ReferenceType,
+		CreatedBy:     0, // TODO: Get from authenticated admin user
+	}
+
+	// For idempotency, if reference_id and reference_type are provided, check for existing credits
+	if req.ReferenceID != "" && req.ReferenceType != "" {
+		existingCredits, err := e.creditService.GetCreditsByReference(reqCtx, req.ReferenceID, req.ReferenceType)
+		if err != nil {
+			e.Logger().Error("failed to check existing credits", zap.Error(err))
+		}
+
+		if len(existingCredits) > 0 {
+			// Return existing credit instead of creating duplicate
+			credit = &existingCredits[0]
+		} else {
+			// Create credit
+			if err := e.creditService.CreateCredit(reqCtx, credit); err != nil {
+				e.Logger().Error("failed to create credit", zap.Error(err))
+				return ctx.Error(NewError(ErrKeyCreditCreateFailed, fmt.Errorf("failed to create credit: %w", err)), http.StatusInternalServerError)
+			}
+		}
+	} else {
+		// Create credit without idempotency check
+		if err := e.creditService.CreateCredit(reqCtx, credit); err != nil {
+			e.Logger().Error("failed to create credit", zap.Error(err))
+			return ctx.Error(NewError(ErrKeyCreditCreateFailed, fmt.Errorf("failed to create credit: %w", err)), http.StatusInternalServerError)
+		}
+	}
+
+	ctx.Response().Before(func() {
+		ctx.Response().Status = http.StatusCreated
+	})
+
+	// ConvertCredit to CreditModel
+	creditModel := convertCreditToModel(credit)
+	var resp dto.CreditResponse
+	return httputil.EncodeResponse(ctx, creditModel, &resp)
+}
+
+// handleGetCredit retrieves a credit by ID
+func (e *AdminExtension) handleGetCredit(c echo.Context) error {
+	ctx := httputil.Context(c)
+	reqCtx := ctx.Context.Request().Context()
+
+	idStr := c.Param("id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		return ctx.Error(NewError(ErrKeyInvalidIdentifier, fmt.Errorf("invalid credit id: %w", err)), http.StatusBadRequest)
+	}
+
+	credit, err := e.creditService.GetCredit(reqCtx, id)
+	if err != nil {
+		e.Logger().Error("failed to get credit", zap.Error(err))
+		return ctx.Error(NewError(ErrKeyCreditNotFound, fmt.Errorf("credit not found: %w", err)), http.StatusNotFound)
+	}
+
+	if credit == nil {
+		return ctx.Error(NewError(ErrKeyCreditNotFound, fmt.Errorf("credit not found")), http.StatusNotFound)
+	}
+
+	creditModel := convertCreditToModel(credit)
+	var resp dto.CreditResponse
+	return httputil.EncodeResponse(ctx, creditModel, &resp)
+}
+
+// handleListCredits lists all credits with filtering
+func (e *AdminExtension) handleListCredits(c echo.Context) error {
+	ctx := httputil.Context(c)
+	reqCtx := ctx.Context.Request().Context()
+
+	return queryutilHttp.ProcessListRequest(
+		c.Response(),
+		c.Request(),
+		"credits",
+		func(filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination) ([]*models.CreditModel, int64, error) {
+			// Get credits from service
+			credits, total, err := e.creditService.ListCredits(reqCtx, filters, sorts, pagination)
+			if err != nil {
+				e.Logger().Error("failed to get credits", zap.Error(err))
+				return nil, 0, err
+			}
+
+			// Convert ledger.Credit to CreditModel for response
+			creditModels := lo.Map(credits, func(credit ledger.Credit, _ int) *models.CreditModel {
+				return convertCreditToModel(&credit)
+			})
+
+			return creditModels, total, nil
+		},
+		func(credit *models.CreditModel) dto.CreditResponse {
+			var resp dto.CreditResponse
+			_ = resp.FromModel(credit)
+			return resp
+		},
+	)
+}
+
+// handleDeleteCredit soft deletes a credit entry
+func (e *AdminExtension) handleDeleteCredit(c echo.Context) error {
+	ctx := httputil.Context(c)
+	reqCtx := ctx.Context.Request().Context()
+
+	idStr := c.Param("id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		return ctx.Error(NewError(ErrKeyInvalidIdentifier, fmt.Errorf("invalid credit id: %w", err)), http.StatusBadRequest)
+	}
+
+	if err := e.creditService.SoftDeleteCredit(reqCtx, id); err != nil {
+		e.Logger().Error("failed to delete credit", zap.Error(err))
+		return ctx.Error(NewError(ErrKeyCreditDeleteFailed, fmt.Errorf("failed to delete credit: %w", err)), http.StatusInternalServerError)
+	}
+
+	return ctx.NoContent(http.StatusNoContent)
+}
+
+// handleRestoreCredit restores a soft-deleted credit
+func (e *AdminExtension) handleRestoreCredit(c echo.Context) error {
+	ctx := httputil.Context(c)
+	reqCtx := ctx.Context.Request().Context()
+
+	idStr := c.Param("id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		return ctx.Error(NewError(ErrKeyInvalidIdentifier, fmt.Errorf("invalid credit id: %w", err)), http.StatusBadRequest)
+	}
+
+	if err := e.creditService.RestoreCredit(reqCtx, id); err != nil {
+		e.Logger().Error("failed to restore credit", zap.Error(err))
+		return ctx.Error(NewError(ErrKeyCreditRestoreFailed, fmt.Errorf("failed to restore credit: %w", err)), http.StatusInternalServerError)
+	}
+
+	return ctx.NoContent(http.StatusOK)
+}
+
+// handleListDeletedCredits lists soft-deleted credits for a user
+func (e *AdminExtension) handleListDeletedCredits(c echo.Context) error {
+	ctx := httputil.Context(c)
+	reqCtx := ctx.Context.Request().Context()
+
+	userIDStr := c.Param("userId")
+	userID, err := strconv.ParseUint(userIDStr, 10, 64)
+	if err != nil {
+		return ctx.Error(NewError(ErrKeyInvalidIdentifier, fmt.Errorf("invalid user id: %w", err)), http.StatusBadRequest)
+	}
+
+	credits, err := e.creditService.GetDeletedCredits(reqCtx, userID)
+	if err != nil {
+		e.Logger().Error("failed to get deleted credits", zap.Error(err))
+		// Return success but empty list for admin permissions might be needed here
+		credits = []ledger.Credit{}
+	}
+
+	// Convert credits to response format
+	responses := lo.Map(credits, func(credit ledger.Credit, _ int) dto.CreditResponse {
+		var resp dto.CreditResponse
+		_ = resp.FromModel(convertCreditToModel(&credit))
+		return resp
+	})
+
+	return ctx.JSON(http.StatusOK, responses)
+}
+
+// handleGetUserBalance retrieves a user's current balance
+func (e *AdminExtension) handleGetUserBalance(c echo.Context) error {
+	ctx := httputil.Context(c)
+	reqCtx := ctx.Context.Request().Context()
+
+	userIDStr := c.Param("userId")
+	userID, err := strconv.ParseUint(userIDStr, 10, 64)
+	if err != nil {
+		return ctx.Error(NewError(ErrKeyInvalidIdentifier, fmt.Errorf("invalid user id: %w", err)), http.StatusBadRequest)
+	}
+
+	balance, err := e.creditService.GetUserBalance(reqCtx, userID)
+	if err != nil {
+		e.Logger().Error("failed to get user balance", zap.Error(err))
+		return ctx.Error(NewError(ErrKeyCreditNotFound, fmt.Errorf("failed to get user balance: %w", err)), http.StatusInternalServerError)
+	}
+
+	resp := dto.BalanceResponse{
+		UserID:  userID,
+		Balance: balance,
+	}
+
+	return ctx.JSON(http.StatusOK, resp)
+}
+
+// handlePurgeCredits permanently removes soft-deleted credits older than specified duration
+func (e *AdminExtension) handlePurgeCredits(c echo.Context) error {
+	ctx := httputil.Context(c)
+	reqCtx := ctx.Context.Request().Context()
+
+	// Parse and validate request body
+	var req dto.CreditPurgeRequest
+	if _, ok := httputil.DecodeAndValidateRequest(ctx, &req); !ok {
+		return nil
+	}
+
+	// Parse duration
+	duration, err := time.ParseDuration(req.OlderThan)
+	if err != nil {
+		e.Logger().Error("failed to parse duration", zap.Error(err))
+		return ctx.Error(NewError(ErrKeyInvalidRequest, fmt.Errorf("invalid duration format: %w", err)), http.StatusBadRequest)
+	}
+
+	count, err := e.creditService.PurgeDeletedCredits(reqCtx, duration)
+	if err != nil {
+		e.Logger().Error("failed to purge credits", zap.Error(err))
+		return ctx.Error(NewError(ErrKeyCreditDeleteFailed, fmt.Errorf("failed to purge credits: %w", err)), http.StatusInternalServerError)
+	}
+
+	return ctx.JSON(http.StatusOK, map[string]interface{}{
+		"purged_count": count,
+	})
+}
+
+// convertCreditToModel converts a ledger Credit to CreditModel for DTO conversion
+func convertCreditToModel(credit *ledger.Credit) *models.CreditModel {
+	if credit == nil {
+		return nil
+	}
+
+	var metaJSON datatypes.JSON
+	if len(credit.Metadata) > 0 {
+		metaBytes, err := json.Marshal(credit.Metadata)
+		if err == nil {
+			metaJSON = datatypes.JSON(metaBytes)
+		}
+	}
+
+	return &models.CreditModel{
+		ID:            credit.ID,
+		UserID:        credit.UserID,
+		Amount:        credit.Amount,
+		Type:          credit.Type,
+		Direction:     credit.Direction,
+		ReferenceID:   credit.ReferenceID,
+		ReferenceType: credit.ReferenceType,
+		Description:   credit.Description,
+		Metadata:      metaJSON,
+		CreatedBy:     credit.CreatedBy,
+		CreatedAt:     credit.CreatedAt,
+		UpdatedAt:     credit.UpdatedAt,
+		DeletedAt:     &credit.DeletedAt,
+	}
 }
