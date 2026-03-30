@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 	"github.com/shopspring/decimal"
 	ledger "go.lumeweb.com/portal-plugin-billing/pkg/ledger"
 	"go.lumeweb.com/portal-plugin-billing/internal/db/models"
@@ -203,10 +204,9 @@ func (r *transactionalCreditRepository) GetDeletedCredits(ctx context.Context, u
 		}
 	}
 
-	credits := make([]ledger.Credit, len(deletedModels))
-	for i, model := range deletedModels {
-		credits[i] = *r.repo.ModelToCredit(&model)
-	}
+	credits := lo.Map(deletedModels, func(model models.CreditModel, _ int) ledger.Credit {
+		return *r.repo.ModelToCredit(&model)
+	})
 
 	return credits, nil
 }

@@ -996,6 +996,9 @@ func (g *StripeGateway) handleInvoicePaid(ctx context.Context, event stripe.Even
 			// Issue credit only if positive amount
 			// CRITICAL: Issue credit BEFORE expanding subscription to prevent partial completion
 			if netAmount.GreaterThan(decimal.Zero) {
+				if g.credit == nil {
+					return fmt.Errorf("credit service not configured")
+				}
 				if err := g.credit.IssueCreditWithIdempotency(
 					ctx,
 					uint64(userID),

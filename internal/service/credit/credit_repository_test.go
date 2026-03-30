@@ -365,8 +365,10 @@ func TestCreditRepository_PurgeDeletedCredits_Success(t *testing.T) {
 
 		// Manually update deleted_at to make them old enough
 		oldTime := time.Now().Add(-2 * time.Hour)
-		db.Model(&models.CreditModel{}).Where("id = ?", credit1.ID).Update("deleted_at", oldTime)
-		db.Model(&models.CreditModel{}).Where("id = ?", credit2.ID).Update("deleted_at", oldTime)
+		err = db.Model(&models.CreditModel{}).Where("id = ?", credit1.ID).Update("deleted_at", oldTime).Error
+		require.NoError(tb, err)
+		err = db.Model(&models.CreditModel{}).Where("id = ?", credit2.ID).Update("deleted_at", oldTime).Error
+		require.NoError(tb, err)
 
 		// Purge credits older than 1 hour
 		count, err := repo.PurgeDeletedCredits(ctx, time.Hour)
@@ -406,7 +408,8 @@ func TestCreditRepository_PurgeDeletedCredits_Partial(t *testing.T) {
 
 		// Make only credit1 old enough
 		oldTime := time.Now().Add(-2 * time.Hour)
-		db.Model(&models.CreditModel{}).Where("id = ?", credit1.ID).Update("deleted_at", oldTime)
+		err = db.Model(&models.CreditModel{}).Where("id = ?", credit1.ID).Update("deleted_at", oldTime).Error
+		require.NoError(tb, err)
 
 		// Purge credits older than 1 hour
 		count, err := repo.PurgeDeletedCredits(ctx, time.Hour)

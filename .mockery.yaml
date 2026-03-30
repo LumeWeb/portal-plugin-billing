@@ -23,7 +23,7 @@ packages:
       MockablePaymentGateway: {}
   go.lumeweb.com/portal-plugin-billing/pkg/ledger:
     config:
-      dir: pkg/ledger/mocks/
+      inpackage: true
     interfaces:
       CreditRepository: {}
       TransactionContext: {}

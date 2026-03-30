@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 	"github.com/shopspring/decimal"
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
@@ -128,23 +129,15 @@ func (r *CreditRepository) GetDeletedCredits(ctx context.Context, userID uint64)
 	var creditModels []models.CreditModel
 	if err := r.db.WithContext(ctx).
 		Unscoped().
-		Where("user_id = ?", userID).
+		Where("user_id = ? AND deleted_at IS NOT NULL", userID).
 		Find(&creditModels).Error; err != nil {
 		return nil, &gormRepositoryError{op: "list_deleted", err: err}
 	}
 
-	// Filter to only deleted credits (deleted_at is not nil)
-	var deletedModels []models.CreditModel
-	for _, model := range creditModels {
-		if model.DeletedAt != nil {
-			deletedModels = append(deletedModels, model)
-		}
-	}
-
-	credits := make([]ledger.Credit, len(deletedModels))
-	for i, model := range deletedModels {
-		credits[i] = *r.ModelToCredit(&model)
-	}
+	// Convert to ledger credits
+	credits := lo.Map(creditModels, func(model models.CreditModel, _ int) ledger.Credit {
+		return *r.ModelToCredit(&model)
+	})
 
 	return credits, nil
 }

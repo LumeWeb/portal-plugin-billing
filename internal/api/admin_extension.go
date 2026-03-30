@@ -529,45 +529,75 @@ func (e *AdminExtension) handleCreateCredit(c echo.Context) error {
 		}
 		amount = parsedAmount
 	}
-	credit := &ledger.Credit{
-		ID:            uuid.New(),
-		UserID:        req.UserID,
-		Amount:        amount,
-		Type:          req.CreditType,
-		Direction:     req.Direction,
-		Description:   req.Description,
-		ReferenceID:   req.ReferenceID,
-		ReferenceType: req.ReferenceType,
-		CreatedBy:     0, // TODO: Get from authenticated admin user
-	}
+	// For idempotency, if reference_id and reference_type are provided, use IssueCreditWithIdempotency
+	var credit *ledger.Credit
+	var newlyCreated bool
 
-	// For idempotency, if reference_id and reference_type are provided, check for existing credits
 	if req.ReferenceID != "" && req.ReferenceType != "" {
+		// Check for existing credit first to determine status code
 		existingCredits, err := e.creditService.GetCreditsByReference(reqCtx, req.ReferenceID, req.ReferenceType)
 		if err != nil {
 			e.Logger().Error("failed to check existing credits", zap.Error(err))
+			return ctx.Error(NewError(ErrKeyCreditCreateFailed, fmt.Errorf("failed to check existing credits: %w", err)), http.StatusInternalServerError)
 		}
 
 		if len(existingCredits) > 0 {
-			// Return existing credit instead of creating duplicate
+			// Existing found, return it with 200
 			credit = &existingCredits[0]
+			newlyCreated = false
 		} else {
-			// Create credit
-			if err := e.creditService.CreateCredit(reqCtx, credit); err != nil {
+			// Issue credit with idempotency via service layer
+			if err := e.creditService.IssueCreditWithIdempotency(
+				reqCtx,
+				req.UserID,
+				req.CreditType,
+				amount,
+				req.ReferenceType,
+				req.ReferenceID,
+				req.Description,
+				0, // createdBy: TODO Get from authenticated admin user
+			); err != nil {
 				e.Logger().Error("failed to create credit", zap.Error(err))
 				return ctx.Error(NewError(ErrKeyCreditCreateFailed, fmt.Errorf("failed to create credit: %w", err)), http.StatusInternalServerError)
 			}
+
+			// Retrieve the created credit for response
+			existingCredits, err = e.creditService.GetCreditsByReference(reqCtx, req.ReferenceID, req.ReferenceType)
+			if err != nil || len(existingCredits) == 0 {
+				e.Logger().Error("failed to retrieve created credit", zap.Error(err))
+				return ctx.Error(NewError(ErrKeyCreditCreateFailed, fmt.Errorf("failed to retrieve created credit: %w", err)), http.StatusInternalServerError)
+			}
+			credit = &existingCredits[0]
+			newlyCreated = true
 		}
 	} else {
-		// Create credit without idempotency check
+		// Create credit without reference-based idempotency
+		credit = &ledger.Credit{
+			ID:            uuid.New(),
+			UserID:        req.UserID,
+			Amount:        amount,
+			Type:          req.CreditType,
+			Direction:     req.Direction,
+			Description:   req.Description,
+			ReferenceID:   req.ReferenceID,
+			ReferenceType: req.ReferenceType,
+			CreatedBy:     0, // TODO: Get from authenticated admin user
+		}
+
 		if err := e.creditService.CreateCredit(reqCtx, credit); err != nil {
 			e.Logger().Error("failed to create credit", zap.Error(err))
 			return ctx.Error(NewError(ErrKeyCreditCreateFailed, fmt.Errorf("failed to create credit: %w", err)), http.StatusInternalServerError)
 		}
+		newlyCreated = true
 	}
 
+	// Set status code based on whether credit was newly created
+	statusCode := http.StatusCreated
+	if !newlyCreated {
+		statusCode = http.StatusOK
+	}
 	ctx.Response().Before(func() {
-		ctx.Response().Status = http.StatusCreated
+		ctx.Response().Status = statusCode
 	})
 
 	// ConvertCredit to CreditModel
@@ -686,8 +716,7 @@ func (e *AdminExtension) handleListDeletedCredits(c echo.Context) error {
 	credits, err := e.creditService.GetDeletedCredits(reqCtx, userID)
 	if err != nil {
 		e.Logger().Error("failed to get deleted credits", zap.Error(err))
-		// Return success but empty list for admin permissions might be needed here
-		credits = []ledger.Credit{}
+		return ctx.Error(NewError(ErrKeyCreditNotFound, fmt.Errorf("failed to get deleted credits: %w", err)), http.StatusInternalServerError)
 	}
 
 	// Convert credits to response format

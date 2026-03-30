@@ -1,4 +1,4 @@
-package ledger_test
+package ledger
 
 import (
 	"testing"
@@ -6,13 +6,12 @@ import (
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.lumeweb.com/portal-plugin-billing/pkg/ledger"
 )
 
 func TestRegisterType_Success(t *testing.T) {
-	registry := ledger.NewRegistry()
+	registry := NewRegistry()
 
-	err := registry.RegisterType("new_type", ledger.CreditDirection,
+	err := registry.RegisterType("new_type", CreditDirection,
 		decimal.NewFromInt(1), decimal.NewFromInt(1000), "New credit type")
 
 	assert.NoError(t, err)
@@ -20,38 +19,38 @@ func TestRegisterType_Success(t *testing.T) {
 	creditType, err := registry.GetType("new_type")
 	require.NoError(t, err)
 	assert.Equal(t, "new_type", creditType.Name)
-	assert.Equal(t, ledger.CreditDirection, creditType.Direction)
+	assert.Equal(t, CreditDirection, creditType.Direction)
 	assert.True(t, creditType.MinAmount.Equal(decimal.NewFromInt(1)))
 	assert.True(t, creditType.MaxAmount.Equal(decimal.NewFromInt(1000)))
 	assert.Equal(t, "New credit type", creditType.Description)
 }
 
 func TestRegisterType_Duplicate(t *testing.T) {
-	registry := ledger.NewRegistry()
+	registry := NewRegistry()
 
 	name := "duplicate_type"
-	params := []interface{}{name, ledger.CreditDirection,
+	params := []interface{}{name, CreditDirection,
 		decimal.NewFromInt(1), decimal.NewFromInt(1000), "Duplicate type"}
 
 	// First registration should succeed
-	err := registry.RegisterType(params[0].(string), params[1].(ledger.Direction),
+	err := registry.RegisterType(params[0].(string), params[1].(Direction),
 		params[2].(decimal.Decimal), params[3].(decimal.Decimal), params[4].(string))
 	require.NoError(t, err)
 
 	// Second registration with identical parameters should be idempotent
-	err = registry.RegisterType(params[0].(string), params[1].(ledger.Direction),
+	err = registry.RegisterType(params[0].(string), params[1].(Direction),
 		params[2].(decimal.Decimal), params[3].(decimal.Decimal), params[4].(string))
 	assert.NoError(t, err)
 
 	// Registration with different parameters should fail
-	err = registry.RegisterType(name, ledger.DebitDirection,
+	err = registry.RegisterType(name, DebitDirection,
 		decimal.NewFromInt(10), decimal.NewFromInt(100), "Different type")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "already registered with different parameters")
 }
 
 func TestGetType_NotFound(t *testing.T) {
-	registry := ledger.NewRegistry()
+	registry := NewRegistry()
 
 	_, err := registry.GetType("nonexistent_type")
 
@@ -60,10 +59,10 @@ func TestGetType_NotFound(t *testing.T) {
 }
 
 func TestValidateAmount_Success(t *testing.T) {
-	registry := ledger.NewRegistry()
+	registry := NewRegistry()
 
 	name := "valid_type"
-	err := registry.RegisterType(name, ledger.CreditDirection,
+	err := registry.RegisterType(name, CreditDirection,
 		decimal.NewFromInt(10), decimal.NewFromInt(1000), "Valid type")
 	require.NoError(t, err)
 
@@ -85,11 +84,11 @@ func TestValidateAmount_Success(t *testing.T) {
 }
 
 func TestValidateAmount_TooLow(t *testing.T) {
-	registry := ledger.NewRegistry()
+	registry := NewRegistry()
 
 	name := "bounded_type"
 	minAmount := decimal.NewFromInt(10)
-	err := registry.RegisterType(name, ledger.CreditDirection,
+	err := registry.RegisterType(name, CreditDirection,
 		minAmount, decimal.NewFromInt(1000), "Bounded type")
 	require.NoError(t, err)
 
@@ -112,11 +111,11 @@ func TestValidateAmount_TooLow(t *testing.T) {
 }
 
 func TestValidateAmount_TooHigh(t *testing.T) {
-	registry := ledger.NewRegistry()
+	registry := NewRegistry()
 
 	name := "bounded_type"
 	maxAmount := decimal.NewFromInt(1000)
-	err := registry.RegisterType(name, ledger.CreditDirection,
+	err := registry.RegisterType(name, CreditDirection,
 		decimal.NewFromInt(10), maxAmount, "Bounded type")
 	require.NoError(t, err)
 
@@ -138,7 +137,7 @@ func TestValidateAmount_TooHigh(t *testing.T) {
 }
 
 func TestValidateAmount_UnregisteredType(t *testing.T) {
-	registry := ledger.NewRegistry()
+	registry := NewRegistry()
 
 	err := registry.ValidateAmount("unregistered_type", decimal.NewFromInt(100))
 
@@ -148,22 +147,22 @@ func TestValidateAmount_UnregisteredType(t *testing.T) {
 
 func TestGetDirection_Constants(t *testing.T) {
 	tests := []struct {
-		direction ledger.Direction
+		direction Direction
 		expected  string
 	}{
-		{direction: ledger.CreditDirection, expected: "credit"},
-		{direction: ledger.DebitDirection, expected: "debit"},
+		{direction: CreditDirection, expected: "credit"},
+		{direction: DebitDirection, expected: "debit"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.expected, func(t *testing.T) {
-			result := ledger.GetDirection(tt.direction)
+			result := GetDirection(tt.direction)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
 
 func TestGetDirection_Unknown(t *testing.T) {
-	result := ledger.GetDirection(ledger.Direction(99))
+	result := GetDirection(Direction(99))
 	assert.Equal(t, "unknown", result)
 }
