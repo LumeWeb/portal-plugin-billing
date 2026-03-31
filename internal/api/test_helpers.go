@@ -2,9 +2,9 @@ package api
 
 import (
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
-	coreTesting "go.lumeweb.com/portal/core/testing"
-	pluginConfig "go.lumeweb.com/portal-plugin-billing/internal/config"
 	"go.lumeweb.com/portal-plugin-billing/internal"
+	pluginConfig "go.lumeweb.com/portal-plugin-billing/internal/config"
+	coreTesting "go.lumeweb.com/portal/core/testing"
 )
 
 // getUserAPITestOptions returns test options for tests that need the user-facing API Extension
@@ -18,6 +18,7 @@ func getUserAPITestOptions() coreTesting.TestContextBuilderOption {
 		coreTesting.WithMockServiceFactory(pluginCore.BILLING_SERVICE, pluginCore.NewMockBillingService, &pluginConfig.ServiceConfig{}),
 		// Add PricingService mock for pricing plan tests
 		coreTesting.WithMockServiceFactory(pluginCore.PRICING_SERVICE, pluginCore.NewMockPricingService, &pluginConfig.ServiceConfig{}),
+		coreTesting.WithMockServiceFactory(pluginCore.CREDIT_SERVICE, pluginCore.NewMockCreditService, &pluginConfig.ServiceConfig{}),
 	)
 }
 

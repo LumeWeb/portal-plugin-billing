@@ -16,6 +16,9 @@ packages:
       GatewaySync: {}
       # Test-specific composite interface that includes all gateway interfaces
       FullPaymentGateway: {}
+      PaymentGateway: {}
+      SubscriptionExecutor: {}
+      SubscriptionManager: {}
   go.lumeweb.com/portal-plugin-billing/internal/service/pricing:
     config:
       dir: internal/service/pricing/

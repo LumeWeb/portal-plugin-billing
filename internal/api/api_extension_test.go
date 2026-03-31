@@ -10,10 +10,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
+	billingEvent "go.lumeweb.com/portal-plugin-billing/internal/event"
 	"go.lumeweb.com/portal-plugin-billing/internal"
 	"go.lumeweb.com/portal-plugin-billing/internal/api/dto"
 	pluginConfig "go.lumeweb.com/portal-plugin-billing/internal/config"
@@ -28,29 +30,17 @@ import (
 	internalModels "go.lumeweb.com/portal-plugin-billing/internal/db/models"
 )
 
-// combinedGatewayMock combines PaymentGateway, SubscriptionManager, and SubscriptionExecutor mocks for testing
-type combinedGatewayMock struct {
-	*pluginCore.MockPaymentGateway
-	*pluginCore.MockSubscriptionManager
-	*pluginCore.MockSubscriptionExecutor
-}
 
-// newCombinedGatewayMock creates a new combinedGatewayMock with all three mock types initialized
-func newCombinedGatewayMock(t interface {
-	mock.TestingT
-	Cleanup(func())
-}) *combinedGatewayMock {
-	return &combinedGatewayMock{
-		MockPaymentGateway:       pluginCore.NewMockPaymentGateway(t),
-		MockSubscriptionManager:  pluginCore.NewMockSubscriptionManager(t),
-		MockSubscriptionExecutor: pluginCore.NewMockSubscriptionExecutor(t),
-	}
-}
+
+
+
+
 
 // testSetup holds common test dependencies
 type testSetup struct {
 	billingSvc *pluginCore.MockBillingService
 	userSvc    *coreTesting.MockUserService
+	creditSvc  *pluginCore.MockCreditService
 	router     http.Handler
 }
 
@@ -59,6 +49,7 @@ func setupTest(ctx coreTesting.TestContext) *testSetup {
 	return &testSetup{
 		billingSvc: core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE),
 		userSvc:    core.GetService[*coreTesting.MockUserService](ctx, core.USER_SERVICE),
+		creditSvc:  core.GetService[*pluginCore.MockCreditService](ctx, pluginCore.CREDIT_SERVICE),
 		router:     ctx.Router(),
 	}
 }
@@ -85,22 +76,22 @@ func (ts *testSetup) createAuthenticatedRequest(ctx coreTesting.TestContext, met
 }
 
 // createMockSubscriber creates a mock subscriber with the given parameters
-func createMockSubscriber(userID uint, gatewayType, externalID string, isActive bool, planID *uint) *pluginCore.Subscriber {
+func createMockSubscriber(userID uint, gatewayType, externalID string, isActive bool, pricingPlanPeriodID *uint) *pluginCore.Subscriber {
 	return &pluginCore.Subscriber{
-		UserID:        userID,
-		GatewayType:   gatewayType,
-		ExternalID:    externalID,
-		SubscriptionID: "",
-		IsActive:      isActive,
-		PlanID:        planID,
+		UserID:              userID,
+		GatewayType:         gatewayType,
+		ExternalID:          externalID,
+		SubscriptionID:      "",
+		IsActive:            isActive,
+		PricingPlanPeriodID: pricingPlanPeriodID,
 	}
 }
 
 // assertSubscriptionStatus verifies subscription status response
-func assertSubscriptionStatus(t coreTesting.TB, response dto.SubscriptionStatusResponse, expectedSubscribed bool, expectedGateway string, expectedPlanID *uint) {
+func assertSubscriptionStatus(t coreTesting.TB, response dto.SubscriptionStatusResponse, expectedSubscribed bool, expectedGateway string, expectedPricingPlanPeriodID *uint) {
 	assert.Equal(t, expectedSubscribed, response.IsSubscribed)
 	assert.Equal(t, expectedGateway, response.GatewayType)
-	assert.Equal(t, expectedPlanID, response.PlanID)
+	assert.Equal(t, expectedPricingPlanPeriodID, response.PricingPlanPeriodID)
 }
 
 func TestMain(m *testing.M) {
@@ -150,6 +141,321 @@ func TestHandleWebhook_Success(t *testing.T) {
 
 		// Verify
 		assert.Equal(tb, http.StatusNoContent, w.Code)
+
+	}, getUserAPITestOptions())
+}
+
+// SSE API Tests
+
+// sseTestHelper provides utilities for SSE testing
+type sseTestHelper struct {
+	tb        coreTesting.TB
+	ctx       coreTesting.TestContext
+	setup     *testSetup
+	userToken string
+}
+
+// sseConnection manages an active SSE connection for testing
+type sseConnection struct {
+	req       *http.Request
+	rec       *httptest.ResponseRecorder
+	done      chan bool
+	cancel    context.CancelFunc
+	closed    bool
+	tb        coreTesting.TB
+}
+
+// StartSSEConnection creates and starts an SSE connection in a goroutine
+// Returns a connection struct that can be used to wait for results or cancel the connection
+func (h *sseTestHelper) StartSSEConnection() *sseConnection {
+	
+	// Create a cancelable context for the request
+	reqCtx, cancel := context.WithCancel(context.Background())
+	
+	// Create the request with the cancelable context
+	req := h.ctx.NewAPIRequest("GET", "/api/account/billing/subscription/events", nil)
+	req = req.WithContext(reqCtx)
+	req.Header.Set("Authorization", "Bearer "+h.userToken)
+	
+	rec := httptest.NewRecorder()
+	
+	conn := &sseConnection{
+		req:    req,
+		rec:    rec,
+		done:   make(chan bool, 1),
+		cancel: cancel,
+		closed: false,
+		tb:     h.tb,
+	}
+	
+	go func() {
+		h.setup.router.ServeHTTP(rec, req)
+		conn.done <- true
+	}()
+	
+	return conn
+}
+
+// WaitForConnection waits for the SSE connection to establish
+func (conn *sseConnection) WaitForConnection() {
+	const connectionDelay = 100 * time.Millisecond
+	time.Sleep(connectionDelay)
+}
+
+// WaitForEvent waits for an event to be delivered
+func (conn *sseConnection) WaitForEvent() {
+	const eventDelay = 200 * time.Millisecond
+	time.Sleep(eventDelay)
+}
+
+// Cancel closes the SSE connection by canceling the request context
+func (conn *sseConnection) Cancel() {
+	if conn.closed {
+		return
+	}
+	
+	conn.cancel()
+}
+
+// WaitForClose waits for the SSE connection goroutine to complete
+// Returns true if connection closed within timeout, false otherwise
+func (conn *sseConnection) WaitForClose(timeout time.Duration) bool {
+	select {
+	case <-conn.done:
+		conn.closed = true
+		return true
+	case <-time.After(timeout):
+		conn.tb.Errorf("WaitForClose: Connection did not close within %v", timeout)
+		preview := conn.rec.Body.String()
+		if len(preview) > 500 {
+			preview = preview[:500]
+		}
+		return false
+	}
+}
+
+// GetResponseBody returns the full response body received so far
+func (conn *sseConnection) GetResponseBody() string {
+	body := conn.rec.Body.String()
+	return body
+}
+
+// Helper method to fire a PaymentCompletedEvent
+func (h *sseTestHelper) FirePaymentCompletedEvent(amount decimal.Decimal, gateway, invoiceID, externalID string) {
+	paymentEvent := billingEvent.NewPaymentCompletedEvent(
+		context.Background(),
+		1, // Always user ID 1 for the helper
+		amount,
+		gateway,
+		invoiceID,
+		externalID,
+	)
+	
+	// Fire[P any](ctx Context, eventName string, data *P)
+	// If P = PaymentCompletedEvent, then data *P = *PaymentCompletedEvent
+	// NewPaymentCompletedEvent returns *PaymentCompletedEvent, so pass it directly
+	core.Fire(h.ctx, billingEvent.EVENT_PAYMENT_COMPLETED, paymentEvent)
+}
+
+// setupSSETest creates a helper for SSE testing
+func setupSSETest(tb coreTesting.TB, ctx coreTesting.TestContext) *sseTestHelper {
+	ts := setupTest(ctx)
+	
+	ts.userSvc.EXPECT().AccountExists(mock.Anything, uint(1)).Return(true, nil, nil)
+	
+	token := coreTesting.CreateTestLoginToken(ctx.T(), ctx, "1")
+	
+	return &sseTestHelper{
+		tb:        tb,
+		ctx:       ctx,
+		setup:     ts,
+		userToken: token,
+	}
+}
+
+func TestHandleSubscriptionSSE_Unauthenticated(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupTest(ctx)
+
+		// Create unauthenticated SSE request
+		req := ctx.NewAPIRequest("GET", "/api/account/billing/subscription/events", nil)
+		w := httptest.NewRecorder()
+
+		// Execute
+		ts.router.ServeHTTP(w, req)
+
+		// Verify - should return unauthorized
+		assert.Equal(tb, http.StatusUnauthorized, w.Code)
+
+	}, getUserAPITestOptions())
+}
+
+func TestHandleSubscriptionSSE_ConnectionEstablished(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		helper := setupSSETest(tb, ctx)
+
+		conn := helper.StartSSEConnection()
+
+		conn.WaitForConnection()
+
+		// Note: SSE headers are written immediately when connection establishes
+		// We can check them before canceling the connection
+
+		// Verify SSE response headers
+		assert.Equal(tb, http.StatusOK, conn.rec.Code)
+		assert.Contains(tb, conn.rec.Header().Get("Content-Type"), "text/event-stream")
+		assert.Equal(tb, "no-cache", conn.rec.Header().Get("Cache-Control"))
+		assert.Equal(tb, "keep-alive", conn.rec.Header().Get("Connection"))
+
+		conn.Cancel()
+
+		conn.WaitForClose(2 * time.Second)
+
+	}, getUserAPITestOptions())
+}
+
+func TestHandleSubscriptionSSE_PaymentCompletedEvent(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		helper := setupSSETest(tb, ctx)
+
+		conn := helper.StartSSEConnection()
+
+		conn.WaitForConnection()
+
+		amount, _ := decimal.NewFromString("10.99")
+		helper.FirePaymentCompletedEvent(amount, "stripe", "inv_123", "pi_456")
+
+		// Wait longer for first event (buffering may take time)
+		time.Sleep(300 * time.Millisecond)
+
+		conn.Cancel()
+
+		if !conn.WaitForClose(2 * time.Second) {
+			return // Test already failed in WaitForClose
+		}
+
+		// Verify SSE event was sent
+		responseBody := conn.GetResponseBody()
+
+		// Should contain the event type
+		assert.Contains(tb, responseBody, "event: payment.completed")
+
+		// Should contain event data
+		assert.Contains(tb, responseBody, `"amount":"10.99"`)
+		assert.Contains(tb, responseBody, `"gateway":"stripe"`)
+		assert.Contains(tb, responseBody, `"invoice_id":"inv_123"`)
+
+		// Verify JSON structure
+		assert.Contains(tb, responseBody, `"type":"payment.completed"`)
+		assert.Contains(tb, responseBody, `"data":{`)
+
+	}, getUserAPITestOptions())
+}
+
+func TestHandleSubscriptionSSE_UserTopicIsolation(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupTest(ctx)
+
+		// Mock user account validation for user 1
+		ts.userSvc.EXPECT().AccountExists(mock.Anything, uint(1)).Return(true, nil, nil)
+
+		// Create SSE request for user 1 with cancelable context
+		token1 := coreTesting.CreateTestLoginToken(ctx.T(), ctx, "1")
+		req1Ctx, req1Cancel := context.WithCancel(context.Background())
+		req1 := ctx.NewAPIRequest("GET", "/api/account/billing/subscription/events", nil)
+		req1 = req1.WithContext(req1Ctx)
+		req1.Header.Set("Authorization", "Bearer "+token1)
+
+		rec1 := httptest.NewRecorder()
+
+		// Start SSE connection for user 1
+		connDone1 := make(chan bool, 1)
+		go func() {
+			ts.router.ServeHTTP(rec1, req1)
+			connDone1 <- true
+		}()
+
+		// Wait for connection
+		time.Sleep(100 * time.Millisecond)
+
+		// Fire event for user 2 (should not reach user 1)
+		amount, _ := decimal.NewFromString("15.00")
+		event := billingEvent.NewPaymentCompletedEvent(
+			context.Background(),
+			2, // Different user ID
+			amount,
+			"stripe",
+			"inv_user2",
+			"pi_user2",
+		)
+		core.Fire(ctx, billingEvent.EVENT_PAYMENT_COMPLETED, event)
+
+		// Wait
+		time.Sleep(200 * time.Millisecond)
+
+		// Fire event for user 1
+		event1 := billingEvent.NewPaymentCompletedEvent(
+			context.Background(),
+			1,
+			amount,
+			"stripe",
+			"inv_user1",
+			"pi_user1",
+		)
+		core.Fire(ctx, billingEvent.EVENT_PAYMENT_COMPLETED, event1)
+
+		// Wait for event
+		time.Sleep(200 * time.Millisecond)
+
+		// Cancel the SSE connection
+		req1Cancel()
+
+		select {
+		case <-connDone1:
+		case <-time.After(2 * time.Second):
+			tb.Error("Connection did not close")
+		}
+
+		// Verify user 1 only received their own events
+		responseBody := rec1.Body.String()
+
+		// Should contain user 1's event
+		assert.Contains(tb, responseBody, `"invoice_id":"inv_user1"`)
+
+		// Should NOT contain user 2's event
+		assert.NotContains(tb, responseBody, `"invoice_id":"inv_user2"`)
+
+	}, getUserAPITestOptions())
+}
+
+func TestHandleSubscriptionSSE_EventFieldsExcludedFromSSE(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		helper := setupSSETest(tb, ctx)
+
+		conn := helper.StartSSEConnection()
+
+		conn.WaitForConnection()
+
+		amount, _ := decimal.NewFromString("25.00")
+		helper.FirePaymentCompletedEvent(amount, "stripe", "inv_test", "pi_test")
+
+		conn.WaitForEvent()
+
+		conn.Cancel()
+
+		if !conn.WaitForClose(2 * time.Second) {
+			return // Test already failed in WaitForClose
+		}
+
+		// Verify UserID field is excluded from JSON
+		responseBody := conn.GetResponseBody()
+
+		// Should NOT contain user_id field
+		assert.NotContains(tb, responseBody, `"user_id"`)
+
+		// Should contain other fields
+		assert.Contains(tb, responseBody, `"invoice_id":"inv_test"`)
+		assert.Contains(tb, responseBody, `"gateway":"stripe"`)
 
 	}, getUserAPITestOptions())
 }
@@ -609,29 +915,54 @@ func TestHandleListPricingPlans_Success(t *testing.T) {
 		}
 		pricingSvc.EXPECT().GetEffectivePriceLineForUser(mock.Anything, uint(1)).Return(priceLine, nil).Once()
 
-		// Mock pricing plans
-		monthlyPrice := 9.99
-		yearlyPrice := 99.99
-		plans := []*internalModels.PricingPlan{
+		// Mock pricing plan periods for plan 1
+		plan1Periods := []*internalModels.PricingPlanPeriod{
 			{
-				Model:           gorm.Model{ID: 1},
-				Name:            "Basic Plan",
-				Description:     "Entry level plan",
-				MonthlyPriceUSD: &monthlyPrice,
-				YearlyPriceUSD:  &yearlyPrice,
-				Currency:        "USD",
-				IsActive:        true,
-				IsPublic:        true,
+				Model:         gorm.Model{ID: 10},
+				PricingPlanID: 1,
+				Cadence:       "monthly",
+				PriceUSD:      10.99,
+				QuotaPlanID:   100,
 			},
 			{
-				Model:           gorm.Model{ID: 2},
-				Name:            "Pro Plan",
-				Description:     "Professional plan",
-				MonthlyPriceUSD: nil,
-				YearlyPriceUSD:  nil,
-				Currency:        "USD",
-				IsActive:        true,
-				IsPublic:        true,
+				Model:         gorm.Model{ID: 11},
+				PricingPlanID: 1,
+				Cadence:       "yearly",
+				PriceUSD:      99.99,
+				QuotaPlanID:   100,
+			},
+		}
+		pricingSvc.EXPECT().GetPricingPlanPeriods(mock.Anything, uint(1)).Return(plan1Periods, nil).Once()
+
+		// Mock pricing plan periods for plan 2
+		plan2Periods := []*internalModels.PricingPlanPeriod{
+			{
+				Model:         gorm.Model{ID: 20},
+				PricingPlanID: 2,
+				Cadence:       "monthly",
+				PriceUSD:      29.99,
+				QuotaPlanID:   200,
+			},
+		}
+		pricingSvc.EXPECT().GetPricingPlanPeriods(mock.Anything, uint(2)).Return(plan2Periods, nil).Once()
+
+		// Mock pricing plans
+		plans := []*internalModels.PricingPlan{
+			{
+				Model:        gorm.Model{ID: 1},
+				Name:         "Basic Plan",
+				Description:  "Entry level plan",
+				Currency:     "USD",
+				IsActive:     true,
+				IsPublic:     true,
+			},
+			{
+				Model:        gorm.Model{ID: 2},
+				Name:         "Pro Plan",
+				Description:  "Professional plan",
+				Currency:     "USD",
+				IsActive:     true,
+				IsPublic:     true,
 			},
 		}
 		pricingSvc.EXPECT().GetPlansForPriceLine(mock.Anything, uint(100)).Return(plans, nil).Once()
@@ -649,7 +980,7 @@ func TestHandleListPricingPlans_Success(t *testing.T) {
 		assert.Equal(tb, http.StatusOK, w.Code)
 
 		// Parse response
-		var response queryutil.Response[[]dto.PricingPlanResponse]
+		var response queryutil.Response[[]dto.PublicPricingPlanResponse]
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		assert.NoError(tb, err)
 		assert.Len(tb, response.Data, 2)
@@ -658,13 +989,22 @@ func TestHandleListPricingPlans_Success(t *testing.T) {
 		assert.Equal(tb, uint(1), response.Data[0].ID)
 		assert.Equal(tb, "Basic Plan", response.Data[0].Name)
 		assert.Equal(tb, "Entry level plan", response.Data[0].Description)
-		assert.NotNil(tb, response.Data[0].MonthlyPrice)
-		assert.Equal(tb, 9.99, *response.Data[0].MonthlyPrice)
-		assert.NotNil(tb, response.Data[0].YearlyPrice)
-		assert.Equal(tb, 99.99, *response.Data[0].YearlyPrice)
 		assert.Equal(tb, "USD", response.Data[0].Currency)
-		assert.True(tb, response.Data[0].IsActive)
-		assert.True(tb, response.Data[0].IsPublic)
+		assert.Len(tb, response.Data[0].PricingPeriods, 2)
+		assert.Equal(tb, uint(10), response.Data[0].PricingPeriods[0].ID)
+		assert.Equal(tb, "monthly", response.Data[0].PricingPeriods[0].Cadence)
+		assert.Equal(tb, 10.99, response.Data[0].PricingPeriods[0].PriceUSD)
+		assert.Equal(tb, uint(11), response.Data[0].PricingPeriods[1].ID)
+		assert.Equal(tb, "yearly", response.Data[0].PricingPeriods[1].Cadence)
+
+		// Verify plan 2
+		assert.Equal(tb, uint(2), response.Data[1].ID)
+		assert.Equal(tb, "Pro Plan", response.Data[1].Name)
+		assert.Len(tb, response.Data[1].PricingPeriods, 1)
+		assert.Equal(tb, uint(20), response.Data[1].PricingPeriods[0].ID)
+		assert.Equal(tb, "monthly", response.Data[1].PricingPeriods[0].Cadence)
+		assert.Equal(tb, 29.99, response.Data[1].PricingPeriods[0].PriceUSD)
+
 	}, getUserAPITestOptions())
 }
 
@@ -682,17 +1022,27 @@ func TestHandleListPricingPlans_Unauthenticated(t *testing.T) {
 		}
 		pricingSvc.EXPECT().GetDefaultPriceLine(mock.Anything).Return(priceLine, nil).Once()
 
+		// Mock pricing plan periods
+		planPeriods := []*internalModels.PricingPlanPeriod{
+			{
+				Model:         gorm.Model{ID: 10},
+				PricingPlanID: 1,
+				Cadence:       "monthly",
+				PriceUSD:      10.99,
+				QuotaPlanID:   100,
+			},
+		}
+		pricingSvc.EXPECT().GetPricingPlanPeriods(mock.Anything, uint(1)).Return(planPeriods, nil).Once()
+
 		// Mock pricing plans
-		monthlyPrice := 9.99
 		plans := []*internalModels.PricingPlan{
 			{
-				Model:           gorm.Model{ID: 1},
-				Name:            "Basic Plan",
-				Description:     "Entry level plan",
-				MonthlyPriceUSD: &monthlyPrice,
-				Currency:        "USD",
-				IsActive:        true,
-				IsPublic:        true,
+				Model:        gorm.Model{ID: 1},
+				Name:         "Basic Plan",
+				Description:  "Entry level plan",
+				Currency:     "USD",
+				IsActive:     true,
+				IsPublic:     true,
 			},
 		}
 		pricingSvc.EXPECT().GetPlansForPriceLine(mock.Anything, uint(999)).Return(plans, nil).Once()
@@ -709,7 +1059,7 @@ func TestHandleListPricingPlans_Unauthenticated(t *testing.T) {
 		assert.Equal(tb, http.StatusOK, w.Code)
 
 		// Parse response
-		var response queryutil.Response[[]dto.PricingPlanResponse]
+		var response queryutil.Response[[]dto.PublicPricingPlanResponse]
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		assert.NoError(tb, err)
 		assert.Len(tb, response.Data, 1)
@@ -717,95 +1067,10 @@ func TestHandleListPricingPlans_Unauthenticated(t *testing.T) {
 		// Verify plan details
 		assert.Equal(tb, uint(1), response.Data[0].ID)
 		assert.Equal(tb, "Basic Plan", response.Data[0].Name)
-		assert.Equal(tb, 9.99, *response.Data[0].MonthlyPrice)
-	}, getUserAPITestOptions())
-}
+		assert.Len(tb, response.Data[0].PricingPeriods, 1)
+		assert.Equal(tb, uint(10), response.Data[0].PricingPeriods[0].ID)
+		assert.Equal(tb, "monthly", response.Data[0].PricingPeriods[0].Cadence)
 
-func TestHandleGetPricingPlanDetail_Success(t *testing.T) {
-	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
-		ts := setupTest(ctx)
-
-		// Get pricing service
-		pricingSvc := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
-
-		// Mock pricing plan
-		monthlyPrice := 19.99
-		plan := &internalModels.PricingPlan{
-			Model:           gorm.Model{ID: 1},
-			Name:            "Premium Plan",
-			Description:     "Premium features for professionals",
-			MonthlyPriceUSD: &monthlyPrice,
-			Currency:        "USD",
-			IsActive:        true,
-			IsPublic:        true,
-		}
-		pricingSvc.EXPECT().GetPricingPlan(mock.Anything, uint(1)).Return(plan, nil).Once()
-
-		// Create authenticated request
-		req, requestErr := ts.createAuthenticatedRequest(ctx, "GET", "/api/billing/plans/1", nil, "1")
-		assert.NoError(tb, requestErr, "Failed to create authenticated request")
-		w := httptest.NewRecorder()
-
-		// Execute
-		ts.router.ServeHTTP(w, req)
-
-		// Verify
-		assert.Equal(tb, http.StatusOK, w.Code)
-
-		// Parse response
-		var response dto.PricingPlanResponse
-		err := json.Unmarshal(w.Body.Bytes(), &response)
-		assert.NoError(tb, err)
-
-		// Verify plan details
-		assert.Equal(tb, uint(1), response.ID)
-		assert.Equal(tb, "Premium Plan", response.Name)
-		assert.Equal(tb, "Premium features for professionals", response.Description)
-		assert.NotNil(tb, response.MonthlyPrice)
-		assert.Equal(tb, 19.99, *response.MonthlyPrice)
-		assert.Equal(tb, "USD", response.Currency)
-		assert.True(tb, response.IsActive)
-		assert.True(tb, response.IsPublic)
-	}, getUserAPITestOptions())
-}
-
-func TestHandleGetPricingPlanDetail_NotFound(t *testing.T) {
-	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
-		ts := setupTest(ctx)
-
-		// Get pricing service
-		pricingSvc := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
-
-		// Mock plan not found
-		pricingSvc.EXPECT().GetPricingPlan(mock.Anything, uint(999)).Return((*internalModels.PricingPlan)(nil), gorm.ErrRecordNotFound).Once()
-
-		// Create request
-		req := ctx.NewAPIRequest("GET", "/api/billing/plans/999", nil)
-
-		w := httptest.NewRecorder()
-
-		// Execute
-		ts.router.ServeHTTP(w, req)
-
-		// Verify - should return not found
-		assert.Equal(tb, http.StatusNotFound, w.Code)
-	}, getUserAPITestOptions())
-}
-
-func TestHandleGetPricingPlanDetail_InvalidID(t *testing.T) {
-	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
-		ts := setupTest(ctx)
-
-		// Create request with invalid ID
-		req := ctx.NewAPIRequest("GET", "/api/billing/plans/invalid", nil)
-
-		w := httptest.NewRecorder()
-
-		// Execute
-		ts.router.ServeHTTP(w, req)
-
-		// Verify - should return bad request
-		assert.Equal(tb, http.StatusBadRequest, w.Code)
 	}, getUserAPITestOptions())
 }
 
@@ -836,11 +1101,11 @@ func TestHandleGetCheckoutUI_Success(t *testing.T) {
 		}
 
 		// Mock GetCheckoutUI on billing service
-		ts.billingSvc.EXPECT().GetCheckoutUI(mock.Anything, uint(1), planID, "stripe").
+		ts.billingSvc.EXPECT().GetCheckoutUI(mock.Anything, uint(1), planID, "stripe", uint(1)).
 			Return(checkoutResponse, nil).Once()
 
 		// Create authenticated request
-		req := ctx.NewAPIRequest("GET", "/api/account/billing/checkout/ui/"+strconv.Itoa(int(planID)), nil)
+		req := ctx.NewAPIRequest("GET", "/api/account/billing/checkout/ui/"+strconv.Itoa(int(planID))+"?period_id=1", nil)
 		token := coreTesting.CreateTestLoginToken(ctx.T(), ctx, "1")
 		req.Header.Set("Authorization", "Bearer "+token)
 
@@ -885,11 +1150,11 @@ func TestHandleGetCheckoutUI_WithCustomGateway(t *testing.T) {
 		}
 
 		// Mock GetCheckoutUI on billing service
-		ts.billingSvc.EXPECT().GetCheckoutUI(mock.Anything, uint(1), planID, "paypal").
+		ts.billingSvc.EXPECT().GetCheckoutUI(mock.Anything, uint(1), planID, "paypal", uint(1)).
 			Return(checkoutResponse, nil).Once()
 
 		// Create request with gateway query parameter (note: parameter name is "gateway", not "gateway_type")
-		req := ctx.NewAPIRequest("GET", "/api/account/billing/checkout/ui/99?gateway=paypal", nil)
+		req := ctx.NewAPIRequest("GET", "/api/account/billing/checkout/ui/99?gateway=paypal&period_id=1", nil)
 		token := coreTesting.CreateTestLoginToken(ctx.T(), ctx, "1")
 		req.Header.Set("Authorization", "Bearer "+token)
 
@@ -917,7 +1182,7 @@ func TestHandleGetCheckoutUI_Unauthorized(t *testing.T) {
 		planID := uint(42)
 
 		// Create unauthenticated request
-		req := ctx.NewAPIRequest("GET", "/api/account/billing/checkout/ui/"+strconv.Itoa(int(planID)), nil)
+		req := ctx.NewAPIRequest("GET", "/api/account/billing/checkout/ui/"+strconv.Itoa(int(planID))+"?period_id=1", nil)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -963,11 +1228,11 @@ func TestHandleGetCheckoutUI_GetCheckoutUIError(t *testing.T) {
 		ts.userSvc.EXPECT().AccountExists(mock.Anything, uint(1)).Return(true, nil, nil)
 
 		// Mock GetCheckoutUI to return an error
-		ts.billingSvc.EXPECT().GetCheckoutUI(mock.Anything, uint(1), planID, "stripe").
+		ts.billingSvc.EXPECT().GetCheckoutUI(mock.Anything, uint(1), planID, "stripe", uint(1)).
 			Return(nil, assert.AnError).Once()
 
 		// Create authenticated request
-		req := ctx.NewAPIRequest("GET", "/api/account/billing/checkout/ui/"+strconv.Itoa(int(planID)), nil)
+		req := ctx.NewAPIRequest("GET", "/api/account/billing/checkout/ui/"+strconv.Itoa(int(planID))+"?period_id=1", nil)
 		token := coreTesting.CreateTestLoginToken(ctx.T(), ctx, "1")
 		req.Header.Set("Authorization", "Bearer "+token)
 		w := httptest.NewRecorder()
@@ -994,11 +1259,11 @@ func TestHandleGetCheckoutUI_GatewayNotFound(t *testing.T) {
 		ts.userSvc.EXPECT().AccountExists(mock.Anything, uint(1)).Return(true, nil, nil)
 
 		// Mock GetCheckoutUI to return gateway not found error
-		ts.billingSvc.EXPECT().GetCheckoutUI(mock.Anything, uint(1), planID, "nonexistent").
+		ts.billingSvc.EXPECT().GetCheckoutUI(mock.Anything, uint(1), planID, "nonexistent", uint(1)).
 			Return(nil, pluginCore.ErrGatewayNotFound).Once()
 
 		// Create authenticated request - use "gateway" query param, not "gateway_type"
-		req := ctx.NewAPIRequest("GET", "/api/account/billing/checkout/ui/"+strconv.Itoa(int(planID))+"?gateway=nonexistent", nil)
+		req := ctx.NewAPIRequest("GET", "/api/account/billing/checkout/ui/"+strconv.Itoa(int(planID))+"?gateway=nonexistent&period_id=1", nil)
 		token := coreTesting.CreateTestLoginToken(ctx.T(), ctx, "1")
 		req.Header.Set("Authorization", "Bearer "+token)
 		w := httptest.NewRecorder()
@@ -1027,11 +1292,11 @@ func TestHandleGetCheckoutUI_UserAlreadySubscribed(t *testing.T) {
 		ts.userSvc.EXPECT().AccountExists(mock.Anything, uint(1)).Return(true, nil, nil)
 
 		// Mock GetCheckoutUI to return error about active subscription
-		ts.billingSvc.EXPECT().GetCheckoutUI(mock.Anything, uint(1), planID, "stripe").
+		ts.billingSvc.EXPECT().GetCheckoutUI(mock.Anything, uint(1), planID, "stripe", uint(1)).
 			Return(nil, fmt.Errorf("user already has an active subscription")).Once()
 
 		// Create authenticated request
-		req := ctx.NewAPIRequest("GET", "/api/account/billing/checkout/ui/"+strconv.Itoa(int(planID)), nil)
+		req := ctx.NewAPIRequest("GET", "/api/account/billing/checkout/ui/"+strconv.Itoa(int(planID))+"?period_id=1", nil)
 		token := coreTesting.CreateTestLoginToken(ctx.T(), ctx, "1")
 		req.Header.Set("Authorization", "Bearer "+token)
 		w := httptest.NewRecorder()
@@ -1063,11 +1328,11 @@ func TestHandleGetCheckoutUI_RequestBodyParsing(t *testing.T) {
 			}
 
 			// Mock GetCheckoutUI
-			ts.billingSvc.EXPECT().GetCheckoutUI(mock.Anything, uint(1), planID, "stripe").
+			ts.billingSvc.EXPECT().GetCheckoutUI(mock.Anything, uint(1), planID, "stripe", uint(1)).
 				Return(checkoutResponse, nil).Once()
 
 			// Create authenticated request
-			req := ctx.NewAPIRequest("GET", "/api/account/billing/checkout/ui/"+strconv.Itoa(int(planID)), nil)
+			req := ctx.NewAPIRequest("GET", "/api/account/billing/checkout/ui/"+strconv.Itoa(int(planID))+"?period_id=1", nil)
 			token := coreTesting.CreateTestLoginToken(ctx.T(), ctx, "1")
 			req.Header.Set("Authorization", "Bearer "+token)
 			w := httptest.NewRecorder()
@@ -1102,10 +1367,10 @@ func TestHandleCancelOperation_Success_APIBased(t *testing.T) {
 		ts.billingSvc.EXPECT().GetActiveSubscription(mock.Anything, uint(1)).Return(mockSubscriber, nil).Once()
 
 		// Mock gateway
-		mockGateway := newCombinedGatewayMock(t)
+		mockGateway := pluginCore.NewMockPaymentGateway(t)
 		ts.billingSvc.EXPECT().GetGateway(mock.Anything, "atlos").Return(mockGateway, nil).Once()
 
-		// Mock management capabilities - Atlas supports cancellation
+		// Mock management capabilities - Atlas supports cancellation (API mode)
 		capabilities := &pluginCore.ManagementCapabilities{
 			ManagementMode: pluginCore.ModeAPI,
 			Operations: map[pluginCore.ManagementOperation]bool{
@@ -1113,21 +1378,10 @@ func TestHandleCancelOperation_Success_APIBased(t *testing.T) {
 				pluginCore.OperationChangePlan: false,
 			},
 		}
-		mockGateway.MockSubscriptionManager.EXPECT().GetManagementInfo(mock.Anything, uint(1)).Return(capabilities, nil).Once()
+		mockGateway.EXPECT().GetManagementInfo(mock.Anything, uint(1)).Return(capabilities, nil).Once()
 
-		// Mock management result - API required
-		endpoint := &pluginCore.APIEndpointInfo{
-			Method: "POST",
-			Path:   "/api/account/billing/cancel",
-		}
-		managementResult := &pluginCore.ManagementResult{
-			Action:      pluginCore.ActionAPIRequired,
-			APIEndpoint: endpoint,
-		}
-		mockGateway.MockSubscriptionManager.EXPECT().GetManagementURL(mock.Anything, uint(1), pluginCore.OperationCancel).Return(managementResult, nil).Once()
-
-		// Mock ExecuteCancel - backend executes the cancellation
-		mockGateway.MockSubscriptionExecutor.EXPECT().ExecuteCancel(mock.Anything, uint(1)).Return(nil).Once()
+		// API mode: ExecuteCancel is called directly (no GetManagementURL)
+		mockGateway.EXPECT().ExecuteCancel(mock.Anything, uint(1)).Return(nil).Once()
 
 		// Create authenticated request
 		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/account/billing/cancel", nil, "1")
@@ -1164,7 +1418,7 @@ func TestHandleCancelOperation_Success_PortalRedirect(t *testing.T) {
 		ts.billingSvc.EXPECT().GetActiveSubscription(mock.Anything, uint(1)).Return(mockSubscriber, nil).Once()
 
 		// Mock gateway
-		mockGateway := newCombinedGatewayMock(t)
+		mockGateway := pluginCore.NewMockPaymentGateway(t)
 		ts.billingSvc.EXPECT().GetGateway(mock.Anything, "stripe").Return(mockGateway, nil).Once()
 
 		// Mock management capabilities - Stripe supports cancellation
@@ -1175,14 +1429,14 @@ func TestHandleCancelOperation_Success_PortalRedirect(t *testing.T) {
 				pluginCore.OperationChangePlan: true,
 			},
 		}
-		mockGateway.MockSubscriptionManager.EXPECT().GetManagementInfo(mock.Anything, uint(1)).Return(capabilities, nil).Once()
+		mockGateway.EXPECT().GetManagementInfo(mock.Anything, uint(1)).Return(capabilities, nil).Once()
 
 		// Mock management result - redirect to portal
 		managementResult := &pluginCore.ManagementResult{
 			Action: pluginCore.ActionRedirect,
 			URL:    "https://dashboard.stripe.com/customer/portal/session_123",
 		}
-		mockGateway.MockSubscriptionManager.EXPECT().GetManagementURL(mock.Anything, uint(1), pluginCore.OperationCancel).Return(managementResult, nil).Once()
+		mockGateway.EXPECT().GetManagementURL(mock.Anything, uint(1), pluginCore.OperationCancel).Return(managementResult, nil).Once()
 
 		// Create authenticated request
 		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/account/billing/cancel", nil, "1")
@@ -1219,7 +1473,7 @@ func TestHandleCancelOperation_NotSupported(t *testing.T) {
 		ts.billingSvc.EXPECT().GetActiveSubscription(mock.Anything, uint(1)).Return(mockSubscriber, nil).Once()
 
 		// Mock gateway
-		mockGateway := newCombinedGatewayMock(t)
+		mockGateway := pluginCore.NewMockPaymentGateway(t)
 		ts.billingSvc.EXPECT().GetGateway(mock.Anything, "atlos").Return(mockGateway, nil).Once()
 
 		// Mock management capabilities - Atlas doesn't support cancellation in this scenario
@@ -1230,7 +1484,7 @@ func TestHandleCancelOperation_NotSupported(t *testing.T) {
 				pluginCore.OperationChangePlan: false,
 			},
 		}
-		mockGateway.MockSubscriptionManager.EXPECT().GetManagementInfo(mock.Anything, uint(1)).Return(capabilities, nil).Once()
+		mockGateway.EXPECT().GetManagementInfo(mock.Anything, uint(1)).Return(capabilities, nil).Once()
 
 		// Create authenticated request
 		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/account/billing/cancel", nil, "1")
@@ -1305,8 +1559,8 @@ func TestHandleCancelOperation_GatewayNotSubscriptionManager(t *testing.T) {
 		mockSubscriber := createMockSubscriber(1, "basic-gateway", "sub_123", true, &planID)
 		ts.billingSvc.EXPECT().GetActiveSubscription(mock.Anything, uint(1)).Return(mockSubscriber, nil).Once()
 
-		// Mock gateway that doesn't implement SubscriptionManager (just PaymentGateway)
-		mockGateway := &pluginCore.MockPaymentGateway{}
+		// Mock gateway that doesn't implement SubscriptionManager (just GatewayIdentity)
+		mockGateway := pluginCore.NewMockGatewayIdentity(tb)
 		ts.billingSvc.EXPECT().GetGateway(mock.Anything, "basic-gateway").Return(mockGateway, nil).Once()
 
 		// Create authenticated request
@@ -1337,10 +1591,10 @@ func TestHandleChangePlanOperation_Success_APIBased(t *testing.T) {
 		ts.billingSvc.EXPECT().GetActiveSubscription(mock.Anything, uint(1)).Return(mockSubscriber, nil).Once()
 
 		// Mock gateway
-		mockGateway := newCombinedGatewayMock(t)
+		mockGateway := pluginCore.NewMockPaymentGateway(t)
 		ts.billingSvc.EXPECT().GetGateway(mock.Anything, "atlos").Return(mockGateway, nil).Once()
 
-		// Mock management capabilities - Atlas supports plan change
+		// Mock management capabilities - Atlas supports plan change (API mode)
 		capabilities := &pluginCore.ManagementCapabilities{
 			ManagementMode: pluginCore.ModeAPI,
 			Operations: map[pluginCore.ManagementOperation]bool{
@@ -1348,21 +1602,21 @@ func TestHandleChangePlanOperation_Success_APIBased(t *testing.T) {
 				pluginCore.OperationChangePlan: true,
 			},
 		}
-		mockGateway.MockSubscriptionManager.EXPECT().GetManagementInfo(mock.Anything, uint(1)).Return(capabilities, nil).Once()
+		mockGateway.EXPECT().GetManagementInfo(mock.Anything, uint(1)).Return(capabilities, nil).Once()
 
-		// Mock management result - API required
-		endpoint := &pluginCore.APIEndpointInfo{
-			Method: "POST",
-			Path:   "/api/account/billing/change-plan",
+		// API mode: ExecutePlanChange is called directly (no GetManagementURL)
+		newPeriodID := uint(99)
+		planChangeResult := &pluginCore.PlanChangeResult{
+			Action:       pluginCore.PlanChangeActionCheckoutRequired,
+			CheckoutLink: "123-period99",
 		}
-		managementResult := &pluginCore.ManagementResult{
-			Action:      pluginCore.ActionAPIRequired,
-			APIEndpoint: endpoint,
-		}
-		mockGateway.MockSubscriptionManager.EXPECT().GetManagementURL(mock.Anything, uint(1), pluginCore.OperationChangePlan).Return(managementResult, nil).Once()
+		mockGateway.EXPECT().ExecutePlanChange(mock.Anything, uint(1), newPeriodID).Return(planChangeResult, nil).Once()
 
-		// Create authenticated request
-		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/account/billing/change-plan", nil, "1")
+		// Create authenticated request with period_id
+		requestBody := dto.ChangePlanRequest{PeriodID: newPeriodID}
+		bodyBytes, err := json.Marshal(requestBody)
+		require.NoError(tb, err)
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/account/billing/change-plan", bodyBytes, "1")
 		assert.NoError(tb, err, "Failed to create authenticated request")
 
 		w := httptest.NewRecorder()
@@ -1373,13 +1627,12 @@ func TestHandleChangePlanOperation_Success_APIBased(t *testing.T) {
 		// Verify
 		assert.Equal(tb, http.StatusOK, w.Code)
 
-		var response dto.ManagementResultResponse
+		var response dto.PlanChangeResultResponse
 		err = json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(tb, err)
 
-		assert.Equal(tb, pluginCore.ActionAPIRequired, response.Action)
-		assert.Equal(tb, "POST", response.APIEndpoint.Method)
-		assert.Equal(tb, "/api/account/billing/change-plan", response.APIEndpoint.Path)
+		assert.Equal(tb, string(pluginCore.PlanChangeActionCheckoutRequired), response.Action)
+		assert.Equal(tb, "123-period99", response.CheckoutLink)
 
 	}, getUserAPITestOptions())
 }
@@ -1397,10 +1650,7 @@ func TestHandleChangePlanOperation_Success_PortalRedirect(t *testing.T) {
 		ts.billingSvc.EXPECT().GetActiveSubscription(mock.Anything, uint(1)).Return(mockSubscriber, nil).Once()
 
 		// Mock gateway
-		mockGateway := &combinedGatewayMock{
-			MockPaymentGateway:      pluginCore.NewMockPaymentGateway(t),
-			MockSubscriptionManager: pluginCore.NewMockSubscriptionManager(t),
-		}
+		mockGateway := pluginCore.NewMockPaymentGateway(t)
 		ts.billingSvc.EXPECT().GetGateway(mock.Anything, "stripe").Return(mockGateway, nil).Once()
 
 		// Mock management capabilities - Stripe supports plan change
@@ -1411,17 +1661,19 @@ func TestHandleChangePlanOperation_Success_PortalRedirect(t *testing.T) {
 				pluginCore.OperationChangePlan: true,
 			},
 		}
-		mockGateway.MockSubscriptionManager.EXPECT().GetManagementInfo(mock.Anything, uint(1)).Return(capabilities, nil).Once()
+		mockGateway.EXPECT().GetManagementInfo(mock.Anything, uint(1)).Return(capabilities, nil).Once()
 
 		// Mock management result - redirect to portal
 		managementResult := &pluginCore.ManagementResult{
 			Action: pluginCore.ActionRedirect,
 			URL:    "https://dashboard.stripe.com/customer/portal/session_456",
 		}
-		mockGateway.MockSubscriptionManager.EXPECT().GetManagementURL(mock.Anything, uint(1), pluginCore.OperationChangePlan).Return(managementResult, nil).Once()
+		mockGateway.EXPECT().GetManagementURL(mock.Anything, uint(1), pluginCore.OperationChangePlan).Return(managementResult, nil).Once()
 
-		// Create authenticated request
-		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/account/billing/change-plan", nil, "1")
+		// Create authenticated request with request body
+		requestBody := dto.ChangePlanRequest{PeriodID: uint(99)}
+		bodyBytes, _ := json.Marshal(requestBody)
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/account/billing/change-plan", bodyBytes, "1")
 		assert.NoError(tb, err, "Failed to create authenticated request")
 
 		w := httptest.NewRecorder()
@@ -1455,7 +1707,7 @@ func TestHandleChangePlanOperation_NotSupported(t *testing.T) {
 		ts.billingSvc.EXPECT().GetActiveSubscription(mock.Anything, uint(1)).Return(mockSubscriber, nil).Once()
 
 		// Mock gateway
-		mockGateway := newCombinedGatewayMock(t)
+		mockGateway := pluginCore.NewMockPaymentGateway(t)
 		ts.billingSvc.EXPECT().GetGateway(mock.Anything, "atlos").Return(mockGateway, nil).Once()
 
 		// Mock management capabilities - Atlas doesn't support plan change in this scenario
@@ -1466,10 +1718,12 @@ func TestHandleChangePlanOperation_NotSupported(t *testing.T) {
 				pluginCore.OperationChangePlan: false,
 			},
 		}
-		mockGateway.MockSubscriptionManager.EXPECT().GetManagementInfo(mock.Anything, uint(1)).Return(capabilities, nil).Once()
+		mockGateway.EXPECT().GetManagementInfo(mock.Anything, uint(1)).Return(capabilities, nil).Once()
 
-		// Create authenticated request
-		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/account/billing/change-plan", nil, "1")
+		// Create authenticated request with request body
+		requestBody := dto.ChangePlanRequest{PeriodID: uint(99)}
+		bodyBytes, _ := json.Marshal(requestBody)
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/account/billing/change-plan", bodyBytes, "1")
 		assert.NoError(tb, err, "Failed to create authenticated request")
 
 		w := httptest.NewRecorder()
@@ -1498,8 +1752,10 @@ func TestHandleChangePlanOperation_NoActiveSubscription(t *testing.T) {
 		// Mock no active subscription
 		ts.billingSvc.EXPECT().GetActiveSubscription(mock.Anything, uint(1)).Return(nil, nil).Once()
 
-		// Create authenticated request
-		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/account/billing/change-plan", nil, "1")
+		// Create authenticated request with request body
+		requestBody := dto.ChangePlanRequest{PeriodID: uint(99)}
+		bodyBytes, _ := json.Marshal(requestBody)
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/account/billing/change-plan", bodyBytes, "1")
 		assert.NoError(tb, err, "Failed to create authenticated request")
 
 		w := httptest.NewRecorder()
@@ -1542,12 +1798,14 @@ func TestHandleChangePlanOperation_GatewayNotSubscriptionManager(t *testing.T) {
 		mockSubscriber := createMockSubscriber(1, "basic-gateway", "sub_123", true, &planID)
 		ts.billingSvc.EXPECT().GetActiveSubscription(mock.Anything, uint(1)).Return(mockSubscriber, nil).Once()
 
-		// Mock gateway that doesn't implement SubscriptionManager (just PaymentGateway)
-		mockGateway := &pluginCore.MockPaymentGateway{}
+		// Mock gateway that doesn't implement SubscriptionManager (just GatewayIdentity)
+		mockGateway := pluginCore.NewMockGatewayIdentity(tb)
 		ts.billingSvc.EXPECT().GetGateway(mock.Anything, "basic-gateway").Return(mockGateway, nil).Once()
 
-		// Create authenticated request
-		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/account/billing/change-plan", nil, "1")
+		// Create authenticated request with request body
+		requestBody := dto.ChangePlanRequest{PeriodID: uint(99)}
+		bodyBytes, _ := json.Marshal(requestBody)
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/account/billing/change-plan", bodyBytes, "1")
 		assert.NoError(tb, err, "Failed to create authenticated request")
 
 		w := httptest.NewRecorder()

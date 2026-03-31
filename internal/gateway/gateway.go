@@ -12,14 +12,14 @@ import (
 
 // Registry maintains a collection of payment gateways
 type Registry struct {
-	gateways map[string]pluginCore.PaymentGateway
+	gateways map[string]pluginCore.GatewayIdentity
 	mu       sync.RWMutex
 }
 
 // NewRegistry creates a new empty gateway registry
 func NewRegistry() *Registry {
 	return &Registry{
-		gateways: make(map[string]pluginCore.PaymentGateway),
+		gateways: make(map[string]pluginCore.GatewayIdentity),
 	}
 }
 
@@ -33,7 +33,7 @@ func GetRegistry() *Registry {
 func (r *Registry) Reset() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.gateways = make(map[string]pluginCore.PaymentGateway)
+	r.gateways = make(map[string]pluginCore.GatewayIdentity)
 }
 
 var (
@@ -47,7 +47,7 @@ var (
 )
 
 // Register adds a payment gateway to the registry
-func (r *Registry) Register(ctx context.Context, gateway pluginCore.PaymentGateway) error {
+func (r *Registry) Register(ctx context.Context, gateway pluginCore.GatewayIdentity) error {
 	ctx, span := core.TraceMethod(ctx, "Registry.Register")
 	defer span.End()
 
@@ -74,7 +74,7 @@ func (r *Registry) Register(ctx context.Context, gateway pluginCore.PaymentGatew
 }
 
 // Get retrieves a payment gateway by its ID
-func (r *Registry) Get(id string) (pluginCore.PaymentGateway, bool) {
+func (r *Registry) Get(id string) (pluginCore.GatewayIdentity, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -83,11 +83,11 @@ func (r *Registry) Get(id string) (pluginCore.PaymentGateway, bool) {
 }
 
 // GetAll returns all registered payment gateways
-func (r *Registry) GetAll() []pluginCore.PaymentGateway {
+func (r *Registry) GetAll() []pluginCore.GatewayIdentity {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	gateways := make([]pluginCore.PaymentGateway, 0, len(r.gateways))
+	gateways := make([]pluginCore.GatewayIdentity, 0, len(r.gateways))
 	for _, gateway := range r.gateways {
 		gateways = append(gateways, gateway)
 	}
@@ -95,12 +95,12 @@ func (r *Registry) GetAll() []pluginCore.PaymentGateway {
 }
 
 // GetAllGateways returns all registered payment gateways as a map of ID to gateway
-func (r *Registry) GetAllGateways() map[string]pluginCore.PaymentGateway {
+func (r *Registry) GetAllGateways() map[string]pluginCore.GatewayIdentity {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	// Create a new map to avoid external mutation
-	result := make(map[string]pluginCore.PaymentGateway, len(r.gateways))
+	result := make(map[string]pluginCore.GatewayIdentity, len(r.gateways))
 	for id, gateway := range r.gateways {
 		result[id] = gateway
 	}

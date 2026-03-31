@@ -12,10 +12,19 @@ import (
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
 
-	ledger "go.lumeweb.com/portal-plugin-billing/pkg/ledger"
 	"go.lumeweb.com/portal-plugin-billing/internal/db/models"
+	ledger "go.lumeweb.com/portal-plugin-billing/pkg/ledger"
 	"go.lumeweb.com/queryutil"
 )
+
+// CreditRepositoryWithQuery extends ledger.CreditRepository with query capabilities.
+// This interface is used at the service layer to keep pkg/ledger clean of queryutil dependencies.
+type CreditRepositoryWithQuery interface {
+	ledger.CreditRepository
+
+	// ListCredits retrieves credits with filtering, sorting, and pagination.
+	ListCredits(ctx context.Context, filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination) ([]ledger.Credit, int64, error)
+}
 
 // CreditRepository implements CreditRepository using GORM ORM.
 type CreditRepository struct {
@@ -39,16 +48,16 @@ func (r *CreditRepository) CreateCredit(ctx context.Context, credit *ledger.Cred
 	}
 
 	model := &models.CreditModel{
-		ID:           credit.ID,
-		UserID:       credit.UserID,
-		Amount:       credit.Amount,
-		Type:         credit.Type,
-		Direction:    credit.Direction,
-		ReferenceID:  credit.ReferenceID,
+		ID:            credit.ID,
+		UserID:        credit.UserID,
+		Amount:        credit.Amount,
+		Type:          credit.Type,
+		Direction:     credit.Direction,
+		ReferenceID:   credit.ReferenceID,
 		ReferenceType: credit.ReferenceType,
-		Description:  credit.Description,
-		CreatedBy:    credit.CreatedBy,
-		Metadata:     datatypes.JSON(metadataJSON),
+		Description:   credit.Description,
+		CreatedBy:     credit.CreatedBy,
+		Metadata:      datatypes.JSON(metadataJSON),
 	}
 
 	if err := r.db.WithContext(ctx).Create(model).Error; err != nil {
@@ -161,12 +170,12 @@ func (r *CreditRepository) PurgeDeletedCredits(ctx context.Context, olderThan ti
 func (r *CreditRepository) GetCreditsByReference(ctx context.Context, referenceID string, referenceType string) ([]ledger.Credit, error) {
 	var views []models.CreditActiveView
 	query := r.db.WithContext(ctx).Where("reference_id = ?", referenceID)
-	
+
 	// Only filter by reference_type if it's provided
 	if referenceType != "" {
 		query = query.Where("reference_type = ?", referenceType)
 	}
-	
+
 	if err := query.Find(&views).Error; err != nil {
 		return nil, &gormRepositoryError{op: "list_by_reference", err: err}
 	}
@@ -227,21 +236,21 @@ func (r *CreditRepository) ModelToCredit(model *models.CreditModel) *ledger.Cred
 			metadata = make(map[string]interface{})
 		}
 	}
-	
+
 	return &ledger.Credit{
-		ID:           model.ID,
-		UserID:       model.UserID,
-		Amount:       model.Amount,
-		Type:         model.Type,
-		Direction:    model.Direction,
-		ReferenceID:  model.ReferenceID,
+		ID:            model.ID,
+		UserID:        model.UserID,
+		Amount:        model.Amount,
+		Type:          model.Type,
+		Direction:     model.Direction,
+		ReferenceID:   model.ReferenceID,
 		ReferenceType: model.ReferenceType,
-		Description:  model.Description,
-		CreatedBy:    model.CreatedBy,
-		CreatedAt:    model.CreatedAt,
-		UpdatedAt:    model.UpdatedAt,
-		DeletedAt:    deletedAt,
-		Metadata:     metadata,
+		Description:   model.Description,
+		CreatedBy:     model.CreatedBy,
+		CreatedAt:     model.CreatedAt,
+		UpdatedAt:     model.UpdatedAt,
+		DeletedAt:     deletedAt,
+		Metadata:      metadata,
 	}
 }
 
@@ -255,18 +264,18 @@ func (r *CreditRepository) ViewToCredit(view *models.CreditActiveView) *ledger.C
 	}
 
 	return &ledger.Credit{
-		ID:           view.ID,
-		UserID:       view.UserID,
-		Amount:       view.Amount,
-		Type:         view.Type,
-		Direction:    view.Direction,
-		ReferenceID:  view.ReferenceID,
+		ID:            view.ID,
+		UserID:        view.UserID,
+		Amount:        view.Amount,
+		Type:          view.Type,
+		Direction:     view.Direction,
+		ReferenceID:   view.ReferenceID,
 		ReferenceType: view.ReferenceType,
-		Description:  view.Description,
-		CreatedBy:    view.CreatedBy,
-		CreatedAt:    view.CreatedAt,
-		UpdatedAt:    view.UpdatedAt,
-		Metadata:     metadata,
+		Description:   view.Description,
+		CreatedBy:     view.CreatedBy,
+		CreatedAt:     view.CreatedAt,
+		UpdatedAt:     view.UpdatedAt,
+		Metadata:      metadata,
 	}
 }
 

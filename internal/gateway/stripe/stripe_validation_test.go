@@ -1,0 +1,382 @@
+package stripe
+
+import (
+	"context"
+	"fmt"
+	"testing"
+	"time"
+
+	"github.com/shopspring/decimal"
+	"github.com/stripe/stripe-go/v83"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+	"github.com/tkuchiki/faketime"
+
+	"go.lumeweb.com/portal-plugin-billing/pkg/subscription"
+	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
+	coreTesting "go.lumeweb.com/portal/core/testing"
+)
+
+func setupTestGateway(t *testing.T) *StripeGateway {
+	ctx, _ := coreTesting.NewTestContext(t)
+	return New(ctx.Logger(), ctx, "test_secret", "test_key", nil, nil, nil, nil, nil)
+}
+
+func TestExtractProrationFromInvoice(t *testing.T) {
+	gw := setupTestGateway(t)
+
+	// Test with nil lines
+	invoice := &stripe.Invoice{
+		ID:     "in_test123",
+		Lines:  nil,
+		Status: stripe.InvoiceStatusPaid,
+	}
+
+	analysis, err := gw.extractProrationFromInvoice(invoice)
+	require.NoError(t, err)
+	assert.Equal(t, 0, analysis.TotalLineItems)
+	assert.False(t, analysis.HasProratedItems)
+}
+
+func TestCompareProrationCalculations(t *testing.T) {
+	// Fix time for deterministic results
+	// January 15, 2024 at noon = 16 days remaining in a 31-day month (Jan 1-31)
+	f := faketime.NewFaketime(2024, time.January, 15, 12, 0, 0, 0, time.UTC)
+	defer f.Undo()
+	f.Do()
+
+	tests := []struct {
+		name               string
+		oldPrice           subscription.Price
+		newPrice           subscription.Price
+		oldCycle           subscription.BillingCycle
+		stripeAmount       decimal.Decimal
+		expectedMismatch   bool
+		expectedAction     string
+	}{
+		{
+			name: "exact match - upgrade",
+			oldPrice: subscription.Price{
+				Amount:  decimal.NewFromInt(100),
+				Cadence: subscription.CadenceMonthly,
+			},
+			newPrice: subscription.Price{
+				Amount:  decimal.NewFromInt(150),
+				Cadence: subscription.CadenceMonthly,
+			},
+			oldCycle: subscription.BillingCycle{
+				StartAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+				EndAt:   time.Date(2024, 1, 31, 23, 59, 59, 0, time.UTC),
+			},
+			// Calculated using exact time precision (seconds), matching Stripe's proration behavior:
+			// - Cycle duration: Jan 1 00:00:00 to Jan 31 23:59:59 = 2,678,399 seconds
+			// - Remaining duration: Jan 15 12:00:00 to Jan 31 23:59:59 = 1,425,599 seconds
+			// - Ratio: 1,425,599 / 2,678,399 = 0.5322578898812312...
+			// - Net amount: ($150 - $100) * ratio = $26.61289449406156...
+			// This matches the exact value produced by subscription.ProratedChange()
+			stripeAmount:     decimal.RequireFromString("26.61289449406156"),
+			expectedMismatch: false,
+			expectedAction:   "use_local",
+		},
+		{
+			name: "one dollar mismatch",
+			oldPrice: subscription.Price{
+				Amount:  decimal.NewFromInt(100),
+				Cadence: subscription.CadenceMonthly,
+			},
+			newPrice: subscription.Price{
+				Amount:  decimal.NewFromInt(150),
+				Cadence: subscription.CadenceMonthly,
+			},
+			oldCycle: subscription.BillingCycle{
+				StartAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+				EndAt:   time.Date(2024, 1, 31, 23, 59, 59, 0, time.UTC),
+			},
+			stripeAmount:     decimal.NewFromFloat(27.6666), // $1 higher than calculated
+			expectedMismatch: true,
+			expectedAction:   "use_stripe",
+		},
+		{
+			name: "zero difference - same plan",
+			oldPrice: subscription.Price{
+				Amount:  decimal.NewFromInt(100),
+				Cadence: subscription.CadenceMonthly,
+			},
+			newPrice: subscription.Price{
+				Amount:  decimal.NewFromInt(100),
+				Cadence: subscription.CadenceMonthly,
+			},
+			oldCycle: subscription.BillingCycle{
+				StartAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+				EndAt:   time.Date(2024, 1, 31, 23, 59, 59, 0, time.UTC),
+			},
+			stripeAmount:     decimal.Zero,
+			expectedMismatch: false,
+			expectedAction:   "use_local",
+		},
+		{
+			name: "downgrade with credit",
+			oldPrice: subscription.Price{
+				Amount:  decimal.NewFromInt(150),
+				Cadence: subscription.CadenceMonthly,
+			},
+			newPrice: subscription.Price{
+				Amount:  decimal.NewFromInt(100),
+				Cadence: subscription.CadenceMonthly,
+			},
+			oldCycle: subscription.BillingCycle{
+				StartAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+				EndAt:   time.Date(2024, 1, 31, 23, 59, 59, 0, time.UTC),
+			},
+			// Calculated using exact time precision (seconds), matching Stripe's proration behavior:
+			// - Cycle duration: Jan 1 00:00:00 to Jan 31 23:59:59 = 2,678,399 seconds
+			// - Remaining duration: Jan 15 12:00:00 to Jan 31 23:59:59 = 1,425,599 seconds
+			// - Ratio: 1,425,599 / 2,678,399 = 0.5322578898812312...
+			// - Net amount: ($100 - $150) * ratio = -$26.61289449406156... (credit issued)
+			// Matches the exact value produced by subscription.ProratedChange()
+			stripeAmount:     decimal.RequireFromString("-26.61289449406156"),
+			expectedMismatch: false,
+			expectedAction:   "use_local",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gw := setupTestGateway(t)
+
+			comparison, err := gw.compareProrationCalculations(
+				context.Background(),
+				123,
+				tt.oldPrice,
+				tt.newPrice,
+				tt.oldCycle,
+				tt.stripeAmount,
+			)
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectedMismatch, comparison.MismatchDetected)
+			assert.Equal(t, tt.expectedAction, comparison.RecommendedAction)
+
+			if comparison.LocalResult != nil {
+				assert.NotNil(t, comparison.LocalResult)
+				assert.NotNil(t, comparison.LocalResult.UnusedCredit)
+				assert.NotNil(t, comparison.LocalResult.NewCharge)
+			}
+		})
+	}
+}
+
+func TestDetermineOperationType(t *testing.T) {
+	gw := setupTestGateway(t)
+
+	// Test with nil subscriber - should return ChangeTypeNewSubscription
+	operation := gw.determineOperationType(
+		context.Background(),
+		nil,
+		&stripe.Subscription{},
+		&stripe.Invoice{},
+	)
+
+	assert.Equal(t, pluginCore.ChangeTypeNewSubscription, operation)
+}
+
+func TestDetermineUpgradeOrDowngrade(t *testing.T) {
+	ctx, _ := coreTesting.NewTestContext(t)
+
+	// Create mock pricing service
+	mockPricing := pluginCore.NewMockPricingService(t)
+	gw := New(ctx.Logger(), ctx, "test_secret", "test_key", nil, nil, nil, mockPricing, nil)
+
+	// Mock pricing service to return error (simulating fetch failure)
+	mockPricing.EXPECT().GetPricingPlanPeriod(mock.Anything, uint(100)).Return(nil, fmt.Errorf("pricing service unavailable"))
+
+	// Should return ChangeTypeUpgrade as default when pricing service fails
+	operation := gw.determineUpgradeOrDowngrade(
+		context.Background(),
+		100,
+		200,
+	)
+
+	assert.Equal(t, pluginCore.ChangeTypeUpgrade, operation)
+}
+
+func TestCalculateNetInvoiceAmount(t *testing.T) {
+	tests := []struct {
+		name           string
+		amountPaid     int64
+		expectedAmount string
+	}{
+		{
+			name:           "zero amount",
+			amountPaid:     0,
+			expectedAmount: "0",
+		},
+		{
+			name:           "positive amount",
+			amountPaid:     5000, // 5000 cents = $50
+			expectedAmount: "50",
+		},
+		{
+			name:           "negative amount",
+			amountPaid:     -1000, // -1000 cents = -$10
+			expectedAmount: "-10",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gw := setupTestGateway(t)
+
+			invoice := &stripe.Invoice{
+				AmountPaid: tt.amountPaid,
+			}
+
+			amount := gw.calculateNetInvoiceAmount(invoice)
+			assert.Equal(t, tt.expectedAmount, amount.String())
+		})
+	}
+}
+
+func TestLogProrationMismatch(t *testing.T) {
+	gw := setupTestGateway(t)
+
+	comparison := &ProrationComparison{
+		LocalResult: &subscription.ProrationResult{
+			UnusedCredit:  decimal.NewFromFloat(25.00),
+			NewCharge:     decimal.NewFromFloat(75.00),
+			CreditDue:     decimal.NewFromFloat(50.00),
+			EffectiveDate: time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC),
+		},
+		StripeAmount:      decimal.NewFromFloat(52.00),
+		MismatchDetected:  true,
+		Difference:        decimal.NewFromFloat(2.00),
+		DifferencePercent: 4.0,
+		RecommendedAction: "use_stripe",
+	}
+
+	oldCycle := subscription.BillingCycle{
+		StartAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+		EndAt:   time.Date(2024, 1, 31, 23, 59, 59, 0, time.UTC),
+	}
+
+	// This should not panic and should log a warning
+	gw.logProrationMismatch(
+		context.Background(),
+		123,
+		comparison,
+		oldCycle,
+	)
+
+	// Assert no panic occurred
+	assert.True(t, true)
+}
+
+// TestValidateAndCalculateCreditAmount_NewSubscription tests that new subscriptions
+// use Stripe's amount directly and validate the ledger before returning the amount
+func TestValidateAndCalculateCreditAmount_NewSubscription(t *testing.T) {
+	ctx, _ := coreTesting.NewTestContext(t)
+
+	// Create mock credit service
+	mockCredit := pluginCore.NewMockCreditService(t)
+	gw := New(ctx.Logger(), ctx, "test_secret", "test_key", nil, nil, nil, nil, mockCredit)
+
+	// Mock credit validation to pass
+	mockCredit.EXPECT().ValidateSubscriptionChange(mock.Anything, uint64(123), pluginCore.ChangeTypeNewSubscription, mock.MatchedBy(func(d decimal.Decimal) bool { return d.Equal(decimal.NewFromInt(100)) })).Return(nil)
+
+	stripeSubscription := &stripe.Subscription{
+		ID: "sub_test123",
+	}
+
+	invoice := &stripe.Invoice{
+		ID:         "in_test123",
+		AmountPaid: 10000, // $100.00 in cents
+		Status:     stripe.InvoiceStatusPaid,
+	}
+
+	amount, err := gw.validateAndCalculateCreditAmount(
+		ctx,
+		123,
+		pluginCore.ChangeTypeNewSubscription,
+		nil,
+		stripeSubscription,
+		invoice,
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, amount)
+	assert.Equal(t, "100", amount.String()) // Stripe's amount in dollars
+}
+
+// TestValidateAndCalculateCreditAmount_Renewal tests that renewals
+// use Stripe's amount directly and validate the ledger before returning the amount
+func TestValidateAndCalculateCreditAmount_Renewal(t *testing.T) {
+	ctx, _ := coreTesting.NewTestContext(t)
+
+	// Create mock credit service
+	mockCredit := pluginCore.NewMockCreditService(t)
+	gw := New(ctx.Logger(), ctx, "test_secret", "test_key", nil, nil, nil, nil, mockCredit)
+
+	// Mock credit validation to pass
+	mockCredit.EXPECT().ValidateSubscriptionChange(mock.Anything, uint64(123), pluginCore.ChangeTypeRenewal, mock.MatchedBy(func(d decimal.Decimal) bool { return d.Equal(decimal.NewFromInt(50)) })).Return(nil)
+
+	stripeSubscription := &stripe.Subscription{
+		ID: "sub_existing123",
+	}
+
+	invoice := &stripe.Invoice{
+		ID:         "in_renewal123",
+		AmountPaid: 5000, // $50.00 in cents
+		Status:     stripe.InvoiceStatusPaid,
+	}
+
+	amount, err := gw.validateAndCalculateCreditAmount(
+		ctx,
+		123,
+		pluginCore.ChangeTypeRenewal,
+		nil,
+		stripeSubscription,
+		invoice,
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, amount)
+	assert.Equal(t, "50", amount.String()) // Stripe's amount in dollars
+}
+
+// TestValidateAndCalculateCreditAmount_ValidationFailure tests that ledger validation
+// errors cause the method to return an error
+func TestValidateAndCalculateCreditAmount_ValidationFailure(t *testing.T) {
+	ctx, _ := coreTesting.NewTestContext(t)
+
+	// Create mock credit service
+	mockCredit := pluginCore.NewMockCreditService(t)
+	gw := New(ctx.Logger(), ctx, "test_secret", "test_key", nil, nil, nil, nil, mockCredit)
+
+	validationErr := fmt.Errorf("insufficient balance for new subscription")
+
+	// Mock credit validation to fail for new subscription
+	mockCredit.EXPECT().ValidateSubscriptionChange(mock.Anything, uint64(123), pluginCore.ChangeTypeNewSubscription, mock.MatchedBy(func(d decimal.Decimal) bool { return d.GreaterThan(decimal.Zero) })).Return(validationErr)
+
+	stripeSubscription := &stripe.Subscription{
+		ID: "sub_test123",
+	}
+
+	invoice := &stripe.Invoice{
+		ID:         "in_test123",
+		AmountPaid: 10000, // $100.00 in cents
+		Status:     stripe.InvoiceStatusPaid,
+	}
+
+	_, err := gw.validateAndCalculateCreditAmount(
+		ctx,
+		123,
+		pluginCore.ChangeTypeNewSubscription,
+		nil,
+		stripeSubscription,
+		invoice,
+	)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "insufficient balance")
+}

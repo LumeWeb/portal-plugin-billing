@@ -333,7 +333,7 @@ func CreateMockStripeGateway(
 	mockCustomerRetriever := &MockCustomerRetriever{}
 
 	// Create the gateway
-	gateway := New(ctx.Logger(), webhookSecret, secretKey, mockQuota, mockUsers, mockBilling, nil, nil)
+	gateway := New(ctx.Logger(), ctx, webhookSecret, secretKey, mockQuota, mockUsers, mockBilling, nil, nil)
 
 	// Replace the real client and retrievers with mocks
 	gateway.stripeClient = mockStripeClient

@@ -95,26 +95,24 @@ func setupCronServiceMock(tb coreTesting.TB, ctx coreTesting.TestContext) {
 
 // createTestPricingPlan creates a test pricing plan with reasonable defaults
 func createTestPricingPlan() *models.PricingPlan {
-	monthlyPrice := 9.99
 	return &models.PricingPlan{
-		Name:            "Test Plan",
-		Description:     "A test pricing plan",
-		FeaturesJSON:    `[{"name":"Feature1"},{"name":"Feature2"}]`,
-		MonthlyPriceUSD: &monthlyPrice,
-		IsActive:        true,
-		IsPublic:        true,
+		Name:         "Test Plan",
+		Description:  "A test pricing plan",
+		FeaturesJSON: `[{"name":"Feature1"},{"name":"Feature2"}]`,
+		IsActive:     true,
+		IsPublic:     true,
 	}
 }
 
 // createTestPricingPlanWithOptions creates a test pricing plan with custom options
 func createTestPricingPlanWithOptions(name string, description string, monthlyPrice *float64) *models.PricingPlan {
+	_ = monthlyPrice // Not used in current PricingPlan model
 	return &models.PricingPlan{
-		Name:            name,
-		Description:     description,
-		FeaturesJSON:    `[{"name":"Feature1"},{"name":"Feature2"}]`,
-		MonthlyPriceUSD: monthlyPrice,
-		IsActive:        true,
-		IsPublic:        true,
+		Name:         name,
+		Description:  description,
+		FeaturesJSON: `[{"name":"Feature1"},{"name":"Feature2"}]`,
+		IsActive:     true,
+		IsPublic:     true,
 	}
 }
 
@@ -128,14 +126,12 @@ func createTestPriceLine() *models.PriceLine {
 }
 
 // createTestGatewayProductMapping creates a test gateway product mapping
-func createTestGatewayProductMapping() *models.GatewayProductMapping {
+func createTestGatewayProductMapping(planPeriodID *uint) *models.GatewayProductMapping {
 	return &models.GatewayProductMapping{
-		PlanID:               TestPlanID,
-		GatewayType:          "stripe",
-		RemoteProductID:      "prod_test_123",
-		RemoteMonthlyPriceID: "price_monthly_123",
-		RemoteYearlyPriceID:  "price_yearly_123",
-		SyncStatus:           "pending",
+		PricingPlanPeriodID: planPeriodID,
+		GatewayType:         "stripe",
+		RemoteProductID:     "prod_test_123",
+		SyncStatus:          "pending",
 	}
 }
 
@@ -170,13 +166,13 @@ func createAndVerifyPriceLine(t *testing.T, service pluginCore.PricingService, l
 
 // createAndVerifyGatewayMapping creates a gateway mapping and verifies it was created successfully
 // Returns the created mapping for further testing
-func createAndVerifyGatewayMapping(t *testing.T, service pluginCore.PricingService, mapping *models.GatewayProductMapping) *models.GatewayProductMapping {
+func createAndVerifyGatewayMapping(t *testing.T, service pluginCore.PricingService, mapping *models.GatewayProductMapping, planPeriodID uint) *models.GatewayProductMapping {
 	err := service.CreateGatewayProductMapping(context.Background(), mapping)
 	assert.NoError(t, err)
 	assert.NotZero(t, mapping.ID)
 
 	// Verify creation
-	retrieved, err := service.GetGatewayProductMapping(context.Background(), mapping.PlanID, mapping.GatewayType)
+	retrieved, err := service.GetGatewayProductMapping(context.Background(), planPeriodID, mapping.GatewayType)
 	assert.NoError(t, err)
 	assert.Equal(t, mapping.RemoteProductID, retrieved.RemoteProductID)
 
@@ -864,24 +860,18 @@ func TestPricingService_GetUpgradeDowngradePlans(t *testing.T) {
 		service := setupPricingTestContext(tb, ctx, true)
 
 		// Create 3 plans with prices to indicate positioning
-		monthlyPrice1 := 9.99
 		plan1 := createTestPricingPlan()
 		plan1.Name = "Basic"
-		plan1.MonthlyPriceUSD = &monthlyPrice1
 		err := service.CreatePricingPlan(context.Background(), plan1)
 		assert.NoError(t, err)
 
-		monthlyPrice2 := 19.99
 		plan2 := createTestPricingPlan()
 		plan2.Name = "Pro"
-		plan2.MonthlyPriceUSD = &monthlyPrice2
 		err = service.CreatePricingPlan(context.Background(), plan2)
 		assert.NoError(t, err)
 
-		monthlyPrice3 := 29.99
 		plan3 := createTestPricingPlan()
 		plan3.Name = "Premium"
-		plan3.MonthlyPriceUSD = &monthlyPrice3
 		err = service.CreatePricingPlan(context.Background(), plan3)
 		assert.NoError(t, err)
 
@@ -1040,15 +1030,19 @@ func TestPricingService_CreateGatewayProductMapping(t *testing.T) {
 		// Create a plan first
 		plan := createAndVerifyPlan(t, service, createTestPricingPlan())
 
+		// Create a plan period
+		period := createTestPricingPlanPeriod(plan.ID)
+		err := service.CreatePricingPlanPeriod(context.Background(), period)
+		assert.NoError(t, err)
+
 		// Create gateway mapping
-		mapping := createTestGatewayProductMapping()
-		mapping.PlanID = plan.ID
-		err := service.CreateGatewayProductMapping(context.Background(), mapping)
+		mapping := createTestGatewayProductMapping(&period.ID)
+		err = service.CreateGatewayProductMapping(context.Background(), mapping)
 		assert.NoError(t, err)
 		assert.NotZero(t, mapping.ID)
 
 		// Verify mapping
-		retrieved, err := service.GetGatewayProductMapping(context.Background(), plan.ID, "stripe")
+		retrieved, err := service.GetGatewayProductMapping(context.Background(), period.ID, "stripe")
 		assert.NoError(t, err)
 		assert.Equal(t, mapping.RemoteProductID, retrieved.RemoteProductID)
 	}, getPricingTestOptions())
@@ -1059,9 +1053,10 @@ func TestPricingService_CreateGatewayProductMapping_InvalidData(t *testing.T) {
 		service := setupPricingTestContext(tb, ctx, false)
 
 		// Create mapping without required fields
+		planPeriodID := uint(99999)
 		mapping := &models.GatewayProductMapping{
-			PlanID:      99999,
-			GatewayType: "", // Missing
+			PricingPlanPeriodID: &planPeriodID,
+			GatewayType:         "", // Missing
 		}
 		err := service.CreateGatewayProductMapping(context.Background(), mapping)
 		assert.Error(t, err)
@@ -1079,10 +1074,14 @@ func TestPricingService_UpdateGatewayProductMapping(t *testing.T) {
 		// Create a plan
 		plan := createAndVerifyPlan(t, service, createTestPricingPlan())
 
+		// Create a plan period
+		period := createTestPricingPlanPeriod(plan.ID)
+		err := service.CreatePricingPlanPeriod(context.Background(), period)
+		assert.NoError(t, err)
+
 		// Create mapping
-		mapping := createTestGatewayProductMapping()
-		mapping.PlanID = plan.ID
-		err := service.CreateGatewayProductMapping(context.Background(), mapping)
+		mapping := createTestGatewayProductMapping(&period.ID)
+		err = service.CreateGatewayProductMapping(context.Background(), mapping)
 		assert.NoError(t, err)
 
 		// Update mapping
@@ -1096,7 +1095,7 @@ func TestPricingService_UpdateGatewayProductMapping(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Verify update
-		retrieved, err := service.GetGatewayProductMapping(context.Background(), plan.ID, "stripe")
+		retrieved, err := service.GetGatewayProductMapping(context.Background(), period.ID, "stripe")
 		assert.NoError(t, err)
 		assert.Equal(t, updatedRemoteProductID, retrieved.RemoteProductID)
 		assert.Equal(t, "synced", retrieved.SyncStatus)
@@ -1114,14 +1113,18 @@ func TestPricingService_GetGatewayProductMapping(t *testing.T) {
 		// Create a plan
 		plan := createAndVerifyPlan(t, service, createTestPricingPlan())
 
+		// Create a plan period
+		period := createTestPricingPlanPeriod(plan.ID)
+		err := service.CreatePricingPlanPeriod(context.Background(), period)
+		assert.NoError(t, err)
+
 		// Create mapping
-		mapping := createTestGatewayProductMapping()
-		mapping.PlanID = plan.ID
-		err := service.CreateGatewayProductMapping(context.Background(), mapping)
+		mapping := createTestGatewayProductMapping(&period.ID)
+		err = service.CreateGatewayProductMapping(context.Background(), mapping)
 		assert.NoError(t, err)
 
 		// Get mapping
-		retrieved, err := service.GetGatewayProductMapping(context.Background(), plan.ID, "stripe")
+		retrieved, err := service.GetGatewayProductMapping(context.Background(), period.ID, "stripe")
 		assert.NoError(t, err)
 		assert.NotNil(t, retrieved)
 		assert.Equal(t, mapping.RemoteProductID, retrieved.RemoteProductID)
@@ -1150,15 +1153,37 @@ func TestPricingService_GetGatewayProductMappingsByPlan(t *testing.T) {
 		// Create a plan
 		plan := createAndVerifyPlan(t, service, createTestPricingPlan())
 
-		// Create mappings for multiple gateways
-		mapping1 := createTestGatewayProductMapping()
-		mapping1.PlanID = plan.ID
-		mapping1.GatewayType = "stripe"
-		err := service.CreateGatewayProductMapping(context.Background(), mapping1)
+		// Create periods for the plan with different cadences
+		monthlyRollingDays := 30
+		yearlyRollingDays := 365
+
+		period1 := &models.PricingPlanPeriod{
+			PricingPlanID: plan.ID,
+			Cadence:       "monthly",
+			PriceUSD:      9.99,
+			QuotaPlanID:   123,
+			RollingDays:   &monthlyRollingDays,
+		}
+		err := service.CreatePricingPlanPeriod(context.Background(), period1)
 		assert.NoError(t, err)
 
-		mapping2 := createTestGatewayProductMapping()
-		mapping2.PlanID = plan.ID
+		period2 := &models.PricingPlanPeriod{
+			PricingPlanID: plan.ID,
+			Cadence:       "yearly",
+			PriceUSD:      99.99,
+			QuotaPlanID:   124,
+			RollingDays:   &yearlyRollingDays,
+		}
+		err = service.CreatePricingPlanPeriod(context.Background(), period2)
+		assert.NoError(t, err)
+
+		// Create mappings for multiple gateways
+		mapping1 := createTestGatewayProductMapping(&period1.ID)
+		mapping1.GatewayType = "stripe"
+		err = service.CreateGatewayProductMapping(context.Background(), mapping1)
+		assert.NoError(t, err)
+
+		mapping2 := createTestGatewayProductMapping(&period2.ID)
 		mapping2.GatewayType = "paypal"
 		err = service.CreateGatewayProductMapping(context.Background(), mapping2)
 		assert.NoError(t, err)
@@ -1191,24 +1216,26 @@ func TestPricingService_UpdateGatewaySyncStatus(t *testing.T) {
 		// Create a plan
 		plan := createAndVerifyPlan(t, service, createTestPricingPlan())
 
+		// Create a plan period
+		period := createTestPricingPlanPeriod(plan.ID)
+		err := service.CreatePricingPlanPeriod(context.Background(), period)
+		assert.NoError(t, err)
+
 		// Create mapping
-		mapping := createTestGatewayProductMapping()
-		mapping.PlanID = plan.ID
+		mapping := createTestGatewayProductMapping(&period.ID)
 		mapping.SyncStatus = "pending"
-		err := service.CreateGatewayProductMapping(context.Background(), mapping)
+		err = service.CreateGatewayProductMapping(context.Background(), mapping)
 		assert.NoError(t, err)
 
 		// Update sync status
 		syncResult := pluginCore.SyncResult{
-			ProductID:      "prod_synced_789",
-			MonthlyPriceID: "price_monthly_synced",
-			YearlyPriceID:  "price_yearly_synced",
+			ProductID: "prod_synced_789",
 		}
-		err = service.UpdateGatewaySyncStatus(context.Background(), plan.ID, "stripe", syncResult)
+		err = service.UpdateGatewaySyncStatus(context.Background(), period.ID, "stripe", syncResult)
 		assert.NoError(t, err)
 
 		// Verify update
-		retrieved, err := service.GetGatewayProductMapping(context.Background(), plan.ID, "stripe")
+		retrieved, err := service.GetGatewayProductMapping(context.Background(), period.ID, "stripe")
 		assert.NoError(t, err)
 		assert.Equal(t, "synced", retrieved.SyncStatus)
 		assert.Equal(t, "prod_synced_789", retrieved.RemoteProductID)
@@ -1229,19 +1256,23 @@ func TestPricingService_RecordGatewaySyncError(t *testing.T) {
 		// Create a plan
 		plan := createAndVerifyPlan(t, service, createTestPricingPlan())
 
+		// Create a plan period
+		period := createTestPricingPlanPeriod(plan.ID)
+		err := service.CreatePricingPlanPeriod(context.Background(), period)
+		assert.NoError(t, err)
+
 		// Create mapping
-		mapping := createTestGatewayProductMapping()
-		mapping.PlanID = plan.ID
-		err := service.CreateGatewayProductMapping(context.Background(), mapping)
+		mapping := createTestGatewayProductMapping(&period.ID)
+		err = service.CreateGatewayProductMapping(context.Background(), mapping)
 		assert.NoError(t, err)
 
 		// Record sync error
 		testErr := errors.New("test sync error")
-		err = service.RecordGatewaySyncError(context.Background(), plan.ID, "stripe", testErr)
+		err = service.RecordGatewaySyncError(context.Background(), period.ID, "stripe", testErr)
 		assert.NoError(t, err)
 
 		// Verify error recorded
-		retrieved, err := service.GetGatewayProductMapping(context.Background(), plan.ID, "stripe")
+		retrieved, err := service.GetGatewayProductMapping(context.Background(), period.ID, "stripe")
 		assert.NoError(t, err)
 		assert.Equal(t, "error", retrieved.SyncStatus)
 		assert.NotEmpty(t, retrieved.ErrorMessage)
@@ -1257,28 +1288,32 @@ func TestPricingService_RecordGatewaySyncError_IncrementsRetries(t *testing.T) {
 		// Create a plan
 		plan := createAndVerifyPlan(t, service, createTestPricingPlan())
 
+		// Create a plan period
+		period := createTestPricingPlanPeriod(plan.ID)
+		err := service.CreatePricingPlanPeriod(context.Background(), period)
+		assert.NoError(t, err)
+
 		// Create mapping with existing retries
-		mapping := createTestGatewayProductMapping()
-		mapping.PlanID = plan.ID
+		mapping := createTestGatewayProductMapping(&period.ID)
 		mapping.Retries = 3
-		err := service.CreateGatewayProductMapping(context.Background(), mapping)
+		err = service.CreateGatewayProductMapping(context.Background(), mapping)
 		assert.NoError(t, err)
 
 		// Record first error
 		testErr := errors.New("test sync error")
-		err = service.RecordGatewaySyncError(context.Background(), plan.ID, "stripe", testErr)
+		err = service.RecordGatewaySyncError(context.Background(), period.ID, "stripe", testErr)
 		assert.NoError(t, err)
 
 		// Verify retries incremented
-		retrieved, err := service.GetGatewayProductMapping(context.Background(), plan.ID, "stripe")
+		retrieved, err := service.GetGatewayProductMapping(context.Background(), period.ID, "stripe")
 		assert.NoError(t, err)
 		assert.Equal(t, 4, retrieved.Retries)
 
 		// Record another error
-		err = service.RecordGatewaySyncError(context.Background(), plan.ID, "stripe", testErr)
+		err = service.RecordGatewaySyncError(context.Background(), period.ID, "stripe", testErr)
 		assert.NoError(t, err)
 
-		retrieved, err = service.GetGatewayProductMapping(context.Background(), plan.ID, "stripe")
+		retrieved, err = service.GetGatewayProductMapping(context.Background(), period.ID, "stripe")
 		assert.NoError(t, err)
 		assert.Equal(t, 5, retrieved.Retries)
 	}, getPricingTestOptions())
@@ -1295,10 +1330,14 @@ func TestPricingService_DeleteGatewayProductMapping(t *testing.T) {
 		// Create a plan
 		plan := createAndVerifyPlan(t, service, createTestPricingPlan())
 
+		// Create a plan period
+		period := createTestPricingPlanPeriod(plan.ID)
+		err := service.CreatePricingPlanPeriod(context.Background(), period)
+		assert.NoError(t, err)
+
 		// Create mapping
-		mapping := createTestGatewayProductMapping()
-		mapping.PlanID = plan.ID
-		err := service.CreateGatewayProductMapping(context.Background(), mapping)
+		mapping := createTestGatewayProductMapping(&period.ID)
+		err = service.CreateGatewayProductMapping(context.Background(), mapping)
 		assert.NoError(t, err)
 
 		// Delete mapping
@@ -1306,7 +1345,7 @@ func TestPricingService_DeleteGatewayProductMapping(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Verify deletion (should be not found)
-		_, err = service.GetGatewayProductMapping(context.Background(), plan.ID, "stripe")
+		_, err = service.GetGatewayProductMapping(context.Background(), period.ID, "stripe")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "not found")
 	}, getPricingTestOptions())
@@ -1327,8 +1366,11 @@ func TestPricingService_GetPendingSyncMappings(t *testing.T) {
 			err := service.CreatePricingPlan(context.Background(), plan)
 			assert.NoError(t, err)
 
-			mapping := createTestGatewayProductMapping()
-			mapping.PlanID = plan.ID
+			period := createTestPricingPlanPeriod(plan.ID)
+			err = service.CreatePricingPlanPeriod(context.Background(), period)
+			assert.NoError(t, err)
+
+			mapping := createTestGatewayProductMapping(&period.ID)
 			mapping.RemoteProductID = "prod_test_" + string(rune('0'+i))
 			mapping.SyncStatus = "pending"
 			err = service.CreateGatewayProductMapping(context.Background(), mapping)
@@ -1351,8 +1393,11 @@ func TestPricingService_GetPendingSyncMappings_WithGatewayType(t *testing.T) {
 		err := service.CreatePricingPlan(context.Background(), plan1)
 		assert.NoError(t, err)
 
-		mapping1 := createTestGatewayProductMapping()
-		mapping1.PlanID = plan1.ID
+		period1 := createTestPricingPlanPeriod(plan1.ID)
+		err = service.CreatePricingPlanPeriod(context.Background(), period1)
+		assert.NoError(t, err)
+
+		mapping1 := createTestGatewayProductMapping(&period1.ID)
 		mapping1.GatewayType = "stripe"
 		mapping1.SyncStatus = "pending"
 		err = service.CreateGatewayProductMapping(context.Background(), mapping1)
@@ -1363,8 +1408,11 @@ func TestPricingService_GetPendingSyncMappings_WithGatewayType(t *testing.T) {
 		err = service.CreatePricingPlan(context.Background(), plan2)
 		assert.NoError(t, err)
 
-		mapping2 := createTestGatewayProductMapping()
-		mapping2.PlanID = plan2.ID
+		period2 := createTestPricingPlanPeriod(plan2.ID)
+		err = service.CreatePricingPlanPeriod(context.Background(), period2)
+		assert.NoError(t, err)
+
+		mapping2 := createTestGatewayProductMapping(&period2.ID)
 		mapping2.GatewayType = "paypal"
 		mapping2.SyncStatus = "pending"
 		err = service.CreateGatewayProductMapping(context.Background(), mapping2)
@@ -1387,8 +1435,11 @@ func TestPricingService_GetPendingSyncMappings_IncludesErrorState(t *testing.T) 
 		err := service.CreatePricingPlan(context.Background(), plan1)
 		assert.NoError(t, err)
 
-		mapping1 := createTestGatewayProductMapping()
-		mapping1.PlanID = plan1.ID
+		period1 := createTestPricingPlanPeriod(plan1.ID)
+		err = service.CreatePricingPlanPeriod(context.Background(), period1)
+		assert.NoError(t, err)
+
+		mapping1 := createTestGatewayProductMapping(&period1.ID)
 		mapping1.SyncStatus = "pending"
 		err = service.CreateGatewayProductMapping(context.Background(), mapping1)
 		assert.NoError(t, err)
@@ -1398,8 +1449,11 @@ func TestPricingService_GetPendingSyncMappings_IncludesErrorState(t *testing.T) 
 		err = service.CreatePricingPlan(context.Background(), plan2)
 		assert.NoError(t, err)
 
-		mapping2 := createTestGatewayProductMapping()
-		mapping2.PlanID = plan2.ID
+		period2 := createTestPricingPlanPeriod(plan2.ID)
+		err = service.CreatePricingPlanPeriod(context.Background(), period2)
+		assert.NoError(t, err)
+
+		mapping2 := createTestGatewayProductMapping(&period2.ID)
 		mapping2.SyncStatus = "error"
 		err = service.CreateGatewayProductMapping(context.Background(), mapping2)
 		assert.NoError(t, err)
@@ -1409,8 +1463,11 @@ func TestPricingService_GetPendingSyncMappings_IncludesErrorState(t *testing.T) 
 		err = service.CreatePricingPlan(context.Background(), plan3)
 		assert.NoError(t, err)
 
-		mapping3 := createTestGatewayProductMapping()
-		mapping3.PlanID = plan3.ID
+		period3 := createTestPricingPlanPeriod(plan3.ID)
+		err = service.CreatePricingPlanPeriod(context.Background(), period3)
+		assert.NoError(t, err)
+
+		mapping3 := createTestGatewayProductMapping(&period3.ID)
 		mapping3.SyncStatus = "synced"
 		err = service.CreateGatewayProductMapping(context.Background(), mapping3)
 		assert.NoError(t, err)

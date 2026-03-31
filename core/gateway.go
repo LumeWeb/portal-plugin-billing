@@ -6,22 +6,37 @@ import (
 	"time"
 )
 
+// PricingVariant represents a single pricing variant with billing period and pricing details.
+type PricingVariant struct {
+	BillingPeriodID uint    // Billing period identifier
+	PriceUSD        float64 // Price in USD
+	QuotaPlanID     uint    // Associated quota plan identifier
+	Cadence         string  // Billing cadence (e.g., "monthly", "yearly", "quarterly")
+	RollingDays     *int    // Optional number of rolling days for rolling cadence
+}
+
 // PricingPlanInfo defines the contract for pricing plan data passed to gateways
 type PricingPlanInfo struct {
-	ID              uint
-	Name            string
-	Description     string
-	Currency        string
-	MonthlyPriceUSD *float64
-	YearlyPriceUSD  *float64
-	IsActive        bool
-	IsPublic        bool
+	ID              uint             // Plan identifier
+	Name            string           // Plan name
+	Description     string           // Plan description
+	Currency        string           // Currency code (e.g., "USD")
+	PricingVariants []PricingVariant // List of pricing variants for this plan
+	IsActive        bool             // Whether the plan is active
+	IsPublic        bool             // Whether the plan is publicly available
 }
 
 var (
-	ErrGatewayNotFound = errors.New("gateway not found")
+	ErrGatewayNotFound     = errors.New("gateway not found")
 	ErrGatewayNotSupported = errors.New("gateway does not support this interface")
 )
+
+// RemotePriceMapping represents a mapping between a pricing plan period and a gateway price ID.
+// PricingPlanPeriodID maps back to the database pricing_plan_period.id field.
+type RemotePriceMapping struct {
+	PricingPlanPeriodID uint   // Pricing plan period ID from database
+	PriceID             string // Gateway's price identifier for this variant
+}
 
 // GatewayIdentity defines methods for gateway identification and display information.
 // All gateways must implement this interface.
@@ -84,7 +99,7 @@ type CheckoutProvider interface {
 	// - Redirect-based gateways (Stripe): return link fragment
 	// - Embedded gateways (PayPal/Braintree): return script, button, or form fragments
 	// - Custom gateways: return html, iframe, or modal fragments
-	GetCheckoutUI(ctx context.Context, userID uint, planID uint) (*CheckoutUIResponse, error)
+	GetCheckoutUI(ctx context.Context, userID uint, planID uint, periodID uint) (*CheckoutUIResponse, error)
 }
 
 // GatewayCapabilities declares synchronization capabilities for gateways.
@@ -113,16 +128,26 @@ type GatewaySync interface {
 }
 
 // PaymentGateway defines the interface for payment gateway implementations.
-// It composes all the optional interfaces, allowing gateways to implement only the functionality they support.
-// All gateways must implement at least GatewayIdentity.
+// It composes all gateway interface, allowing gateways to implement only the functionality they support.
+// Individual gateway can implement only the methods they need, while tests can use a comprehensive mock.
+//
+// Note: This is a union of all interfaces for type convenience in tests and services.
+// Gateways may implement subsets using the helper functions As*() and Is*() below.
 type PaymentGateway interface {
-	// All gateways must implement GatewayIdentity
+	// All interfaces used in the billing system
 	GatewayIdentity
+	WebhookHandler
+	CustomerPortal
+	CheckoutProvider
+	GatewayCapabilities
+	GatewaySync
+	SubscriptionManager
+	SubscriptionExecutor
 }
 
 // CheckoutUIResponse represents UI fragments for checkout flows
 type CheckoutUIResponse struct {
-		// Fragments provide flexible UI rendering - gateways return what they need
+	// Fragments provide flexible UI rendering - gateways return what they need
 	Fragments []CheckoutUIFragment `json:"fragments"`
 
 	// Session identifier for tracking (gateway-specific)
@@ -130,7 +155,7 @@ type CheckoutUIResponse struct {
 	SessionID string `json:"session_id,omitempty"`
 
 	// When this checkout UI expires (if applicable)
-	ExpiresAt time.Time `json:"expires_at,omitempty"`
+	ExpiresAt time.Time `json:"expires_at"`
 
 	// Gateway-specific metadata
 	Metadata map[string]any `json:"metadata,omitempty"`
@@ -138,11 +163,11 @@ type CheckoutUIResponse struct {
 
 // CheckoutUIFragment represents a single UI fragment for checkout
 type CheckoutUIFragment struct {
-	Type     FragmentType `json:"type"`             // Fragment type
-	HTML     string       `json:"html,omitempty"`   // HTML content (for html, iframe, modal, button, form)
-	Script   string       `json:"script,omitempty"` // JavaScript code to execute
-	Link     string       `json:"link,omitempty"`   // Redirect URL
-	CSS      string       `json:"css,omitempty"`    // CSS for iframe/embed
+	Type     FragmentType   `json:"type"`               // Fragment type
+	HTML     string         `json:"html,omitempty"`     // HTML content (for html, iframe, modal, button, form)
+	Script   string         `json:"script,omitempty"`   // JavaScript code to execute
+	Link     string         `json:"link,omitempty"`     // Redirect URL
+	CSS      string         `json:"css,omitempty"`      // CSS for iframe/embed
 	Metadata map[string]any `json:"metadata,omitempty"` // Fragment-specific metadata
 }
 
@@ -168,12 +193,11 @@ const (
 
 // SyncResult represents the result of pricing plan synchronization with a gateway
 type SyncResult struct {
-	Success               bool   // Whether synchronization succeeded
-	ProductID             string // Gateway's product identifier
-	MonthlyPriceID        string // Gateway's monthly price identifier
-	YearlyPriceID         string // Gateway's yearly price identifier
-	PortalConfigurationID string // Gateway's portal configuration identifier
-	Error                 error  // Error if synchronization failed
+	Success               bool                 // Whether synchronization succeeded
+	ProductID             string               // Gateway's product identifier
+	PortalConfigurationID string               // Gateway's portal configuration identifier
+	RemotePriceIDs        []RemotePriceMapping // Mappings of pricing variants to gateway price IDs
+	Error                 error                // Error if synchronization failed
 }
 
 // GatewayHelpers provides utility functions for checking and accessing gateway sub-interfaces.
@@ -187,7 +211,7 @@ func IsWebhookHandler(gateway PaymentGateway) bool {
 
 // AsWebhookHandler attempts to cast the gateway to WebhookHandler.
 // Returns nil and an error if the gateway does not implement WebhookHandler.
-func AsWebhookHandler(gateway PaymentGateway) (WebhookHandler, error) {
+func AsWebhookHandler(gateway GatewayIdentity) (WebhookHandler, error) {
 	handler, ok := gateway.(WebhookHandler)
 	if !ok {
 		return nil, ErrGatewayNotSupported
@@ -196,14 +220,14 @@ func AsWebhookHandler(gateway PaymentGateway) (WebhookHandler, error) {
 }
 
 // IsCustomerPortal checks if the gateway implements the CustomerPortal interface.
-func IsCustomerPortal(gateway PaymentGateway) bool {
+func IsCustomerPortal(gateway GatewayIdentity) bool {
 	_, ok := gateway.(CustomerPortal)
 	return ok
 }
 
 // AsCustomerPortal attempts to cast the gateway to CustomerPortal.
 // Returns nil and an error if the gateway does not implement CustomerPortal.
-func AsCustomerPortal(gateway PaymentGateway) (CustomerPortal, error) {
+func AsCustomerPortal(gateway GatewayIdentity) (CustomerPortal, error) {
 	portal, ok := gateway.(CustomerPortal)
 	if !ok {
 		return nil, ErrGatewayNotSupported
@@ -212,14 +236,14 @@ func AsCustomerPortal(gateway PaymentGateway) (CustomerPortal, error) {
 }
 
 // IsCheckoutProvider checks if the gateway implements the CheckoutProvider interface.
-func IsCheckoutProvider(gateway PaymentGateway) bool {
+func IsCheckoutProvider(gateway GatewayIdentity) bool {
 	_, ok := gateway.(CheckoutProvider)
 	return ok
 }
 
 // AsCheckoutProvider attempts to cast the gateway to CheckoutProvider.
 // Returns nil and an error if the gateway does not implement CheckoutProvider.
-func AsCheckoutProvider(gateway PaymentGateway) (CheckoutProvider, error) {
+func AsCheckoutProvider(gateway GatewayIdentity) (CheckoutProvider, error) {
 	provider, ok := gateway.(CheckoutProvider)
 	if !ok {
 		return nil, ErrGatewayNotSupported
@@ -228,14 +252,14 @@ func AsCheckoutProvider(gateway PaymentGateway) (CheckoutProvider, error) {
 }
 
 // IsGatewayCapabilities checks if the gateway implements the GatewayCapabilities interface.
-func IsGatewayCapabilities(gateway PaymentGateway) bool {
+func IsGatewayCapabilities(gateway GatewayIdentity) bool {
 	_, ok := gateway.(GatewayCapabilities)
 	return ok
 }
 
 // AsGatewayCapabilities attempts to cast the gateway to GatewayCapabilities.
 // Returns nil and an error if the gateway does not implement GatewayCapabilities.
-func AsGatewayCapabilities(gateway PaymentGateway) (GatewayCapabilities, error) {
+func AsGatewayCapabilities(gateway GatewayIdentity) (GatewayCapabilities, error) {
 	caps, ok := gateway.(GatewayCapabilities)
 	if !ok {
 		return nil, ErrGatewayNotSupported
@@ -244,14 +268,14 @@ func AsGatewayCapabilities(gateway PaymentGateway) (GatewayCapabilities, error) 
 }
 
 // IsGatewaySync checks if the gateway implements the GatewaySync interface.
-func IsGatewaySync(gateway PaymentGateway) bool {
+func IsGatewaySync(gateway GatewayIdentity) bool {
 	_, ok := gateway.(GatewaySync)
 	return ok
 }
 
 // AsGatewaySync attempts to cast the gateway to GatewaySync.
 // Returns nil and an error if the gateway does not implement GatewaySync.
-func AsGatewaySync(gateway PaymentGateway) (GatewaySync, error) {
+func AsGatewaySync(gateway GatewayIdentity) (GatewaySync, error) {
 	sync, ok := gateway.(GatewaySync)
 	if !ok {
 		return nil, ErrGatewayNotSupported
@@ -259,13 +283,36 @@ func AsGatewaySync(gateway PaymentGateway) (GatewaySync, error) {
 	return sync, nil
 }
 
-// FullPaymentGateway is a composite interface for testing that includes all gateway sub-interfaces.
-// This interface is used for mocking in tests where all gateway functionality is needed.
-type FullPaymentGateway interface {
-	PaymentGateway
-	WebhookHandler
-	CustomerPortal
-	CheckoutProvider
-	GatewayCapabilities
-	GatewaySync
+// IsSubscriptionManager checks if the gateway implements the SubscriptionManager interface.
+func IsSubscriptionManager(gateway GatewayIdentity) bool {
+	_, ok := gateway.(SubscriptionManager)
+	return ok
 }
+
+// AsSubscriptionManager attempts to cast the gateway to SubscriptionManager.
+// Returns nil and an error if the gateway does not implement SubscriptionManager.
+func AsSubscriptionManager(gateway GatewayIdentity) (SubscriptionManager, error) {
+	manager, ok := gateway.(SubscriptionManager)
+	if !ok {
+		return nil, ErrGatewayNotSupported
+	}
+	return manager, nil
+}
+
+// IsSubscriptionExecutor checks if a gateway implements the SubscriptionExecutor interface.
+func IsSubscriptionExecutor(gateway GatewayIdentity) bool {
+	_, ok := gateway.(SubscriptionExecutor)
+	return ok
+}
+
+// AsSubscriptionExecutor attempts to cast a gateway to SubscriptionExecutor.
+// Returns nil and an error if the gateway does not implement SubscriptionExecutor.
+func AsSubscriptionExecutor(gateway GatewayIdentity) (SubscriptionExecutor, error) {
+	executor, ok := gateway.(SubscriptionExecutor)
+	if !ok {
+		return nil, ErrGatewayNotSupported
+	}
+	return executor, nil
+}
+
+

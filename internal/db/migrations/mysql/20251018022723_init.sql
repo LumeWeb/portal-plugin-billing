@@ -25,7 +25,13 @@ CREATE TABLE IF NOT EXISTS billing_subscribers (
     external_id VARCHAR(255) NOT NULL,
     subscription_id VARCHAR(255) NULL,
     is_active BOOLEAN DEFAULT FALSE,
-    plan_id BIGINT UNSIGNED NULL,
+    pricing_plan_period_id BIGINT UNSIGNED NULL,
+    billing_period_start TIMESTAMP NULL DEFAULT NULL,
+    billing_period_end TIMESTAMP NULL DEFAULT NULL,
+    will_cancel_at TIMESTAMP NULL DEFAULT NULL,
+    cancelled_at TIMESTAMP NULL DEFAULT NULL,
+    payment_status ENUM('pending', 'paid', 'failed', 'missed') DEFAULT 'pending',
+    previous_plan_id BIGINT UNSIGNED NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at TIMESTAMP NULL DEFAULT NULL,
@@ -40,7 +46,15 @@ CREATE TABLE IF NOT EXISTS billing_subscribers (
     INDEX idx_user_id (user_id),
     INDEX idx_gateway_type (gateway_type),
     INDEX idx_is_active (is_active),
-    INDEX idx_external_id (external_id)
+    INDEX idx_external_id (external_id),
+    INDEX idx_pricing_plan_period_id (pricing_plan_period_id),
+    INDEX idx_billing_period_start (billing_period_start),
+    INDEX idx_billing_period_end (billing_period_end),
+    INDEX idx_will_cancel_at (will_cancel_at),
+    INDEX idx_cancelled_at (cancelled_at),
+    INDEX idx_payment_status (payment_status),
+    KEY fk_billing_subscribers_pricing_plan_periods (pricing_plan_period_id),
+    CONSTRAINT fk_billing_subscribers_pricing_plan_periods FOREIGN KEY (pricing_plan_period_id) REFERENCES billing_pricing_plan_periods(id) ON DELETE CASCADE
 );
 
 -- Pricing Plans Table
@@ -52,9 +66,6 @@ CREATE TABLE IF NOT EXISTS billing_pricing_plans (
     name VARCHAR(255) NOT NULL,
     description TEXT NOT NULL,
     features_json TEXT NOT NULL,
-    monthly_price_usd DECIMAL(10, 2) NULL,
-    yearly_price_usd DECIMAL(10, 2) NULL,
-    quota_plan_id BIGINT UNSIGNED NULL,
     currency VARCHAR(3) DEFAULT 'USD',
     is_active BOOLEAN DEFAULT TRUE,
     is_public BOOLEAN DEFAULT FALSE,
@@ -113,21 +124,20 @@ CREATE TABLE IF NOT EXISTS billing_gateway_product_mappings (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at TIMESTAMP NULL DEFAULT NULL,
-    plan_id BIGINT UNSIGNED NOT NULL,
+    pricing_plan_period_id BIGINT UNSIGNED NULL,
     gateway_type VARCHAR(255) NOT NULL,
     remote_product_id VARCHAR(255) NOT NULL,
-    remote_monthly_price_id VARCHAR(255) NULL,
-    remote_yearly_price_id VARCHAR(255) NULL,
+    remote_price_id VARCHAR(255) NULL,
     sync_status VARCHAR(50) DEFAULT 'pending',
     last_synced_at TIMESTAMP NULL DEFAULT NULL,
     error_message TEXT NULL,
     retries INT DEFAULT 0,
     portal_configuration_id VARCHAR(255) DEFAULT NULL,
-    INDEX idx_plan_id (plan_id),
+    INDEX idx_pricing_plan_period_id (pricing_plan_period_id),
     INDEX idx_gateway_type (gateway_type),
-    KEY fk_billing_gateway_product_mappings_pricing_plans (plan_id),
-    CONSTRAINT fk_billing_gateway_product_mappings_pricing_plans FOREIGN KEY (plan_id) REFERENCES billing_pricing_plans(id) ON DELETE CASCADE,
-    UNIQUE KEY uniq_plan_gateway (plan_id, gateway_type)
+    KEY fk_billing_gateway_product_mappings_pricing_plan_periods (pricing_plan_period_id),
+    CONSTRAINT fk_billing_gateway_product_mappings_pricing_plan_periods FOREIGN KEY (pricing_plan_period_id) REFERENCES billing_pricing_plan_periods(id) ON DELETE CASCADE,
+    UNIQUE KEY uniq_pricing_period_gateway (pricing_plan_period_id, gateway_type)
 );
 
 -- Credits Table
@@ -146,10 +156,30 @@ CREATE TABLE IF NOT EXISTS billing_credits (
     updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at TIMESTAMP NULL DEFAULT NULL,
     INDEX idx_user_id (user_id),
+    INDEX idx_reference_id (reference_id),
     INDEX idx_deleted_at (deleted_at)
 );
 
+-- Pricing Plan Periods Table
+-- Stores pricing plan variations for different billing cadences (monthly, yearly, quarterly, weekly)
+-- quota_plan_id references external portal-plugin-quota service and is validated by that service
+CREATE TABLE IF NOT EXISTS billing_pricing_plan_periods (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    pricing_plan_id BIGINT UNSIGNED NOT NULL,
+    cadence VARCHAR(50) NOT NULL,
+    price_usd DECIMAL(10,2) NOT NULL,
+    quota_plan_id BIGINT UNSIGNED NULL,
+    rolling_days INT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMP NULL DEFAULT NULL,
+    UNIQUE KEY uniq_pricing_plan_cadence (pricing_plan_id, cadence),
+    KEY fk_billing_pricing_plan_periods_pricing_plans (pricing_plan_id),
+    CONSTRAINT fk_billing_pricing_plan_periods_pricing_plans FOREIGN KEY (pricing_plan_id) REFERENCES billing_pricing_plans(id) ON DELETE CASCADE
+);
+
 -- +goose Down
+DROP TABLE IF EXISTS billing_pricing_plan_periods;
 DROP TABLE IF EXISTS billing_credits;
 DROP TABLE IF EXISTS billing_gateway_product_mappings;
 DROP TABLE IF EXISTS billing_priceline_assignments;

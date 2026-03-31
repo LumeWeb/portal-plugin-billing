@@ -21,10 +21,12 @@ require (
 	go.lumeweb.com/portal-router v0.6.13
 	go.lumeweb.com/queryutil v0.3.16
 	go.uber.org/zap v1.27.1
+	gorm.io/datatypes v1.2.7
 	gorm.io/gorm v1.31.1
 )
 
 require (
+	bou.ke/monkey v1.0.2 // indirect
 	filippo.io/edwards25519 v1.2.0 // indirect
 	github.com/AfterShip/email-verifier v1.4.1 // indirect
 	github.com/ClickHouse/ch-go v0.71.0 // indirect
@@ -33,6 +35,7 @@ require (
 	github.com/adjust/rmq/v5 v5.2.0 // indirect
 	github.com/alicebob/miniredis/v2 v2.37.0 // indirect
 	github.com/andybalholm/brotli v1.2.0 // indirect
+	github.com/apt304/sse-go v0.0.3 // indirect
 	github.com/aws/aws-sdk-go-v2 v1.41.5 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.8 // indirect
 	github.com/aws/aws-sdk-go-v2/config v1.32.13 // indirect
@@ -156,6 +159,7 @@ require (
 	github.com/prometheus/client_model v0.6.2 // indirect
 	github.com/prometheus/common v0.67.5 // indirect
 	github.com/prometheus/procfs v0.20.1 // indirect
+	github.com/r3labs/sse/v2 v2.10.0 // indirect
 	github.com/redis/go-redis/v9 v9.18.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/robfig/cron/v3 v3.0.1 // indirect
@@ -167,6 +171,7 @@ require (
 	github.com/spf13/afero v1.15.0 // indirect
 	github.com/spf13/cast v1.10.0 // indirect
 	github.com/stretchr/objx v0.5.3 // indirect
+	github.com/tkuchiki/faketime v0.1.1 // indirect
 	github.com/tus/tusd/v2 v2.9.2 // indirect
 	github.com/uptrace/uptrace-go v1.41.0 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
@@ -223,9 +228,9 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260319201613-d00831a3d3e7 // indirect
 	google.golang.org/grpc v1.79.3 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
+	gopkg.in/cenkalti/backoff.v1 v1.1.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	gorm.io/datatypes v1.2.7 // indirect
 	gorm.io/driver/clickhouse v0.7.0 // indirect
 	gorm.io/driver/mysql v1.6.0 // indirect
 	gorm.io/driver/postgres v1.6.0 // indirect

@@ -6,16 +6,16 @@ import (
 	"gorm.io/gorm"
 )
 
-// GatewayProductMapping stores gateway-specific product IDs for pricing plans.
-// This junction table allows tracking remote product IDs for gateways that maintain
+// GatewayProductMapping stores gateway-specific product IDs for pricing plan periods.
+// This junction table allows tracking remote product/price IDs for gateways that maintain
 // their own product catalogs (e.g., Stripe products, PayPal plan IDs).
 // It enables bidirectional sync and maintains proper state for each gateway.
 type GatewayProductMapping struct {
 	gorm.Model
 
-	// Plan PricingPlan that this mapping belongs to
-	PlanID    uint
-	Plan      *PricingPlan
+	// PricingPlanPeriodID identifies the specific billing period variant
+	PricingPlanPeriodID *uint
+	PricingPlanPeriod   *PricingPlanPeriod `gorm:"foreignKey:PricingPlanPeriodID"`
 
 	// GatewayType identifies the payment gateway (e.g., "stripe", "paypal")
 	GatewayType string
@@ -23,11 +23,8 @@ type GatewayProductMapping struct {
 	// RemoteProductID is the gateway's unique product identifier
 	RemoteProductID string
 
-	// RemoteMonthlyPriceID is the gateway's monthly price identifier (if applicable)
-	RemoteMonthlyPriceID string
-
-	// RemoteYearlyPriceID is the gateway's yearly price identifier (if applicable)
-	RemoteYearlyPriceID string
+	// RemotePriceID is the gateway's price ID for the specific pricing plan period
+	RemotePriceID string
 
 	// PortalConfigurationID stores the billing portal configuration ID for this plan
 	// Used for Stripe customer portal to control upgrade/downgrade paths

@@ -3,13 +3,16 @@ package dto
 import (
 	"time"
 
+	"github.com/shopspring/decimal"
 	"go.lumeweb.com/httputil"
+	z "github.com/Oudwins/zog"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
 )
 
 var (
 	_ httputil.DTOResponse[*pluginCore.ManagementCapabilities] = (*ManagementCapabilitiesResponse)(nil)
 	_ httputil.DTOResponse[*pluginCore.ManagementResult] = (*ManagementResultResponse)(nil)
+	_ httputil.DTOResponse[*pluginCore.PlanChangeResult] = (*PlanChangeResultResponse)(nil)
 )
 
 // ManagementCapabilitiesResponse represents the subscription management capabilities of a gateway
@@ -128,4 +131,45 @@ type FormField struct {
 type FieldOption struct {
 	Value string `json:"value"`
 	Label string `json:"label"`
+}
+
+// ChangePlanRequest represents a request to change the subscription plan
+type ChangePlanRequest struct {
+	PeriodID uint `json:"period_id"`
+}
+
+// Schema returns the validation schema for ChangePlanRequest
+func (r *ChangePlanRequest) Schema() *z.StructSchema {
+	return z.Struct(z.Shape{
+		"PeriodID": z.UintLike[uint]().Required(),
+	})
+}
+
+// ToModel returns the request as-is (no transformation needed)
+func (r *ChangePlanRequest) ToModel() (*ChangePlanRequest, error) {
+	return r, nil
+}
+
+// PlanChangeResultResponse represents the result of a plan change operation
+type PlanChangeResultResponse struct {
+	Action        string          `json:"action"`
+	CheckoutLink  string          `json:"checkout_link,omitempty"`
+	CreditApplied decimal.Decimal `json:"credit_applied"`
+	ChargeDue     decimal.Decimal `json:"charge_due"`
+	EffectiveDate *time.Time      `json:"effective_date,omitempty"`
+}
+
+// FromModel converts PlanChangeResult to response DTO
+func (r *PlanChangeResultResponse) FromModel(result *pluginCore.PlanChangeResult) error {
+	if result == nil {
+		return nil
+	}
+
+	r.Action = string(result.Action)
+	r.CheckoutLink = result.CheckoutLink
+	r.CreditApplied = result.CreditApplied
+	r.ChargeDue = result.ChargeDue
+	r.EffectiveDate = result.EffectiveDate
+
+	return nil
 }

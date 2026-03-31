@@ -9,7 +9,7 @@ import (
 
 // GatewaySetupFunc is a function that sets up and registers a gateway
 // Returns a log message (empty if not configured), the gateway instance (nil if not configured), and any error
-type GatewaySetupFunc func(opts GatewaySetupOptions, config1 string, config2 string) (string, PaymentGateway, error)
+type GatewaySetupFunc func(opts GatewaySetupOptions, config1 string, config2 string) (string, GatewayIdentity, error)
 
 // GatewaySetupOptions contains options for gateway setup
 type GatewaySetupOptions struct {

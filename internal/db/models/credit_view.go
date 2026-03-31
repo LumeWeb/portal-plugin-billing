@@ -11,18 +11,18 @@ import (
 // CreditActiveView represents the billing_credits_active database view.
 // This view contains only non-deleted credits.
 type CreditActiveView struct {
-	ID            uuid.UUID         `gorm:"primaryKey;type:text"`
-	UserID        uint64            `gorm:"not null;index"`
-	Amount        decimal.Decimal   `gorm:"type:decimal;not null"`
-	Type          string            `gorm:"type:text;not null"`
-	Direction     string            `gorm:"type:text;not null"`
-	ReferenceID   string            `gorm:"type;text"`
-	ReferenceType string            `gorm:"type:text"`
-	Description   string            `gorm:"type:text"`
-	Metadata      datatypes.JSON    `gorm:"type:text"`
-	CreatedBy     uint64            `gorm:"not null"`
-	CreatedAt     time.Time         `gorm:"autoCreateTime"`
-	UpdatedAt     time.Time         `gorm:"autoUpdateTime"`
+	ID            uuid.UUID
+	UserID        uint64
+	Amount        decimal.Decimal
+	Type          string
+	Direction     string
+	ReferenceID   string
+	ReferenceType string
+	Description   string
+	Metadata      datatypes.JSON
+	CreatedBy     uint64
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 // TableName specifies GORM table name for the view.
@@ -32,8 +32,8 @@ func (CreditActiveView) TableName() string {
 
 // CreditsBalanceView represents the billing_credits_balance database view.
 type CreditsBalanceView struct {
-	UserID  uint64          `gorm:"primaryKey"`
-	Balance decimal.Decimal `gorm:"type:decimal;not null"`
+	UserID  uint64
+	Balance decimal.Decimal
 }
 
 // TableName specifies GORM table name for the view.

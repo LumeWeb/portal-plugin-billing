@@ -90,6 +90,24 @@ type PricingService interface {
 
 	// GetPriceLinesForPlan returns the price line plan associations for a given plan ID
 	GetPriceLinesForPlan(ctx context.Context, planID uint) ([]*models.PriceLinePlan, error)
+
+	// CreatePricingPlanPeriod creates a new pricing plan period
+	CreatePricingPlanPeriod(ctx context.Context, period *models.PricingPlanPeriod) error
+
+	// UpdatePricingPlanPeriod updates an existing pricing plan period
+	UpdatePricingPlanPeriod(ctx context.Context, id uint, period *models.PricingPlanPeriod) error
+
+	// DeletePricingPlanPeriod deletes a pricing plan period (soft delete)
+	DeletePricingPlanPeriod(ctx context.Context, id uint) error
+
+	// GetPricingPlanPeriod retrieves a pricing plan period by ID
+	GetPricingPlanPeriod(ctx context.Context, id uint) (*models.PricingPlanPeriod, error)
+
+	// GetPricingPlanPeriods retrieves all pricing plan periods for a given pricing plan
+	GetPricingPlanPeriods(ctx context.Context, planID uint) ([]*models.PricingPlanPeriod, error)
+
+	// GetPricingPlanPeriodsWithFilter retrieves pricing plan periods with filters, sorting, and pagination
+	GetPricingPlanPeriodsWithFilter(ctx context.Context, filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination) ([]*models.PricingPlanPeriod, int64, error)
 }
 
 // UpgradeDowngradePaths contains upgrade and downgrade plan options

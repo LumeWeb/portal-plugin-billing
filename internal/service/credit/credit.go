@@ -52,7 +52,7 @@ func NewCreditService() (core.Service, []core.ContextBuilderOption, error) {
 //
 // ctx: Context for the operation
 // userID: User ID to issue credit to
-// creditType: Type of credit (charge, refund, etc.)
+// transactionType: Type of transaction (charge, refund, etc.)
 // amount: Credit amount (always positive credit, negative debit)
 // referenceType: Gateway event source type (e.g., pluginCore.ReferenceTypeStripeInvoice, pluginCore.ReferenceTypeAtlosPayment)
 // referenceID: External transaction ID (e.g., Stripe invoice ID, Atlos transaction ID)
@@ -63,7 +63,7 @@ func NewCreditService() (core.Service, []core.ContextBuilderOption, error) {
 func (s *CreditServiceDefault) IssueCreditFromGateway(
 	ctx context.Context,
 	userID uint64,
-	creditType string,
+	transactionType string,
 	amount decimal.Decimal,
 	referenceType string,
 	referenceID string,
@@ -72,18 +72,18 @@ func (s *CreditServiceDefault) IssueCreditFromGateway(
 ) error {
 	s.Logger().Debug("IssueCreditFromGateway",
 		zap.Uint64("user_id", userID),
-		zap.String("credit_type", creditType),
+		zap.String("transaction_type", transactionType),
 		zap.String("amount", amount.String()),
 		zap.String("reference_type", referenceType),
 		zap.String("reference_id", referenceID),
 	)
 
 	// Validate credit type
-	if !s.isValidCreditType(creditType) {
+	if !s.isValidTransactionType(transactionType) {
 		s.Logger().Error("Invalid credit type",
-			zap.String("credit_type", creditType),
+			zap.String("transaction_type", transactionType),
 			zap.Uint64("user_id", userID))
-		return fmt.Errorf("invalid credit type: %s", creditType)
+		return fmt.Errorf("invalid credit type: %s", transactionType)
 	}
 
 	// Validate reference type
@@ -97,7 +97,7 @@ func (s *CreditServiceDefault) IssueCreditFromGateway(
 	// Determine direction: most gateway events are credits (positive)
 	// Debits are typically usage-based or refunds
 	direction := ledger.CreditDirection
-	if creditType == pluginCore.CreditTypeRefund || creditType == pluginCore.CreditTypeUsage || creditType == pluginCore.CreditTypeChargeBack {
+	if transactionType == pluginCore.TransactionTypeRefund || transactionType == pluginCore.TransactionTypeUsage || transactionType == pluginCore.TransactionTypeChargeBack {
 		direction = ledger.DebitDirection
 	}
 
@@ -117,7 +117,7 @@ func (s *CreditServiceDefault) IssueCreditFromGateway(
 		ctx,
 		userID,
 		amount,
-		creditType,
+		transactionType,
 		direction,
 		referenceID,
 		referenceType,
@@ -133,7 +133,7 @@ func (s *CreditServiceDefault) IssueCreditFromGateway(
 
 	s.Logger().Info("Credit issued successfully",
 		zap.Uint64("user_id", userID),
-		zap.String("credit_type", creditType),
+		zap.String("transaction_type", transactionType),
 		zap.String("amount", amount.String()))
 
 	return nil
@@ -147,7 +147,7 @@ func (s *CreditServiceDefault) IssueCreditFromGateway(
 func (s *CreditServiceDefault) IssueCreditWithIdempotency(
 	ctx context.Context,
 	userID uint64,
-	creditType string,
+	transactionType string,
 	amount decimal.Decimal,
 	referenceType string,
 	referenceID string,
@@ -156,17 +156,17 @@ func (s *CreditServiceDefault) IssueCreditWithIdempotency(
 ) error {
 	s.Logger().Debug("IssueCreditWithIdempotency",
 		zap.Uint64("user_id", userID),
-		zap.String("credit_type", creditType),
+		zap.String("transaction_type", transactionType),
 		zap.String("reference_type", referenceType),
 		zap.String("reference_id", referenceID),
 	)
 
 	// Validate credit type
-	if !s.isValidCreditType(creditType) {
+	if !s.isValidTransactionType(transactionType) {
 		s.Logger().Error("Invalid credit type for idempotent credit",
-			zap.String("credit_type", creditType),
+			zap.String("transaction_type", transactionType),
 			zap.Uint64("user_id", userID))
-		return fmt.Errorf("invalid credit type: %s", creditType)
+		return fmt.Errorf("invalid credit type: %s", transactionType)
 	}
 
 	// Validate reference type
@@ -196,7 +196,7 @@ func (s *CreditServiceDefault) IssueCreditWithIdempotency(
 		ctx,
 		userID,
 		amount,
-		creditType,
+		transactionType,
 		referenceID,
 		referenceType,
 		idempotencyKey,
@@ -224,7 +224,7 @@ func (s *CreditServiceDefault) IssueCreditWithIdempotency(
 func (s *CreditServiceDefault) IssueUsageCredit(
 	ctx context.Context,
 	userID uint64,
-	creditType string,
+	transactionType string,
 	amount decimal.Decimal,
 	referenceID string,
 	description string,
@@ -232,23 +232,23 @@ func (s *CreditServiceDefault) IssueUsageCredit(
 ) error {
 	s.Logger().Debug("IssueUsageCredit",
 		zap.Uint64("user_id", userID),
-		zap.String("credit_type", creditType),
+		zap.String("transaction_type", transactionType),
 		zap.String("amount", amount.String()),
 	)
 
 	// Validate credit type for usage
 	validUsageTypes := map[string]bool{
-		pluginCore.CreditTypeUsage: true,
-		pluginCore.CreditTypeTime:  true,
-		pluginCore.CreditTypePromo: true,
-		pluginCore.CreditTypeComp:  true,
+		pluginCore.TransactionTypeUsage: true,
+		pluginCore.TransactionTypeTime:  true,
+		pluginCore.TransactionTypePromo: true,
+		pluginCore.TransactionTypeComp:  true,
 	}
 
-	if !validUsageTypes[creditType] {
+	if !validUsageTypes[transactionType] {
 		s.Logger().Error("Invalid usage credit type",
-			zap.String("credit_type", creditType),
+			zap.String("transaction_type", transactionType),
 			zap.Uint64("user_id", userID))
-		return fmt.Errorf("invalid usage credit type: %s", creditType)
+		return fmt.Errorf("invalid usage credit type: %s", transactionType)
 	}
 
 	rawMetadata := map[string]interface{}{
@@ -265,7 +265,7 @@ func (s *CreditServiceDefault) IssueUsageCredit(
 		ctx,
 		userID,
 		amount,
-		creditType,
+		transactionType,
 		referenceID,
 		"usage",
 		metadata,
@@ -303,6 +303,71 @@ func (s *CreditServiceDefault) GetUserBalance(ctx context.Context, userID uint64
 		zap.Uint64("user_id", userID),
 		zap.String("balance", balance.String()))
 	return balance, nil
+}
+
+// ValidateSubscriptionChange validates that a subscription change is acceptable
+// based on the user's current ledger balance and credit history.
+//
+// Parameters:
+//   - ctx: Context for the operation
+//   - userID: User ID to validate
+//   - changeType: Type of subscription change (NewSubscription, Upgrade, Downgrade, Cancel, Renewal)
+//   - expectedAmount: Expected credit/debit amount
+//
+// Returns:
+//   - error if validation fails, nil if validation passes
+func (s *CreditServiceDefault) ValidateSubscriptionChange(
+	ctx context.Context,
+	userID uint64,
+	changeType pluginCore.SubscriptionChangeType,
+	expectedAmount decimal.Decimal,
+) error {
+	s.Logger().Debug("ValidateSubscriptionChange",
+		zap.Uint64("user_id", userID),
+		zap.String("change_type", string(changeType)),
+		zap.String("expected_amount", expectedAmount.String()),
+	)
+
+	// Get current balance
+	balance, err := s.GetUserBalance(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("failed to get balance: %w", err)
+	}
+
+	// Validation rules based on change type
+	switch changeType {
+	case pluginCore.ChangeTypeNewSubscription:
+		// For new subscriptions, allow even if balance is negative
+		// (they're paying now)
+		return nil
+
+	case pluginCore.ChangeTypeUpgrade:
+		// For upgrades, ensure user has sufficient balance after change
+		projectedBalance := balance.Add(expectedAmount)
+		if projectedBalance.LessThan(decimal.Zero) {
+			return fmt.Errorf("insufficient balance for upgrade: current=%s, change=%s, projected=%s",
+				balance.String(), expectedAmount.String(), projectedBalance.String())
+		}
+		return nil
+
+	case pluginCore.ChangeTypeDowngrade:
+		// For downgrades, credit is issued so balance increases
+		// No validation needed
+		return nil
+
+	case pluginCore.ChangeTypeCancel:
+		// For cancellations, credit is issued so balance increases
+		// No validation needed
+		return nil
+
+	case pluginCore.ChangeTypeRenewal:
+		// For renewals, allow even if balance is negative
+		// (they're paying again)
+		return nil
+
+	default:
+		return fmt.Errorf("unsupported change type: %s", changeType)
+	}
 }
 
 // GetReferenceIdempotencyKey retrieves the idempotency key for a reference ID.
@@ -436,19 +501,19 @@ func (s *CreditServiceDefault) PurgeDeletedCredits(ctx context.Context, olderTha
 	return count, nil
 }
 
-// isValidCreditType checks if a credit type is valid
-func (s *CreditServiceDefault) isValidCreditType(creditType string) bool {
+// isValidTransactionType checks if a transaction type is valid
+func (s *CreditServiceDefault) isValidTransactionType(transactionType string) bool {
 	validTypes := map[string]bool{
-		pluginCore.CreditTypeCharge:     true,
-		pluginCore.CreditTypeRefund:     true,
-		pluginCore.CreditTypeUsage:      true,
-		pluginCore.CreditTypeManual:     true,
-		pluginCore.CreditTypePromo:      true,
-		pluginCore.CreditTypeTime:       true,
-		pluginCore.CreditTypeChargeBack: true,
-		pluginCore.CreditTypeComp:       true,
+		pluginCore.TransactionTypeCharge:     true,
+		pluginCore.TransactionTypeRefund:     true,
+		pluginCore.TransactionTypeUsage:      true,
+		pluginCore.TransactionTypeManual:     true,
+		pluginCore.TransactionTypePromo:      true,
+		pluginCore.TransactionTypeTime:       true,
+		pluginCore.TransactionTypeChargeBack: true,
+		pluginCore.TransactionTypeComp:       true,
 	}
-	return validTypes[creditType]
+	return validTypes[transactionType]
 }
 
 // isValidReferenceType checks if a reference type is valid

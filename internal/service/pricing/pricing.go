@@ -18,14 +18,24 @@ import (
 
 // Predefined errors
 var (
-	ErrPricingPlanNameRequired        = errors.New("pricing plan name is required")
-	ErrPricingPlanDescriptionRequired = errors.New("pricing plan description is required")
-	ErrPriceLineNameRequired          = errors.New("price line name is required")
-	ErrPriceLineDescriptionRequired   = errors.New("price line description is required")
-	ErrGatewayTypeRequired            = errors.New("gateway type is required")
-	ErrPricingPlanNotFound            = "pricing plan with ID %d not found"
-	ErrDefaultPriceLineNotFound       = "default price line not found"
+	ErrPricingPlanNameRequired         = errors.New("pricing plan name is required")
+	ErrPricingPlanDescriptionRequired  = errors.New("pricing plan description is required")
+	ErrPriceLineNameRequired           = errors.New("price line name is required")
+	ErrPriceLineDescriptionRequired    = errors.New("price line description is required")
+	ErrGatewayTypeRequired             = errors.New("gateway type is required")
+	ErrPricingPlanNotFound             = errors.New("pricing plan not found")
+	ErrDefaultPriceLineNotFound        = errors.New("default price line not found")
+	ErrPricingPlanPeriodNotFound       = errors.New("pricing plan period not found")
+	ErrInvalidCadence                  = errors.New("invalid cadence: must be one of 'monthly', 'yearly', 'quarterly', 'weekly'")
 )
+
+// Allowed cadence values for pricing plan periods
+var allowedCadences = map[string]bool{
+	"monthly":   true,
+	"yearly":    true,
+	"quarterly": true,
+	"weekly":    true,
+}
 
 type PricingServiceDefault struct {
 	*core.BaseComponent
@@ -88,7 +98,7 @@ func (s *PricingServiceDefault) UpdatePricingPlan(ctx context.Context, id uint, 
 	}
 
 	if result.RowsAffected == 0 {
-		return fmt.Errorf(ErrPricingPlanNotFound, id)
+		return fmt.Errorf("%w: ID %d", ErrPricingPlanNotFound, id)
 	}
 
 	s.triggerSyncWithLogging(ctx, id, "plan")
@@ -104,12 +114,12 @@ func (s *PricingServiceDefault) DeletePricingPlan(ctx context.Context, id uint) 
 func (s *PricingServiceDefault) GetPricingPlan(ctx context.Context, id uint) (*models.PricingPlan, error) {
 	var plan models.PricingPlan
 	err := s.withTracedTransaction(ctx, "GetPricingPlan", func(tx *gorm.DB) error {
-		return tx.First(&plan, id).Error
+		return tx.Preload("Periods").First(&plan, id).Error
 	})
 
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, fmt.Errorf(ErrPricingPlanNotFound, id)
+			return nil, fmt.Errorf("%w: ID %d", ErrPricingPlanNotFound, id)
 		}
 		return nil, err
 	}
@@ -277,7 +287,7 @@ func (s *PricingServiceDefault) GetEffectivePriceLineForUser(ctx context.Context
 
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New(ErrDefaultPriceLineNotFound)
+			return nil, ErrDefaultPriceLineNotFound
 		}
 		return nil, err
 	}
@@ -293,7 +303,7 @@ func (s *PricingServiceDefault) GetDefaultPriceLine(ctx context.Context) (*model
 	})
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New(ErrDefaultPriceLineNotFound)
+			return nil, ErrDefaultPriceLineNotFound
 		}
 		return nil, err
 	}
@@ -321,9 +331,8 @@ func (s *PricingServiceDefault) GetUpgradeDowngradePlans(ctx context.Context, cu
 
 	var plans []models.PriceLinePlan
 	if err := s.withTracedTransaction(ctx, "GetUpgradeDowngradePlans-All", func(tx *gorm.DB) error {
-		return tx.Where("price_line_id = ?", priceLineID).
-			Order("position ASC").
-			Find(&plans).Error
+		return tx.Preload("PricingPlan").Where("price_line_id = ?", priceLineID).
+			Order("position ASC").Find(&plans).Error
 	}); err != nil {
 		return nil, err
 	}
@@ -333,34 +342,15 @@ func (s *PricingServiceDefault) GetUpgradeDowngradePlans(ctx context.Context, cu
 		Downgrades: []*models.PricingPlan{},
 	}
 
-	planIDs := make([]uint, 0, len(plans))
-	for _, plan := range plans {
-		if plan.PlanID != currentPlan.PlanID {
-			planIDs = append(planIDs, plan.PlanID)
+	for _, plp := range plans {
+		if plp.PricingPlan == nil {
+			continue
 		}
-	}
-
-	planMap := make(map[uint]*models.PricingPlan)
-	if len(planIDs) > 0 {
-		var fetchedPlans []*models.PricingPlan
-		err := s.withTracedTransaction(ctx, "GetUpgradeDowngradePlans-FetchPlans", func(tx *gorm.DB) error {
-			return tx.Where("id IN ?", planIDs).Find(&fetchedPlans).Error
-		})
-		if err != nil {
-			return nil, err
-		}
-
-		for _, p := range fetchedPlans {
-			planMap[p.ID] = p
-		}
-	}
-
-	for _, plan := range plans {
-		if pricingPlan, ok := planMap[plan.PlanID]; ok {
-			if plan.Position > currentPlan.Position {
-				paths.Upgrades = append(paths.Upgrades, pricingPlan)
-			} else if plan.Position < currentPlan.Position {
-				paths.Downgrades = append(paths.Downgrades, pricingPlan)
+		if plp.PlanID != currentPlan.PlanID {
+			if plp.Position > currentPlan.Position {
+				paths.Upgrades = append(paths.Upgrades, plp.PricingPlan)
+			} else if plp.Position < currentPlan.Position {
+				paths.Downgrades = append(paths.Downgrades, plp.PricingPlan)
 			}
 		}
 	}
@@ -371,8 +361,9 @@ func (s *PricingServiceDefault) GetUpgradeDowngradePlans(ctx context.Context, cu
 // GetPlansForPriceLine returns all plans for a price line ordered by position
 func (s *PricingServiceDefault) GetPlansForPriceLine(ctx context.Context, priceLineID uint) ([]*models.PricingPlan, error) {
 	var priceLinePlans []models.PriceLinePlan
-	err := s.withTracedTransaction(ctx, "GetPlansForPriceLine-Query", func(tx *gorm.DB) error {
-		return tx.Where("price_line_id = ?", priceLineID).
+	err := s.withTracedTransaction(ctx, "GetPlansForPriceLine", func(tx *gorm.DB) error {
+		return tx.Preload("PricingPlan").
+			Where("price_line_id = ?", priceLineID).
 			Order("position ASC").
 			Find(&priceLinePlans).Error
 	})
@@ -380,30 +371,10 @@ func (s *PricingServiceDefault) GetPlansForPriceLine(ctx context.Context, priceL
 		return nil, err
 	}
 
-	planIDs := make([]uint, 0, len(priceLinePlans))
-	for _, plan := range priceLinePlans {
-		planIDs = append(planIDs, plan.PlanID)
-	}
-
 	plans := make([]*models.PricingPlan, 0, len(priceLinePlans))
-	if len(planIDs) > 0 {
-		var fetchedPlans []*models.PricingPlan
-		err := s.withTracedTransaction(ctx, "GetPlansForPriceLine-FetchPlans", func(tx *gorm.DB) error {
-			return tx.Where("id IN ?", planIDs).Find(&fetchedPlans).Error
-		})
-		if err != nil {
-			return nil, err
-		}
-
-		planMap := make(map[uint]*models.PricingPlan)
-		for _, p := range fetchedPlans {
-			planMap[p.ID] = p
-		}
-
-		for _, plp := range priceLinePlans {
-			if plan, ok := planMap[plp.PlanID]; ok {
-				plans = append(plans, plan)
-			}
+	for _, plp := range priceLinePlans {
+		if plp.PricingPlan != nil {
+			plans = append(plans, plp.PricingPlan)
 		}
 	}
 
@@ -430,17 +401,17 @@ func (s *PricingServiceDefault) UpdateGatewayProductMapping(ctx context.Context,
 	})
 }
 
-// GetGatewayProductMapping retrieves a mapping by plan ID and gateway type
-func (s *PricingServiceDefault) GetGatewayProductMapping(ctx context.Context, planID uint, gatewayType string) (*models.GatewayProductMapping, error) {
+// GetGatewayProductMapping retrieves a mapping by plan period ID and gateway type
+func (s *PricingServiceDefault) GetGatewayProductMapping(ctx context.Context, planPeriodID uint, gatewayType string) (*models.GatewayProductMapping, error) {
 	var mapping models.GatewayProductMapping
 	err := s.withTracedTransaction(ctx, "GetGatewayProductMapping", func(tx *gorm.DB) error {
-		return tx.Where("plan_id = ? AND gateway_type = ?", planID, gatewayType).
+		return tx.Preload("PricingPlanPeriod").Where("pricing_plan_period_id = ? AND gateway_type = ?", planPeriodID, gatewayType).
 			First(&mapping).Error
 	})
 
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, fmt.Errorf("gateway product mapping for plan %d and gateway %s not found", planID, gatewayType)
+			return nil, fmt.Errorf("gateway product mapping for plan period %d and gateway %s not found", planPeriodID, gatewayType)
 		}
 		return nil, err
 	}
@@ -452,7 +423,7 @@ func (s *PricingServiceDefault) GetGatewayProductMapping(ctx context.Context, pl
 func (s *PricingServiceDefault) GetGatewayProductMappingsByPlan(ctx context.Context, planID uint) ([]*models.GatewayProductMapping, error) {
 	var mappings []*models.GatewayProductMapping
 	err := s.withTracedTransaction(ctx, "GetGatewayProductMappingsByPlan", func(tx *gorm.DB) error {
-		return tx.Where("plan_id = ?", planID).
+		return tx.Where("pricing_plan_period_id IN (SELECT id FROM billing_pricing_plan_periods WHERE pricing_plan_id = ?)", planID).
 			Find(&mappings).Error
 	})
 
@@ -463,37 +434,94 @@ func (s *PricingServiceDefault) GetGatewayProductMappingsByPlan(ctx context.Cont
 	return mappings, nil
 }
 
-// UpdateGatewaySyncStatus updates the sync status and timestamps for a mapping
-func (s *PricingServiceDefault) UpdateGatewaySyncStatus(ctx context.Context, planID uint, gatewayType string, syncResult pluginCore.SyncResult) error {
+// UpdateGatewaySyncStatus updates the sync status and timestamps for mappings
+// If syncResult contains RemotePriceIDs, updates per-period mappings using pricing_plan_period_id
+// Otherwise, for backward compatibility, expects planPeriodID to be a pricing plan period ID
+func (s *PricingServiceDefault) UpdateGatewaySyncStatus(ctx context.Context, planPeriodID uint, gatewayType string, syncResult pluginCore.SyncResult) error {
 	now := time.Now()
 
-	err := s.withTracedTransaction(ctx, "UpdateGatewaySyncStatus", func(tx *gorm.DB) error {
+	// If RemotePriceIDs are provided, update each period mapping individually
+	if len(syncResult.RemotePriceIDs) > 0 {
+		// Get the plan ID from the period for logging and trigger sync
+		var period models.PricingPlanPeriod
+		planID := planPeriodID
+		s.withTracedTransaction(ctx, "GetPlanForPeriod", func(tx *gorm.DB) error {
+			return tx.Where("id = ?", planPeriodID).First(&period).Error
+		})
+		if period.ID != 0 {
+			planID = period.PricingPlanID
+		}
+
+		for _, priceMapping := range syncResult.RemotePriceIDs {
+			err := s.withTracedTransaction(ctx, "UpdateGatewaySyncStatus-Period", func(tx *gorm.DB) error {
+				updates := map[string]any{
+					"remote_product_id": syncResult.ProductID,
+					"remote_price_id":   priceMapping.PriceID,
+					"sync_status":       "synced",
+					"last_synced_at":    &now,
+					"error_message":     "",
+					"retries":           0,
+				}
+
+				return tx.Model(&models.GatewayProductMapping{}).
+					Where("pricing_plan_period_id = ? AND gateway_type = ?", priceMapping.PricingPlanPeriodID, gatewayType).
+					Updates(updates).Error
+			})
+
+			if err != nil {
+				s.logger.Warn("failed to update gateway product mapping for period",
+					zap.Uint("plan_period_id", priceMapping.PricingPlanPeriodID),
+					zap.String("gateway_type", gatewayType),
+					zap.Error(err))
+			}
+		}
+
+		// Also update portal configuration if provided in the main mapping
+		if syncResult.PortalConfigurationID != "" {
+			err := s.withTracedTransaction(ctx, "UpdateGatewaySyncStatus-Portal", func(tx *gorm.DB) error {
+				return tx.Model(&models.GatewayProductMapping{}).
+					Where("pricing_plan_period_id IN (SELECT id FROM billing_pricing_plan_periods WHERE pricing_plan_id = ?) AND gateway_type = ?", planID, gatewayType).
+					Update("portal_configuration_id", syncResult.PortalConfigurationID).Error
+			})
+
+			if err != nil {
+				s.logger.Warn("failed to update portal configuration for mappings",
+					zap.Uint("plan_id", planID),
+					zap.String("gateway_type", gatewayType),
+					zap.Error(err))
+			}
+		}
+
+		s.triggerSyncWithLogging(ctx, planID, "gateway status update (per-period)")
+		return nil
+	}
+
+	// Legacy fallback: update by pricing_plan_period_id for backwards compatibility
+	err := s.withTracedTransaction(ctx, "UpdateGatewaySyncStatus-Legacy", func(tx *gorm.DB) error {
 		updates := map[string]any{
-			"remote_product_id":       syncResult.ProductID,
-			"remote_monthly_price_id": syncResult.MonthlyPriceID,
-			"remote_yearly_price_id":  syncResult.YearlyPriceID,
-			"sync_status":             "synced",
-			"last_synced_at":          &now,
-			"error_message":           "",
-			"retries":                 0,
+			"remote_product_id": syncResult.ProductID,
+			"sync_status":       "synced",
+			"last_synced_at":    &now,
+			"error_message":     "",
+			"retries":           0,
 		}
 
 		return tx.Model(&models.GatewayProductMapping{}).
-			Where("plan_id = ? AND gateway_type = ?", planID, gatewayType).
+			Where("pricing_plan_period_id = ? AND gateway_type = ?", planPeriodID, gatewayType).
 			Updates(updates).Error
 	})
 
 	if err == nil {
-		s.triggerSyncWithLogging(ctx, planID, "gateway status update")
+		s.triggerSyncWithLogging(ctx, planPeriodID, "gateway status update (legacy)")
 	}
 
 	return err
 }
 
 // RecordGatewaySyncError records an error and increments retry count for a mapping
-func (s *PricingServiceDefault) RecordGatewaySyncError(ctx context.Context, planID uint, gatewayType string, syncErr error) error {
+func (s *PricingServiceDefault) RecordGatewaySyncError(ctx context.Context, planPeriodID uint, gatewayType string, syncErr error) error {
 	s.logger.Error("recording gateway sync error",
-		zap.Uint("plan_id", planID),
+		zap.Uint("plan_period_id", planPeriodID),
 		zap.String("gateway_type", gatewayType),
 		zap.Error(syncErr))
 
@@ -501,7 +529,7 @@ func (s *PricingServiceDefault) RecordGatewaySyncError(ctx context.Context, plan
 	var mapping models.GatewayProductMapping
 
 	err := s.withTracedTransaction(ctx, "RecordGatewaySyncError-Query", func(tx *gorm.DB) error {
-		return tx.Where("plan_id = ? AND gateway_type = ?", planID, gatewayType).
+		return tx.Where("pricing_plan_period_id = ? AND gateway_type = ?", planPeriodID, gatewayType).
 			First(&mapping).Error
 	})
 
@@ -524,7 +552,7 @@ func (s *PricingServiceDefault) RecordGatewaySyncError(ctx context.Context, plan
 		}
 
 		return tx.Model(&models.GatewayProductMapping{}).
-			Where("plan_id = ? AND gateway_type = ?", planID, gatewayType).
+			Where("pricing_plan_period_id = ? AND gateway_type = ?", planPeriodID, gatewayType).
 			Updates(updates).Error
 	})
 }
@@ -539,6 +567,7 @@ func (s *PricingServiceDefault) GetPendingSyncMappings(ctx context.Context, gate
 	var mappings []*models.GatewayProductMapping
 	err := s.withTracedTransaction(ctx, "GetPendingSyncMappings", func(tx *gorm.DB) error {
 		q := tx.Model(&models.GatewayProductMapping{}).
+			Preload("PricingPlanPeriod").
 			Where("sync_status IN ?", []string{"pending", "error"})
 
 		if gatewayType != "" {
@@ -568,6 +597,121 @@ func (s *PricingServiceDefault) GetPriceLinesForPlan(ctx context.Context, planID
 	}
 
 	return priceLinePlans, nil
+}
+
+// isValidCadence checks if the provided cadence is valid
+func isValidCadence(cadence string) bool {
+	return allowedCadences[cadence]
+}
+
+// CreatePricingPlanPeriod creates a new pricing plan period
+func (s *PricingServiceDefault) CreatePricingPlanPeriod(ctx context.Context, period *models.PricingPlanPeriod) error {
+	if period == nil {
+		return errors.New("pricing plan period cannot be nil")
+	}
+
+	// Validate cadence
+	if !isValidCadence(period.Cadence) {
+		return ErrInvalidCadence
+	}
+
+	return s.withTracedTransaction(ctx, "CreatePricingPlanPeriod", func(tx *gorm.DB) error {
+		// Validate that the PricingPlanID exists
+		var plan models.PricingPlan
+		if err := tx.First(&plan, period.PricingPlanID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return fmt.Errorf("%w: ID %d", ErrPricingPlanNotFound, period.PricingPlanID)
+			}
+			return err
+		}
+
+		// Create the period
+		return tx.Create(period).Error
+	})
+}
+
+// UpdatePricingPlanPeriod updates an existing pricing plan period
+func (s *PricingServiceDefault) UpdatePricingPlanPeriod(ctx context.Context, id uint, period *models.PricingPlanPeriod) error {
+	if period == nil {
+		return errors.New("pricing plan period cannot be nil")
+	}
+
+	// Validate cadence if provided
+	if period.Cadence != "" && !isValidCadence(period.Cadence) {
+		return ErrInvalidCadence
+	}
+
+	result, err := s.withTracedTransactionResult(ctx, "UpdatePricingPlanPeriod", func(tx *gorm.DB) *gorm.DB {
+		return tx.Model(&models.PricingPlanPeriod{}).
+			Where("id = ?", id).
+			Updates(period)
+	})
+
+	if err != nil {
+		return err
+	}
+
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("%w: ID %d", ErrPricingPlanPeriodNotFound, id)
+	}
+
+	return nil
+}
+
+// DeletePricingPlanPeriod deletes a pricing plan period (soft delete via GORM)
+func (s *PricingServiceDefault) DeletePricingPlanPeriod(ctx context.Context, id uint) error {
+	return s.withTracedTransaction(ctx, "DeletePricingPlanPeriod", func(tx *gorm.DB) error {
+		// Check if the period exists before deleting
+		var period models.PricingPlanPeriod
+		if err := tx.First(&period, id).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return fmt.Errorf("%w: ID %d", ErrPricingPlanPeriodNotFound, id)
+			}
+			return err
+		}
+
+		// Delete the period (soft delete)
+		return tx.Delete(&period).Error
+	})
+}
+
+// GetPricingPlanPeriod retrieves a pricing plan period by ID
+func (s *PricingServiceDefault) GetPricingPlanPeriod(ctx context.Context, id uint) (*models.PricingPlanPeriod, error) {
+	var period models.PricingPlanPeriod
+	err := s.withTracedTransaction(ctx, "GetPricingPlanPeriod", func(tx *gorm.DB) error {
+		return tx.Preload("PricingPlan").First(&period, id).Error
+	})
+
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("%w: ID %d", ErrPricingPlanPeriodNotFound, id)
+		}
+		return nil, err
+	}
+
+	return &period, nil
+}
+
+// GetPricingPlanPeriods retrieves all pricing plan periods for a given pricing plan
+func (s *PricingServiceDefault) GetPricingPlanPeriods(ctx context.Context, planID uint) ([]*models.PricingPlanPeriod, error) {
+	var periods []*models.PricingPlanPeriod
+	err := s.withTracedTransaction(ctx, "GetPricingPlanPeriods", func(tx *gorm.DB) error {
+		return tx.Preload("PricingPlan").Where("pricing_plan_id = ?", planID).Find(&periods).Error
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return periods, nil
+}
+
+// GetPricingPlanPeriodsWithFilter retrieves pricing plan periods with filters, sorting, and pagination
+func (s *PricingServiceDefault) GetPricingPlanPeriodsWithFilter(ctx context.Context, filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination) ([]*models.PricingPlanPeriod, int64, error) {
+	var periods []*models.PricingPlanPeriod
+	total := s.paginatedQuery(ctx, "GetPricingPlanPeriodsWithFilter", &models.PricingPlanPeriod{}, filters, sorts, pagination, &periods, func(err error) {
+		s.logger.Error("failed to count pricing plan periods", zap.Error(err))
+	})
+	return periods, total, nil
 }
 
 // Helper methods for DRY

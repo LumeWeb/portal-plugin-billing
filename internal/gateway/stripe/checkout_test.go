@@ -44,7 +44,7 @@ func createGateway(
 	mockPricing *pluginCore.MockPricingService,
 	mockCredit *pluginCore.MockCreditService,
 ) *StripeGateway {
-	gw := New(ctx.Logger(), TestWebhookSecret, apiKey, mockQuota, mockUsers, mockBilling, mockPricing, mockCredit)
+	gw := New(ctx.Logger(), ctx, TestWebhookSecret, apiKey, mockQuota, mockUsers, mockBilling, mockPricing, mockCredit)
 	if stripeClient != nil {
 		gw.stripeClient = stripeClient
 	}
@@ -96,14 +96,19 @@ func mockPricingPlan(
 	}
 	mockPricing.EXPECT().GetPricingPlan(mock.Anything, planID).Return(plan, nil)
 
+	periodID := uint(1)
+	mockPricing.EXPECT().GetPricingPlanPeriods(mock.Anything, planID).Return([]*billingModels.PricingPlanPeriod{
+		{Model: gorm.Model{ID: periodID}, PricingPlanID: planID, Cadence: "monthly", PriceUSD: 9.99, QuotaPlanID: 1},
+	}, nil)
+
 	mapping := &billingModels.GatewayProductMapping{
 		Model:                gorm.Model{},
-		PlanID:               planID,
+		PricingPlanPeriodID:  &periodID,
 		GatewayType:          "stripe",
-		RemoteMonthlyPriceID: priceID,
+		RemotePriceID:        priceID,
 		SyncStatus:           "synced",
 	}
-	mockPricing.EXPECT().GetGatewayProductMapping(mock.Anything, planID, "stripe").Return(mapping, nil)
+	mockPricing.EXPECT().GetGatewayProductMapping(mock.Anything, periodID, "stripe").Return(mapping, nil)
 }
 
 // mockStripeCheckoutSession sets up Stripe customer and checkout session mocks
@@ -155,7 +160,7 @@ func TestStripeGateway_GetCheckoutUI_Success(t *testing.T) {
 
 		gw := createGateway(ctx, "sk_test", mockStripeClient, mockQuota, mockUsers, mockBilling, mockPricing, mockCredit)
 
-		response, err := gw.GetCheckoutUI(context.Background(), userID, planID)
+		response, err := gw.GetCheckoutUI(context.Background(), userID, planID, 1)
 
 		require.NoError(t, err)
 		assertCheckoutSuccess(t, response, "sess_test123", "https://checkout.stripe.com/pay/sess_test123")
@@ -178,7 +183,7 @@ func TestStripeGateway_GetCheckoutUI_UserNotFound(t *testing.T) {
 
 		gw := createGateway(ctx, "", nil, mockQuota, mockUsers, mockBilling, mockPricing, mockCredit)
 
-		response, err := gw.GetCheckoutUI(context.Background(), userID, planID)
+		response, err := gw.GetCheckoutUI(context.Background(), userID, planID, 1)
 
 		assertCheckoutError(t, err, response, "failed to get user")
 	})
@@ -195,7 +200,7 @@ func TestStripeGateway_GetCheckoutUI_PlanNotFound(t *testing.T) {
 
 		gw := createGateway(ctx, "", nil, mockQuota, mockUsers, mockBilling, mockPricing, mockCredit)
 
-		response, err := gw.GetCheckoutUI(context.Background(), userID, planID)
+		response, err := gw.GetCheckoutUI(context.Background(), userID, planID, 1)
 
 		assert.Error(t, err)
 		assert.Nil(t, response)
@@ -218,9 +223,12 @@ func TestStripeGateway_GetCheckoutUI_PlanNotActive(t *testing.T) {
 
 		gw := createGateway(ctx, "", nil, mockQuota, mockUsers, mockBilling, mockPricing, mockCredit)
 
-		response, err := gw.GetCheckoutUI(context.Background(), userID, planID)
+		response, err := gw.GetCheckoutUI(context.Background(), userID, planID, 1)
 
 		assertCheckoutError(t, err, response, "plan is not active")
+
+		// Verify that GetPricingPlanPeriods was NOT called (early return due to inactive plan)
+		mockPricing.AssertNotCalled(t, "GetPricingPlanPeriods")
 	})
 }
 
@@ -238,18 +246,23 @@ func TestStripeGateway_GetCheckoutUI_MissingPriceID(t *testing.T) {
 		}
 		mockPricing.EXPECT().GetPricingPlan(mock.Anything, planID).Return(plan, nil)
 
+		periodID := uint(1)
+		mockPricing.EXPECT().GetPricingPlanPeriods(mock.Anything, planID).Return([]*billingModels.PricingPlanPeriod{
+			{Model: gorm.Model{ID: periodID}, PricingPlanID: planID, Cadence: "monthly", PriceUSD: 9.99, QuotaPlanID: 1},
+		}, nil)
+
 		mapping := &billingModels.GatewayProductMapping{
 			Model:                gorm.Model{},
-			PlanID:               planID,
+			PricingPlanPeriodID:  &periodID,
 			GatewayType:          "stripe",
-			RemoteMonthlyPriceID: "",
+			RemotePriceID:        "",
 			SyncStatus:           "synced",
 		}
-		mockPricing.EXPECT().GetGatewayProductMapping(mock.Anything, planID, "stripe").Return(mapping, nil)
+		mockPricing.EXPECT().GetGatewayProductMapping(mock.Anything, periodID, "stripe").Return(mapping, nil)
 
 		gw := createGateway(ctx, "", nil, mockQuota, mockUsers, mockBilling, mockPricing, mockCredit)
 
-		response, err := gw.GetCheckoutUI(context.Background(), userID, planID)
+		response, err := gw.GetCheckoutUI(context.Background(), userID, planID, 1)
 
 		assertCheckoutError(t, err, response, "remote price ID")
 	})
@@ -288,7 +301,7 @@ func TestStripeGateway_GetCheckoutUI_ExistingCustomer(t *testing.T) {
 
 		gw := createGateway(ctx, "sk_test", mockStripeClient, mockQuota, mockUsers, mockBilling, mockPricing, mockCredit)
 
-		response, err := gw.GetCheckoutUI(context.Background(), userID, planID)
+		response, err := gw.GetCheckoutUI(context.Background(), userID, planID, 1)
 
 		require.NoError(t, err)
 		assertCheckoutSuccess(t, response, "sess_test456", "https://checkout.stripe.com/pay/sess_test456")
