@@ -168,6 +168,166 @@ func TestCompareProrationCalculations(t *testing.T) {
 	}
 }
 
+func TestCompareProrationCalculations_WithInvoiceTimestamp(t *testing.T) {
+	// Fix time for deterministic results in fallback (time.Now()) paths
+	// January 15, 2024 at noon = 16 days remaining in a 31-day month (Jan 1-31)
+	f := faketime.NewFaketime(2024, time.January, 15, 12, 0, 0, 0, time.UTC)
+	defer f.Undo()
+	f.Do()
+
+	// Test cases for invoice timestamp-based proration logic
+	tests := []struct {
+		name               string
+		invoice            *stripe.Invoice
+		oldPrice           subscription.Price
+		newPrice           subscription.Price
+		oldCycle           subscription.BillingCycle
+		stripeAmount       decimal.Decimal
+		expectedMismatch   bool
+		expectedAction     string
+		description        string
+	}{
+		{
+			name: "invoice with valid timestamp uses invoice time",
+			invoice: &stripe.Invoice{
+				Created: time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC).Unix(),
+			},
+			oldPrice: subscription.Price{
+				Amount:  decimal.NewFromInt(100),
+				Cadence: subscription.CadenceMonthly,
+			},
+			newPrice: subscription.Price{
+				Amount:  decimal.NewFromInt(150),
+				Cadence: subscription.CadenceMonthly,
+			},
+			oldCycle: subscription.BillingCycle{
+				StartAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+				EndAt:   time.Date(2024, 1, 31, 23, 59, 59, 0, time.UTC),
+			},
+			// Proration calculated at Jan 15 12:00:00 UTC (from invoice timestamp)
+			stripeAmount:     decimal.RequireFromString("26.612894494061565"),
+			expectedMismatch: false,
+			expectedAction:   "use_local",
+			description:      "Invoice timestamp should be used for proration time when valid",
+		},
+		{
+			name: "invoice with Created=0 falls back to time.Now",
+			invoice: &stripe.Invoice{
+				Created: 0,
+			},
+			oldPrice: subscription.Price{
+				Amount:  decimal.NewFromInt(100),
+				Cadence: subscription.CadenceMonthly,
+			},
+			newPrice: subscription.Price{
+				Amount:  decimal.NewFromInt(100),
+				Cadence: subscription.CadenceMonthly,
+			},
+			oldCycle: subscription.BillingCycle{
+				StartAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+				EndAt:   time.Date(2024, 1, 31, 23, 59, 59, 0, time.UTC),
+			},
+			// When invoice.Created=0, uses time.Now()
+			stripeAmount:     decimal.Zero,
+			expectedMismatch: false,
+			expectedAction:   "use_local",
+			description:      "Zero invoice timestamp should fall back to current time",
+		},
+		{
+			name: "invoice with negative Created falls back to time.Now",
+			invoice: &stripe.Invoice{
+				Created: -1,
+			},
+			oldPrice: subscription.Price{
+				Amount:  decimal.NewFromInt(100),
+				Cadence: subscription.CadenceMonthly,
+			},
+			newPrice: subscription.Price{
+				Amount:  decimal.NewFromInt(100),
+				Cadence: subscription.CadenceMonthly,
+			},
+			oldCycle: subscription.BillingCycle{
+				StartAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+				EndAt:   time.Date(2024, 1, 31, 23, 59, 59, 0, time.UTC),
+			},
+			stripeAmount:     decimal.Zero,
+			expectedMismatch: false,
+			expectedAction:   "use_local",
+			description:      "Negative invoice timestamp should fall back to current time",
+		},
+		{
+			name:     "nil invoice uses time.Now",
+			invoice:  nil,
+			oldPrice: subscription.Price{
+				Amount:  decimal.NewFromInt(100),
+				Cadence: subscription.CadenceMonthly,
+			},
+			newPrice: subscription.Price{
+				Amount:  decimal.NewFromInt(100),
+				Cadence: subscription.CadenceMonthly,
+			},
+			oldCycle: subscription.BillingCycle{
+				StartAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+				EndAt:   time.Date(2024, 1, 31, 23, 59, 59, 0, time.UTC),
+			},
+			stripeAmount:     decimal.Zero,
+			expectedMismatch: false,
+			expectedAction:   "use_local",
+			description:      "Nil invoice should use current time for proration",
+		},
+		{
+			name: "different invoice timestamps produce different proration amounts",
+			invoice: &stripe.Invoice{
+				Created: time.Date(2024, 1, 20, 0, 0, 0, 0, time.UTC).Unix(),
+			},
+			oldPrice: subscription.Price{
+				Amount:  decimal.NewFromInt(100),
+				Cadence: subscription.CadenceMonthly,
+			},
+			newPrice: subscription.Price{
+				Amount:  decimal.NewFromInt(150),
+				Cadence: subscription.CadenceMonthly,
+			},
+			oldCycle: subscription.BillingCycle{
+				StartAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+				EndAt:   time.Date(2024, 1, 31, 23, 59, 59, 0, time.UTC),
+			},
+			// Matches the exact value produced by subscription.ProratedChange() when using Jan 20 invoice timestamp
+			// This demonstrates that proration amounts vary based on when the invoice was created
+			stripeAmount:     decimal.RequireFromString("19.35482726808067"),
+			expectedMismatch: false,
+			expectedAction:   "use_local",
+			description:      "Proration amount changes based on invoice creation time",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gw := setupTestGateway(t)
+
+			comparison, err := gw.compareProrationCalculations(
+				context.Background(),
+				123,
+				tt.oldPrice,
+				tt.newPrice,
+				tt.oldCycle,
+				tt.stripeAmount,
+				tt.invoice,
+			)
+
+			require.NoError(t, err, tt.description)
+			assert.Equal(t, tt.expectedMismatch, comparison.MismatchDetected, tt.description)
+			assert.Equal(t, tt.expectedAction, comparison.RecommendedAction, tt.description)
+
+			if comparison.LocalResult != nil {
+				assert.NotNil(t, comparison.LocalResult, tt.description)
+				assert.NotNil(t, comparison.LocalResult.UnusedCredit, tt.description)
+				assert.NotNil(t, comparison.LocalResult.NewCharge, tt.description)
+			}
+		})
+	}
+}
+
 func TestDetermineOperationType(t *testing.T) {
 	gw := setupTestGateway(t)
 
