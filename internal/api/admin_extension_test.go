@@ -449,14 +449,14 @@ func TestAdminHandleCreatePricingPlan_WithRollingDays(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		ts := setupAdminTest(ctx)
 
-		// Create request body with rolling_days for future rolling cadence support
+		// Create request body with rolling_days for rolling cadence
 		rollingDays := 60
 		requestBody := map[string]interface{}{
 			"name":        "Rolling Plan",
 			"description": "Plan with rolling days configuration",
 			"pricing_periods": []map[string]interface{}{
 				{
-					"cadence":       "monthly",
+					"cadence":       "rolling",
 					"price_usd":     19.99,
 					"quota_plan_id":  uint(1),
 					"rolling_days":  &rollingDays,

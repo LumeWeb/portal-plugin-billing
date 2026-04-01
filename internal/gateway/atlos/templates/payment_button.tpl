@@ -33,15 +33,13 @@
           userName: {{.UserName | quote}},
           userEmail: {{.UserEmail | quote}},
           captureEmail: false,
-          postbackUrl: {{.PostbackURL | quote}},
-          {{if .RecurringAmount}}
+          postbackUrl: {{.PostbackURL | quote}}{{if .RecurringAmount}},
           subscription: [{
             amount: {{.RecurringAmount}},
             unit: {{.RecurringUnit | quote}},
             interval: {{.RecurringInterval}},
             startInterval: 1
-          }],
-          {{end}}
+          }]{{end}},
           onSuccess: function(response) {
             console.log('Payment successful:', response);
             dispatchPaymentEvent('paymentSuccess', null);

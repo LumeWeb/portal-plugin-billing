@@ -135,6 +135,29 @@ func (g *AtlosGateway) SetQuota(quota quotaCore.QuotaService) {
 	g.quota = quota
 }
 
+// cancelSubscription cancels a subscription in ATLOS
+// Provides centralized error handling for ATLOS cancellation operations
+func (g *AtlosGateway) cancelSubscription(ctx context.Context, subscriptionID string, operation string) error {
+	client, err := atlos.NewClient(g.apiSecret)
+	if err != nil {
+		g.logger.Warn("Failed to create ATLOS client for cancellation",
+			zap.Error(err),
+			zap.String("subscription_id", subscriptionID),
+			zap.String("operation", operation))
+		return fmt.Errorf("failed to create ATLOS client: %w", err)
+	}
+	if err := client.Cancel(ctx, atlos.CancelPostRequest{
+		SubscriptionId: &subscriptionID,
+	}); err != nil {
+		g.logger.Error("Failed to cancel subscription in ATLOS",
+			zap.Error(err),
+			zap.String("subscription_id", subscriptionID),
+			zap.String("operation", operation))
+		return fmt.Errorf("failed to cancel subscription in ATLOS: %w", err)
+	}
+	return nil
+}
+
 // ID returns the gateway identifier
 func (g *AtlosGateway) ID(ctx context.Context) string {
 	ctx, span := core.TraceMethod(ctx, "AtlosGateway.ID")
@@ -246,16 +269,8 @@ func (g *AtlosGateway) ExecuteCancel(ctx context.Context, userID uint) error {
 		return fmt.Errorf("subscriber billing period dates are nil")
 	}
 
-	// Cancel in ATLOS (fire & forget pattern)
-	client, err := atlos.NewClient(g.apiSecret)
-	if err == nil { // Only attempt if client created successfully
-		client.Cancel(ctx, atlos.CancelPostRequest{
-			SubscriptionId: &subscriber.SubscriptionID,
-		})
-	} else {
-		g.logger.Warn("Failed to create ATLOS client for cancellation",
-			zap.Error(err),
-			zap.String("subscription_id", subscriber.SubscriptionID))
+	if err := g.cancelSubscription(ctx, subscriber.SubscriptionID, "ExecuteCancel"); err != nil {
+		return err
 	}
 
 	// Schedule cancellation at the end of the billing period
@@ -377,16 +392,9 @@ func (g *AtlosGateway) ReconcileCancellation(ctx context.Context, userID uint) e
 			zap.String("subscription_id", subscriber.SubscriptionID))
 	}
 
-	// Cancel in ATLOS (fire & forget pattern)
-	client, err := atlos.NewClient(g.apiSecret)
-	if err == nil {
-		client.Cancel(ctx, atlos.CancelPostRequest{
-			SubscriptionId: &subscriber.SubscriptionID,
-		})
-	} else {
-		g.logger.Warn("Failed to create ATLOS client for reconciliation cancellation",
-			zap.Error(err),
-			zap.String("subscription_id", subscriber.SubscriptionID))
+	// Cancel in ATLOS
+	if err := g.cancelSubscription(ctx, subscriber.SubscriptionID, "ReconcileCancellation"); err != nil {
+		return err
 	}
 
 	// Deactivate subscriber and mark as cancelled
@@ -463,15 +471,8 @@ func (g *AtlosGateway) ExecutePlanChange(
 		}
 
 		// Cancel old subscription (will be replaced)
-		client, err := atlos.NewClient(g.apiSecret)
-		if err == nil {
-			client.Cancel(ctx, atlos.CancelPostRequest{
-				SubscriptionId: &calc.CurrentSub.SubscriptionID,
-			})
-		} else {
-			g.logger.Warn("Failed to create ATLOS client for plan change cancellation",
-				zap.Error(err),
-				zap.String("subscription_id", calc.CurrentSub.SubscriptionID))
+		if err := g.cancelSubscription(ctx, calc.CurrentSub.SubscriptionID, "ExecutePlanChange-CheckoutRequired"); err != nil {
+			return nil, err
 		}
 
 		// Deactivate old subscriber locally
@@ -648,15 +649,8 @@ func (g *AtlosGateway) handleCreditOnlyPlanChange(
 	}
 
 	// 2. Cancel old subscription
-	client, err := atlos.NewClient(g.apiSecret)
-	if err == nil {
-		client.Cancel(ctx, atlos.CancelPostRequest{
-			SubscriptionId: &calc.CurrentSub.SubscriptionID,
-		})
-	} else {
-		g.logger.Warn("Failed to create ATLOS client for credit-only plan change cancellation",
-			zap.Error(err),
-			zap.String("subscription_id", calc.CurrentSub.SubscriptionID))
+	if err := g.cancelSubscription(ctx, calc.CurrentSub.SubscriptionID, "handleCreditOnlyPlanChange"); err != nil {
+		return nil, err
 	}
 
 	// 3. Deactivate old subscriber
@@ -671,7 +665,7 @@ func (g *AtlosGateway) handleCreditOnlyPlanChange(
 	)
 
 	// 5. Activate new subscription (without immediate payment)
-	err = g.billing.CreateOrUpdateSubscriber(
+	if err := g.billing.CreateOrUpdateSubscriber(
 		ctx,
 		userID,
 		GatewayID,
@@ -681,8 +675,7 @@ func (g *AtlosGateway) handleCreditOnlyPlanChange(
 		&calc.NewPeriod.ID,
 		pluginCore.WithBillingPeriodStart(&firstCycle.StartAt),
 		pluginCore.WithBillingPeriodEnd(&firstCycle.EndAt),
-	)
-	if err != nil {
+	); err != nil {
 		return nil, fmt.Errorf("failed to activate new subscription: %w", err)
 	}
 
@@ -731,15 +724,8 @@ func (g *AtlosGateway) handleZeroAmountPlanChange(
 	userID := calc.CurrentSub.UserID
 
 	// 1. Cancel old subscription
-	client, err := atlos.NewClient(g.apiSecret)
-	if err == nil {
-		client.Cancel(ctx, atlos.CancelPostRequest{
-			SubscriptionId: &calc.CurrentSub.SubscriptionID,
-		})
-	} else {
-		g.logger.Warn("Failed to create ATLOS client for zero-amount plan change cancellation",
-			zap.Error(err),
-			zap.String("subscription_id", calc.CurrentSub.SubscriptionID))
+	if err := g.cancelSubscription(ctx, calc.CurrentSub.SubscriptionID, "handleZeroAmountPlanChange"); err != nil {
+		return nil, err
 	}
 
 	// 2. Deactivate old subscriber
@@ -754,7 +740,7 @@ func (g *AtlosGateway) handleZeroAmountPlanChange(
 	)
 
 	// 4. Activate new subscription (with zero due amount)
-	err = g.billing.CreateOrUpdateSubscriber(
+	if err := g.billing.CreateOrUpdateSubscriber(
 		ctx,
 		userID,
 		GatewayID,
@@ -764,8 +750,7 @@ func (g *AtlosGateway) handleZeroAmountPlanChange(
 		&calc.NewPeriod.ID,
 		pluginCore.WithBillingPeriodStart(&firstCycle.StartAt),
 		pluginCore.WithBillingPeriodEnd(&firstCycle.EndAt),
-	)
-	if err != nil {
+	); err != nil {
 		return nil, fmt.Errorf("failed to activate new subscription: %w", err)
 	}
 

@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"time"
 
 	"go.lumeweb.com/portal-plugin-billing/internal/db/models"
 	"go.lumeweb.com/portal-plugin-billing/pkg/ledger"
@@ -22,6 +23,11 @@ func convertCreditToModel(credit *ledger.Credit) *models.CreditModel {
 		}
 	}
 
+	var deletedAt *time.Time
+	if !credit.DeletedAt.IsZero() {
+		deletedAt = &credit.DeletedAt
+	}
+
 	return &models.CreditModel{
 		ID:            credit.ID,
 		UserID:        credit.UserID,
@@ -35,6 +41,6 @@ func convertCreditToModel(credit *ledger.Credit) *models.CreditModel {
 		CreatedBy:     credit.CreatedBy,
 		CreatedAt:     credit.CreatedAt,
 		UpdatedAt:     credit.UpdatedAt,
-		DeletedAt:     &credit.DeletedAt,
+		DeletedAt:     deletedAt,
 	}
 }

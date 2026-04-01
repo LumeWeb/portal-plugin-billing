@@ -175,7 +175,7 @@ func ProrationAmountByTime(amount decimal.Decimal, totalDuration, remainingDurat
 	if totalDuration == 0 || remainingDuration == 0 {
 		return decimal.Zero
 	}
-	ratio := decimal.NewFromFloat(float64(remainingDuration) / float64(totalDuration))
+	ratio := decimal.NewFromInt(int64(remainingDuration)).Div(decimal.NewFromInt(int64(totalDuration)))
 	return amount.Mul(ratio)
 }
 

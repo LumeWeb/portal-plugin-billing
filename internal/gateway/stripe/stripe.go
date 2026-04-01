@@ -2309,14 +2309,21 @@ func (g *StripeGateway) compareProrationCalculations(
 	oldPrice, newPrice subscription.Price,
 	oldCycle subscription.BillingCycle,
 	stripeAmount decimal.Decimal,
+	invoice *stripe.Invoice,
 ) (*ProrationComparison, error) {
+
+	// Use invoice creation time for deterministic proration calculation
+	prorationTime := time.Now()
+	if invoice != nil && invoice.Created > 0 {
+		prorationTime = time.Unix(invoice.Created, 0)
+	}
 
 	// Calculate local proration using our subscription package
 	localResult, err := subscription.ProratedChange(
 		oldPrice,
 		newPrice,
 		oldCycle,
-		time.Now(),
+		prorationTime,
 		subscription.ProrationBehaviorCreateProrations,
 	)
 	if err != nil {
@@ -2564,7 +2571,7 @@ func (g *StripeGateway) validateAndCalculateCreditAmount(
 		}
 
 		// Compare calculations
-		comparison, err := g.compareProrationCalculations(ctx, userID, oldPrice, newPrice, oldCycle, stripeAmount)
+		comparison, err := g.compareProrationCalculations(ctx, userID, oldPrice, newPrice, oldCycle, stripeAmount, invoice)
 		if err != nil {
 			g.logger.Warn("failed to compare proration calculations, using Stripe amount",
 				zap.Uint("user_id", userID),

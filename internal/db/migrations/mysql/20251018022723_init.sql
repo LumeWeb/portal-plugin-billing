@@ -17,6 +17,41 @@ CREATE TABLE IF NOT EXISTS billing_webhook_events (
     INDEX idx_created_at (created_at)
 );
 
+-- Pricing Plans Table
+CREATE TABLE IF NOT EXISTS billing_pricing_plans (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMP NULL DEFAULT NULL,
+    name VARCHAR(255) NOT NULL,
+    description TEXT NOT NULL,
+    features_json TEXT NOT NULL,
+    currency VARCHAR(3) DEFAULT 'USD',
+    is_active BOOLEAN DEFAULT TRUE,
+    is_public BOOLEAN DEFAULT FALSE,
+    INDEX idx_name (name),
+    INDEX idx_is_active (is_active),
+    INDEX idx_is_public (is_public)
+);
+
+-- Pricing Plan Periods Table
+-- Stores pricing plan variations for different billing cadences (monthly, yearly, quarterly, weekly)
+-- quota_plan_id references external portal-plugin-quota service and is validated by that service
+CREATE TABLE IF NOT EXISTS billing_pricing_plan_periods (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    pricing_plan_id BIGINT UNSIGNED NOT NULL,
+    cadence VARCHAR(50) NOT NULL,
+    price_usd DECIMAL(10,2) NOT NULL,
+    quota_plan_id BIGINT UNSIGNED NULL,
+    rolling_days INT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMP NULL DEFAULT NULL,
+    UNIQUE KEY uniq_pricing_plan_cadence (pricing_plan_id, cadence),
+    KEY fk_billing_pricing_plan_periods_pricing_plans (pricing_plan_id),
+    CONSTRAINT fk_billing_pricing_plan_periods_pricing_plans FOREIGN KEY (pricing_plan_id) REFERENCES billing_pricing_plans(id) ON DELETE CASCADE
+);
+
 -- Subscribers Table
 CREATE TABLE IF NOT EXISTS billing_subscribers (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -55,23 +90,6 @@ CREATE TABLE IF NOT EXISTS billing_subscribers (
     INDEX idx_payment_status (payment_status),
     KEY fk_billing_subscribers_pricing_plan_periods (pricing_plan_period_id),
     CONSTRAINT fk_billing_subscribers_pricing_plan_periods FOREIGN KEY (pricing_plan_period_id) REFERENCES billing_pricing_plan_periods(id) ON DELETE CASCADE
-);
-
--- Pricing Plans Table
-CREATE TABLE IF NOT EXISTS billing_pricing_plans (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    deleted_at TIMESTAMP NULL DEFAULT NULL,
-    name VARCHAR(255) NOT NULL,
-    description TEXT NOT NULL,
-    features_json TEXT NOT NULL,
-    currency VARCHAR(3) DEFAULT 'USD',
-    is_active BOOLEAN DEFAULT TRUE,
-    is_public BOOLEAN DEFAULT FALSE,
-    INDEX idx_name (name),
-    INDEX idx_is_active (is_active),
-    INDEX idx_is_public (is_public)
 );
 
 -- Price Lines Table
@@ -160,31 +178,13 @@ CREATE TABLE IF NOT EXISTS billing_credits (
     INDEX idx_deleted_at (deleted_at)
 );
 
--- Pricing Plan Periods Table
--- Stores pricing plan variations for different billing cadences (monthly, yearly, quarterly, weekly)
--- quota_plan_id references external portal-plugin-quota service and is validated by that service
-CREATE TABLE IF NOT EXISTS billing_pricing_plan_periods (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    pricing_plan_id BIGINT UNSIGNED NOT NULL,
-    cadence VARCHAR(50) NOT NULL,
-    price_usd DECIMAL(10,2) NOT NULL,
-    quota_plan_id BIGINT UNSIGNED NULL,
-    rolling_days INT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    deleted_at TIMESTAMP NULL DEFAULT NULL,
-    UNIQUE KEY uniq_pricing_plan_cadence (pricing_plan_id, cadence),
-    KEY fk_billing_pricing_plan_periods_pricing_plans (pricing_plan_id),
-    CONSTRAINT fk_billing_pricing_plan_periods_pricing_plans FOREIGN KEY (pricing_plan_id) REFERENCES billing_pricing_plans(id) ON DELETE CASCADE
-);
-
 -- +goose Down
-DROP TABLE IF EXISTS billing_pricing_plan_periods;
 DROP TABLE IF EXISTS billing_credits;
+DROP TABLE IF EXISTS billing_subscribers;
 DROP TABLE IF EXISTS billing_gateway_product_mappings;
 DROP TABLE IF EXISTS billing_priceline_assignments;
 DROP TABLE IF EXISTS billing_priceline_plans;
 DROP TABLE IF EXISTS billing_pricelines;
+DROP TABLE IF EXISTS billing_pricing_plan_periods;
 DROP TABLE IF EXISTS billing_pricing_plans;
-DROP TABLE IF EXISTS billing_subscribers;
 DROP TABLE IF EXISTS billing_webhook_events;

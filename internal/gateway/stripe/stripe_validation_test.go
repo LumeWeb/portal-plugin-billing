@@ -73,9 +73,9 @@ func TestCompareProrationCalculations(t *testing.T) {
 			// - Cycle duration: Jan 1 00:00:00 to Jan 31 23:59:59 = 2,678,399 seconds
 			// - Remaining duration: Jan 15 12:00:00 to Jan 31 23:59:59 = 1,425,599 seconds
 			// - Ratio: 1,425,599 / 2,678,399 = 0.5322578898812312...
-			// - Net amount: ($150 - $100) * ratio = $26.61289449406156...
+			// - Net amount: ($150 - $100) * ratio = $26.612894494061565...
 			// This matches the exact value produced by subscription.ProratedChange()
-			stripeAmount:     decimal.RequireFromString("26.61289449406156"),
+			stripeAmount:     decimal.RequireFromString("26.612894494061565"),
 			expectedMismatch: false,
 			expectedAction:   "use_local",
 		},
@@ -133,9 +133,9 @@ func TestCompareProrationCalculations(t *testing.T) {
 			// - Cycle duration: Jan 1 00:00:00 to Jan 31 23:59:59 = 2,678,399 seconds
 			// - Remaining duration: Jan 15 12:00:00 to Jan 31 23:59:59 = 1,425,599 seconds
 			// - Ratio: 1,425,599 / 2,678,399 = 0.5322578898812312...
-			// - Net amount: ($100 - $150) * ratio = -$26.61289449406156... (credit issued)
+			// - Net amount: ($100 - $150) * ratio = -$26.612894494061565... (credit issued)
 			// Matches the exact value produced by subscription.ProratedChange()
-			stripeAmount:     decimal.RequireFromString("-26.61289449406156"),
+			stripeAmount:     decimal.RequireFromString("-26.612894494061565"),
 			expectedMismatch: false,
 			expectedAction:   "use_local",
 		},
@@ -152,6 +152,7 @@ func TestCompareProrationCalculations(t *testing.T) {
 				tt.newPrice,
 				tt.oldCycle,
 				tt.stripeAmount,
+				nil,
 			)
 
 			require.NoError(t, err)

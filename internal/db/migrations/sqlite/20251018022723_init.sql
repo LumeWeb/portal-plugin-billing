@@ -20,6 +20,41 @@ CREATE INDEX IF NOT EXISTS idx_billing_webhook_events_created_at ON billing_webh
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_billing_webhook_events_gateway_event
   ON billing_webhook_events(gateway_type, event_id) WHERE deleted_at IS NULL;
 
+-- Pricing Plans Table
+CREATE TABLE IF NOT EXISTS billing_pricing_plans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    deleted_at DATETIME NULL,
+    name VARCHAR(255) NOT NULL,
+    description TEXT NOT NULL,
+    features_json TEXT NOT NULL,
+    currency VARCHAR(3) DEFAULT 'USD',
+    is_active BOOLEAN DEFAULT TRUE,
+    is_public BOOLEAN DEFAULT FALSE
+);
+
+CREATE INDEX IF NOT EXISTS idx_billing_pricing_plans_name ON billing_pricing_plans(name);
+CREATE INDEX IF NOT EXISTS idx_billing_pricing_plans_is_active ON billing_pricing_plans(is_active);
+CREATE INDEX IF NOT EXISTS idx_billing_pricing_plans_is_public ON billing_pricing_plans(is_public);
+
+-- Pricing Plan Periods Table
+-- Stores pricing plan variations for different billing cadences (monthly, yearly, quarterly, weekly)
+-- quota_plan_id references external portal-plugin-quota service and is validated by that service
+CREATE TABLE IF NOT EXISTS billing_pricing_plan_periods (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pricing_plan_id INTEGER NOT NULL,
+    cadence VARCHAR(50) NOT NULL,
+    price_usd DECIMAL NOT NULL,
+    quota_plan_id INTEGER NULL,
+    rolling_days INTEGER NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    deleted_at DATETIME NULL,
+    UNIQUE (pricing_plan_id, cadence),
+    FOREIGN KEY (pricing_plan_id) REFERENCES billing_pricing_plans(id) ON DELETE CASCADE
+);
+
 -- Subscribers Table
 CREATE TABLE IF NOT EXISTS billing_subscribers (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -54,24 +89,6 @@ CREATE INDEX IF NOT EXISTS idx_billing_subscribers_payment_status ON billing_sub
 -- Partial unique index: only one active subscription per user per gateway
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_billing_subscribers_user_gateway_active
   ON billing_subscribers(user_id, gateway_type) WHERE is_active = TRUE AND deleted_at IS NULL;
-
--- Pricing Plans Table
-CREATE TABLE IF NOT EXISTS billing_pricing_plans (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    deleted_at DATETIME NULL,
-    name VARCHAR(255) NOT NULL,
-    description TEXT NOT NULL,
-    features_json TEXT NOT NULL,
-    currency VARCHAR(3) DEFAULT 'USD',
-    is_active BOOLEAN DEFAULT TRUE,
-    is_public BOOLEAN DEFAULT FALSE
-);
-
-CREATE INDEX IF NOT EXISTS idx_billing_pricing_plans_name ON billing_pricing_plans(name);
-CREATE INDEX IF NOT EXISTS idx_billing_pricing_plans_is_active ON billing_pricing_plans(is_active);
-CREATE INDEX IF NOT EXISTS idx_billing_pricing_plans_is_public ON billing_pricing_plans(is_public);
 
 -- Price Lines Table
 CREATE TABLE IF NOT EXISTS billing_pricelines (
@@ -161,23 +178,6 @@ CREATE INDEX IF NOT EXISTS idx_credits_user_id ON billing_credits(user_id);
 CREATE INDEX IF NOT EXISTS idx_credits_reference_id ON billing_credits(reference_id);
 CREATE INDEX IF NOT EXISTS idx_credits_deleted_at ON billing_credits(deleted_at);
 
--- Pricing Plan Periods Table
--- Stores pricing plan variations for different billing cadences (monthly, yearly, quarterly, weekly)
--- quota_plan_id references external portal-plugin-quota service and is validated by that service
-CREATE TABLE IF NOT EXISTS billing_pricing_plan_periods (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    pricing_plan_id INTEGER NOT NULL,
-    cadence VARCHAR(50) NOT NULL,
-    price_usd DECIMAL NOT NULL,
-    quota_plan_id INTEGER NULL,
-    rolling_days INTEGER NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    deleted_at DATETIME NULL,
-    UNIQUE (pricing_plan_id, cadence),
-    FOREIGN KEY (pricing_plan_id) REFERENCES billing_pricing_plans(id) ON DELETE CASCADE
-);
-
 -- Credits Views
 
 -- Active credits (non-deleted) view
@@ -215,6 +215,20 @@ PRAGMA foreign_keys=OFF;
 
 DROP VIEW IF EXISTS billing_credits_balance;
 DROP VIEW IF EXISTS billing_credits_active;
+
+DROP INDEX IF EXISTS uniq_billing_subscribers_user_gateway_active;
+DROP INDEX IF EXISTS idx_billing_subscribers_payment_status;
+DROP INDEX IF EXISTS idx_billing_subscribers_cancelled_at;
+DROP INDEX IF EXISTS idx_billing_subscribers_will_cancel_at;
+DROP INDEX IF EXISTS idx_billing_subscribers_billing_period_end;
+DROP INDEX IF EXISTS idx_billing_subscribers_billing_period_start;
+DROP INDEX IF EXISTS idx_billing_subscribers_pricing_plan_period_id;
+DROP INDEX IF EXISTS idx_billing_subscribers_external_id;
+DROP INDEX IF EXISTS idx_billing_subscribers_is_active;
+DROP INDEX IF EXISTS idx_billing_subscribers_gateway_type;
+DROP INDEX IF EXISTS idx_billing_subscribers_user_id;
+DROP TABLE billing_subscribers;
+
 DROP INDEX IF EXISTS idx_billing_gateway_product_mappings_gateway_type;
 DROP INDEX IF EXISTS idx_billing_gateway_product_mappings_pricing_plan_period_id;
 DROP TABLE IF EXISTS billing_gateway_product_mappings;
@@ -242,19 +256,6 @@ DROP INDEX IF EXISTS idx_billing_pricing_plans_is_public;
 DROP INDEX IF EXISTS idx_billing_pricing_plans_is_active;
 DROP INDEX IF EXISTS idx_billing_pricing_plans_name;
 DROP TABLE billing_pricing_plans;
-
-DROP INDEX IF EXISTS uniq_billing_subscribers_user_gateway_active;
-DROP INDEX IF EXISTS idx_billing_subscribers_payment_status;
-DROP INDEX IF EXISTS idx_billing_subscribers_cancelled_at;
-DROP INDEX IF EXISTS idx_billing_subscribers_will_cancel_at;
-DROP INDEX IF EXISTS idx_billing_subscribers_billing_period_end;
-DROP INDEX IF EXISTS idx_billing_subscribers_billing_period_start;
-DROP INDEX IF EXISTS idx_billing_subscribers_pricing_plan_period_id;
-DROP INDEX IF EXISTS idx_billing_subscribers_external_id;
-DROP INDEX IF EXISTS idx_billing_subscribers_is_active;
-DROP INDEX IF EXISTS idx_billing_subscribers_gateway_type;
-DROP INDEX IF EXISTS idx_billing_subscribers_user_id;
-DROP TABLE billing_subscribers;
 
 DROP INDEX IF EXISTS uniq_billing_webhook_events_gateway_event;
 DROP INDEX IF EXISTS idx_billing_webhook_events_created_at;
