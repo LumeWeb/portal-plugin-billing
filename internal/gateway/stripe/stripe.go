@@ -14,7 +14,10 @@ import (
 	"github.com/stripe/stripe-go/v83"
 	"github.com/stripe/stripe-go/v83/webhook"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
+	billingEvent "go.lumeweb.com/portal-plugin-billing/internal/event"
+	billingModels "go.lumeweb.com/portal-plugin-billing/internal/db/models"
 	"go.lumeweb.com/portal-plugin-billing/internal/gateway"
+	"go.lumeweb.com/portal-plugin-billing/pkg/subscription"
 	quotaCore "go.lumeweb.com/portal-plugin-quota/core"
 	"go.lumeweb.com/portal/core"
 	"go.lumeweb.com/portal/db/models"
@@ -24,7 +27,7 @@ import (
 // Package stripe provides a payment gateway implementation for processing Stripe webhooks and managing subscriptions.
 //
 // Webhook Event Flows
-//
+//1
 // This package handles Stripe webhook events to manage subscriptions and credit transactions. The primary flows are:
 //
 // New Subscription Flow:
@@ -33,7 +36,8 @@ import (
 //      - Does NOT activate the subscription
 //      - Does NOT issue credits
 //   2. invoice.paid
-//      - Issues credit for the payment amount
+//      - Issues debit for subscription period cost (TransactionTypeTime)
+//      - Issues credit for the payment amount (TransactionTypeCharge)
 //      - Looks up the pending subscriber by subscription ID
 //      - Activates the subscriber and assigns quota plan
 //   3. invoice.payment_failed (optional, on failure)
@@ -51,7 +55,8 @@ import (
 //   3. invoice.finalized
 //      - Not processed directly
 //   4. invoice.paid
-//      - Issues credit for the payment amount
+//      - Issues debit for subscription period cost (TransactionTypeTime)
+//      - Issues credit for the payment amount (TransactionTypeCharge)
 //      - Activates/renews the subscriber if inactive
 //   5. invoice.payment_failed
 //      - Logs payment failure
@@ -74,9 +79,11 @@ import (
 // and will not duplicate credits for the same invoice. Subscriber state transitions are safe
 // to replay.
 //
-// Credit Issuance Rules
-//   - Credits are issued ONLY on invoice.paid events
-//   - Credits use invoice paid amount (net after credits/discounts)
+// Credit/Debit Issuance Rules
+//   - Debits and credits are issued on invoice.paid events
+//   - First issues a DEBIT for the subscription period cost (TransactionTypeTime)
+//   - Then issues a CREDIT for the payment amount (TransactionTypeCharge)
+//   - This implements a bank-account-like model: Debit=withdrawal, Credit=deposit
 //   - Invoice IDs are used as reference keys for idempotency
 //   - Invoice.paid is the single source of truth for payment confirmation
 //
@@ -91,23 +98,23 @@ import (
 var gatewayLogoFiles embed.FS
 
 const (
-	GatewayID                         = "stripe"
-	EventTypeCheckoutSessionCompleted = "checkout.session.completed"
-	EventTypeSubscriptionDeleted      = "customer.subscription.deleted"
-	EventTypeSubscriptionPaused       = "customer.subscription.paused"
-	EventTypeSubscriptionResumed      = "customer.subscription.resumed"
-	EventTypeSubscriptionUpdated      = "customer.subscription.updated"
-	EventTypeInvoicePaid              = "invoice.paid"
-	EventTypeInvoicePaymentFailed     = "invoice.payment_failed"
+	GatewayID                             = "stripe"
+	EventTypeCheckoutSessionCompleted     = "checkout.session.completed"
+	EventTypeSubscriptionDeleted          = "customer.subscription.deleted"
+	EventTypeSubscriptionPaused           = "customer.subscription.paused"
+	EventTypeSubscriptionResumed          = "customer.subscription.resumed"
+	EventTypeSubscriptionUpdated          = "customer.subscription.updated"
+	EventTypeInvoicePaid                  = "invoice.paid"
+	EventTypeInvoicePaymentFailed         = "invoice.payment_failed"
 	EventTypeInvoicePaymentActionRequired = "invoice.payment_action_required"
-	PlanIDMetadataKey                 = "plan_id"
-	UserIDMetadataKey                 = "user_id"
-	CustomerIDPrefix                  = "cus_"
+	PlanIDMetadataKey                     = "plan_id"
+	UserIDMetadataKey                     = "user_id"
+	CustomerIDPrefix                      = "cus_"
 )
 
 // Setup creates and configures a Stripe gateway if webhook secret is configured.
 // Returns a log message (empty if not configured), the gateway instance (nil if not configured), and an error.
-func Setup(opts pluginCore.GatewaySetupOptions, webhookSecret string, secretKey string) (string, pluginCore.PaymentGateway, error) {
+func Setup(opts pluginCore.GatewaySetupOptions, webhookSecret string, secretKey string) (string, pluginCore.GatewayIdentity, error) {
 	if webhookSecret == "" {
 		return "", nil, nil
 	}
@@ -115,7 +122,7 @@ func Setup(opts pluginCore.GatewaySetupOptions, webhookSecret string, secretKey 
 		return "", nil, fmt.Errorf("secret key is required when webhook secret is configured")
 	}
 
-	gw := New(opts.Logger, webhookSecret, secretKey, nil, nil, opts.BillingSvc, opts.PricingSvc, opts.CreditSvc)
+	gw := New(opts.Logger, opts.Ctx, webhookSecret, secretKey, nil, nil, opts.BillingSvc, opts.PricingSvc, opts.CreditSvc)
 	return "Stripe gateway registered successfully", gw, nil
 }
 
@@ -242,6 +249,7 @@ func (w *client) V1Subscriptions() Subscriptions {
 // StripeGateway implements the PaymentGateway interface for Stripe
 type StripeGateway struct {
 	logger          *core.Logger
+	coreCtx         core.Context
 	endpointSecret  string
 	secretKey       string
 	stripeClient    Client
@@ -255,13 +263,38 @@ type StripeGateway struct {
 	credit          pluginCore.CreditService
 }
 
+// InvoiceProrationAnalysis extracts proration details from Stripe invoice line items
+// Following the pattern from stripe_preview_test.go's calculateProratedAmounts()
+type InvoiceProrationAnalysis struct {
+	InvoiceID            string
+	HasProratedItems     bool
+	ProrationChargeTotal int64           // Sum of positive prorated line amounts (cents)
+	ProrationCreditTotal int64           // Sum of negative prorated line amounts (cents)
+	NetProrationDollars  decimal.Decimal // (charge + credit) / 100
+	TotalLineItems       int
+}
+
+// ProrationComparison holds the results of comparing local and Stripe proration calculations
+type ProrationComparison struct {
+	LocalResult       *subscription.ProrationResult // Our local calculation
+	StripeAmount      decimal.Decimal               // Stripe's net proration (dollars)
+	MismatchDetected  bool
+	Difference        decimal.Decimal
+	DifferencePercent float64
+	RecommendedAction string // "use_local" or "use_stripe"
+	InvoiceAnalysis   *InvoiceProrationAnalysis
+}
+
+// newGateway is the internal constructor that creates a StripeGateway instance
+
 // newGateway is the internal constructor that creates a StripeGateway instance
 // with a custom filesystem
-func newGateway(logger *core.Logger, endpointSecret string, secretKey string, quota quotaCore.QuotaService, users core.UserService, billing pluginCore.BillingService, pricing pluginCore.PricingService, credit pluginCore.CreditService, fs fs.FS) *StripeGateway {
+func newGateway(coreCtx core.Context, logger *core.Logger, endpointSecret string, secretKey string, quota quotaCore.QuotaService, users core.UserService, billing pluginCore.BillingService, pricing pluginCore.PricingService, credit pluginCore.CreditService, fs fs.FS) *StripeGateway {
 	stripeClient := &client{client: stripe.NewClient(secretKey)}
 
 	gateway := &StripeGateway{
 		logger:         logger,
+		coreCtx:        coreCtx,
 		endpointSecret: endpointSecret,
 		secretKey:      secretKey,
 		stripeClient:   stripeClient,
@@ -280,13 +313,13 @@ func newGateway(logger *core.Logger, endpointSecret string, secretKey string, qu
 }
 
 // New creates a StripeGateway instance with the default embedded filesystem
-func New(logger *core.Logger, endpointSecret string, secretKey string, quota quotaCore.QuotaService, users core.UserService, billing pluginCore.BillingService, pricing pluginCore.PricingService, credit pluginCore.CreditService) *StripeGateway {
-	return newGateway(logger, endpointSecret, secretKey, quota, users, billing, pricing, credit, gatewayLogoFiles)
+func New(logger *core.Logger, coreCtx core.Context, endpointSecret string, secretKey string, quota quotaCore.QuotaService, users core.UserService, billing pluginCore.BillingService, pricing pluginCore.PricingService, credit pluginCore.CreditService) *StripeGateway {
+	return newGateway(coreCtx, logger, endpointSecret, secretKey, quota, users, billing, pricing, credit, gatewayLogoFiles)
 }
 
 // NewWithFS creates a StripeGateway instance with a custom filesystem for testing
-func NewWithFS(logger *core.Logger, endpointSecret string, secretKey string, quota quotaCore.QuotaService, users core.UserService, billing pluginCore.BillingService, pricing pluginCore.PricingService, credit pluginCore.CreditService, fs fs.FS) *StripeGateway {
-	return newGateway(logger, endpointSecret, secretKey, quota, users, billing, pricing, credit, fs)
+func NewWithFS(logger *core.Logger, coreCtx core.Context, endpointSecret string, secretKey string, quota quotaCore.QuotaService, users core.UserService, billing pluginCore.BillingService, pricing pluginCore.PricingService, credit pluginCore.CreditService, fs fs.FS) *StripeGateway {
+	return newGateway(coreCtx, logger, endpointSecret, secretKey, quota, users, billing, pricing, credit, fs)
 }
 
 // customerRetriever returns a customer retriever instance
@@ -378,12 +411,12 @@ func (g *StripeGateway) GetCustomerPortalURL(ctx context.Context, userID uint, r
 			}
 
 			// Set portal configuration if available for the user's plan
-			if subscriber.PlanID != nil && g.pricing != nil {
-				mapping, err := g.pricing.GetGatewayProductMapping(ctx, *subscriber.PlanID, GatewayID)
+			if subscriber.PricingPlanPeriodID != nil && g.pricing != nil {
+				mapping, err := g.pricing.GetGatewayProductMapping(ctx, *subscriber.PricingPlanPeriodID, GatewayID)
 				if err == nil && mapping != nil && mapping.PortalConfigurationID != nil {
 					params.Configuration = stripe.String(*mapping.PortalConfigurationID)
 					g.logger.Debug("using plan-specific portal configuration",
-						zap.Uint("plan_id", *subscriber.PlanID),
+						zap.Uint("period_id", *subscriber.PricingPlanPeriodID),
 						zap.String("config_id", *mapping.PortalConfigurationID),
 						zap.Uint("user_id", userID))
 				}
@@ -869,7 +902,7 @@ func (g *StripeGateway) handleCheckoutSessionCompleted(ctx context.Context, even
 			}
 
 			// Log checkout completion - subscription will be activated when invoice.paid fires
-			g.logger.Info("checkout completed - subscription pending activation on payment",
+			g.logger.Debug("checkout completed - subscription pending activation on payment",
 				zap.String("session_id", session.ID),
 				zap.String("subscription_id", subscriptionID),
 				zap.String("customer_id", customerID),
@@ -976,68 +1009,163 @@ func (g *StripeGateway) handleInvoicePaid(ctx context.Context, event stripe.Even
 			// Verify this invoice is for the same user
 			userID := subscriber.UserID
 
-			// Calculate net payment amount BEFORE expanding subscription
-			// This ensures credit cannot beissued if later stages fail
-			netAmount := g.calculateNetInvoiceAmount(&invoice)
-
-			// Validate payment amount is within reasonable bounds
-			// Issue warning for extreme values but do not fail webhook (Stripe is source of truth)
-			if netAmount.LessThan(decimal.Zero) {
-				g.logger.Warn("invoice has negative net amount",
-					zap.String("invoice_id", invoice.ID),
-					zap.String("net_amount", netAmount.String()))
-			} else if netAmount.GreaterThan(decimal.NewFromInt(10000)) {
-				g.logger.Warn("invoice amount is suspiciously large",
-					zap.String("invoice_id", invoice.ID),
-					zap.String("net_amount", netAmount.String()),
-					zap.String("warning", "amount exceeds $10,000, please verify manually"))
+			// Expand subscription to get product/price details for operation detection and validation
+			subscription, err := g.getExpandedSubscription(ctx, subscriptionID)
+			if err != nil {
+				g.logger.Warn("failed to fetch subscription for validation",
+					zap.String("subscription_id", subscriptionID),
+					zap.Error(err))
+				return nil
 			}
 
-			// Issue credit only if positive amount
-			// CRITICAL: Issue credit BEFORE expanding subscription to prevent partial completion
-			if netAmount.GreaterThan(decimal.Zero) {
+			// Determine operation type and validate before issuing credit
+			operation := g.determineOperationType(ctx, subscriber, subscription, &invoice)
+			g.logger.Debug("determined operation type for invoice",
+				zap.String("operation", string(operation)),
+				zap.String("invoice_id", invoice.ID),
+				zap.Uint("user_id", userID))
+
+			// Validate and calculate credit amount with proration comparison
+			validatedAmount, err := g.validateAndCalculateCreditAmount(
+				ctx,
+				userID,
+				operation,
+				subscriber,
+				subscription,
+				&invoice,
+			)
+			if err != nil {
+				return fmt.Errorf("credit validation failed: %w", err)
+			}
+
+			if validatedAmount.GreaterThan(decimal.Zero) {
 				if g.credit == nil {
 					return fmt.Errorf("credit service not configured")
 				}
 				if err := g.credit.IssueCreditWithIdempotency(
 					ctx,
 					uint64(userID),
-					pluginCore.CreditTypeCharge,
-					netAmount,
+					pluginCore.TransactionTypeCharge,
+					validatedAmount,
 					pluginCore.ReferenceTypeStripeInvoice,
 					invoice.ID,
-					fmt.Sprintf("Invoice %s paid", invoice.ID),
+					fmt.Sprintf("Invoice %s paid (%s)", invoice.ID, operation),
 					0, // createdBy: 0 for system
 				); err != nil {
 					g.logger.Error("failed to issue invoice payment credit",
 						zap.Error(err),
 						zap.Uint("user_id", userID),
 						zap.String("invoice_id", invoice.ID),
-						zap.String("amount", netAmount.String()))
+						zap.String("amount", validatedAmount.String()))
 					return fmt.Errorf("failed to issue invoice payment credit: %w", err)
 				}
 
 				g.logger.Info("invoice payment credit issued",
 					zap.String("invoice_id", invoice.ID),
 					zap.Uint("user_id", userID),
-					zap.String("amount", netAmount.String()))
+					zap.String("amount", validatedAmount.String()),
+					zap.String("operation", string(operation)))
+
+				// Fire payment completed event
+				evt := billingEvent.NewPaymentCompletedEvent(
+					ctx,
+					userID,
+					validatedAmount,
+					GatewayID,
+					invoice.ID,
+					subscriptionID,
+				)
+				core.Fire(g.coreCtx, billingEvent.EVENT_PAYMENT_COMPLETED, evt)
 			} else {
-				g.logger.Debug("invoice has zero or negative net amount",
+				g.logger.Debug("invoice has zero or negative validated amount",
 					zap.String("invoice_id", invoice.ID),
-					zap.String("net_amount", netAmount.String()))
+					zap.String("validated_amount", validatedAmount.String()),
+					zap.String("operation", string(operation)))
 			}
 
-			// Expand subscription to get product/price details for activation
-			// Done AFTER credit issuance to ensure we don't expand if credit failed
-			subscription, err := g.getExpandedSubscription(ctx, subscriptionID)
-			if err != nil {
-				g.logger.Warn("failed to fetch subscription for activation",
+			// Check if user has sufficient balance to activate subscription
+			// We verify our ledger AFTER issuing the charge credit but BEFORE issuing time debit
+			if g.credit != nil {
+				balance, err := g.credit.GetUserBalance(ctx, uint64(userID))
+				if err != nil {
+					g.logger.Error("failed to get user balance before activation check",
+						zap.Error(err),
+						zap.Uint("user_id", userID),
+						zap.String("subscription_id", subscriptionID),
+						zap.String("invoice_id", invoice.ID))
+					return fmt.Errorf("failed to get user balance: %w", err)
+				}
+
+				// Check if user has sufficient credits (positive or zero balance)
+				if balance.LessThan(decimal.Zero) {
+					g.logger.Warn("subscription activation skipped - insufficient balance in ledger after recording payment",
+						zap.Uint("user_id", userID),
+						zap.String("subscription_id", subscriptionID),
+						zap.String("invoice_id", invoice.ID),
+						zap.String("balance", balance.String()))
+					// Stripe recorded the payment, but user cannot afford to activate yet
+					// They will need to accumulate more credits before accessing service
+					// Ledger is synced, subscription remains inactive
+					return nil
+				}
+
+				g.logger.Debug("user has sufficient balance, issuing time debit and activating subscription",
+					zap.Uint("user_id", userID),
 					zap.String("subscription_id", subscriptionID),
-					zap.Error(err))
-				return nil
+					zap.String("invoice_id", invoice.ID),
+					zap.String("balance", balance.String()))
+
+				planPeriodID, hasPlan, err := findPlanIDFromSubscription(subscription)
+				if err == nil && hasPlan {
+					period, err := g.pricing.GetPricingPlanPeriod(ctx, planPeriodID)
+					if err == nil && period != nil {
+						periodPrice := decimal.NewFromFloat(period.PriceUSD)
+						billingCycleStart := time.Time{}
+						billingCycleEnd := time.Time{}
+
+						if subscription.Items != nil && len(subscription.Items.Data) > 0 && subscription.Items.Data[0] != nil {
+							if subscription.Items.Data[0].CurrentPeriodStart > 0 {
+								billingCycleStart = time.Unix(subscription.Items.Data[0].CurrentPeriodStart, 0)
+							}
+							if subscription.Items.Data[0].CurrentPeriodEnd > 0 {
+								billingCycleEnd = time.Unix(subscription.Items.Data[0].CurrentPeriodEnd, 0)
+							}
+						}
+
+						err = g.credit.IssueUsageCredit(
+							ctx,
+							uint64(userID),
+							pluginCore.TransactionTypeTime,
+							periodPrice,
+							invoice.ID,
+							fmt.Sprintf("Subscription period %s",
+								billingCycleStart.Format("2006-01-02")),
+							0, // createdBy: 0 for system
+						)
+						if err != nil {
+							g.logger.Error("failed to debit credit for subscription period",
+								zap.Error(err),
+								zap.Uint("user_id", userID),
+								zap.Uint("period_id", planPeriodID),
+								zap.String("subscription_id", subscriptionID),
+								zap.String("invoice_id", invoice.ID),
+								zap.String("amount", periodPrice.String()))
+							return fmt.Errorf("failed to debit credit for subscription period: %w", err)
+						}
+
+						g.logger.Info("subscription period debit issued successfully",
+							zap.Uint("user_id", userID),
+							zap.Uint("period_id", planPeriodID),
+							zap.String("subscription_id", subscriptionID),
+							zap.String("invoice_id", invoice.ID),
+							zap.String("period_start", billingCycleStart.Format("2006-01-02")),
+							zap.String("period_end", billingCycleEnd.Format("2006-01-02")),
+							zap.String("amount", periodPrice.String()))
+					}
+				}
 			}
 
-			// Activate subscription now that payment is confirmed
+			// Activate subscription now that payment is confirmed and balance is sufficient
 			return g.activateSubscription(ctx, userID, subscription, event)
 		},
 	)
@@ -1189,40 +1317,12 @@ func (g *StripeGateway) activateSubscriptionWithPlanID(ctx context.Context, user
 		return err
 	}
 
-	// Look up PricingPlan to get QuotaPlanID
-	pricingPlan, err := g.pricing.GetPricingPlan(ctx, pricingPlanID)
-	if err != nil {
-		return fmt.Errorf("pricing plan with ID %d not found: %w", pricingPlanID, err)
-	}
-	if pricingPlan == nil {
-		return fmt.Errorf("pricing plan with ID %d not found", pricingPlanID)
-	}
-
-	// If pricing plan has a quota plan assigned, assign user to it
-	if pricingPlan.QuotaPlanID != nil {
-		// Validate quota plan exists
-		quotaPlan, err := g.quota.GetQuotaPlan(ctx, *pricingPlan.QuotaPlanID)
-		if err != nil {
-			return fmt.Errorf("quota plan with ID %d not found: %w", *pricingPlan.QuotaPlanID, err)
-		}
-		if quotaPlan == nil {
-			return fmt.Errorf("quota plan with ID %d not found", *pricingPlan.QuotaPlanID)
-		}
-
-		// Assign user to quota plan
-		if err := g.quota.AssignUserToPlan(ctx, user.ID, *pricingPlan.QuotaPlanID); err != nil {
-			return fmt.Errorf("failed to assign user to quota plan %d: %w", *pricingPlan.QuotaPlanID, err)
-		}
-
-		g.logger.Debug("assigned user to quota plan",
-			zap.Uint("user_id", userID),
-			zap.Uint("quota_plan_id", *pricingPlan.QuotaPlanID),
-			zap.Uint("pricing_plan_id", pricingPlanID))
-	} else {
-		g.logger.Debug("pricing plan has no quota plan assignment",
-			zap.Uint("user_id", userID),
-			zap.Uint("pricing_plan_id", pricingPlanID))
-	}
+	// TODO: Update to fetch PricingPlanPeriod and get QuotaPlanID from period
+	// Note: pricingPlanID is actually a pricingPlanPeriodID in the new model
+	// For now, skip quota plan assignment as it requires refactoring to use PricingPlanPeriod
+	g.logger.Debug("quota plan assignment skipped - needs refactoring for PricingPlanPeriod",
+		zap.Uint("user_id", userID),
+		zap.Uint("pricing_plan_period_id", pricingPlanID))
 
 	// Track subscriber in billing service with PricingPlan ID
 	if subscription.Customer == nil {
@@ -1240,6 +1340,17 @@ func (g *StripeGateway) activateSubscriptionWithPlanID(ctx context.Context, user
 			zap.String("customer_id", subscription.Customer.ID),
 			zap.String("subscription_id", subscription.ID))
 	}
+
+	// Fire subscription active event
+	evt := billingEvent.NewSubscriptionActiveEvent(
+		ctx,
+		user.ID,
+		subscription.ID,
+		GatewayID,
+		pricingPlanID,
+		pricingPlanID,
+	)
+	core.Fire(g.coreCtx, billingEvent.EVENT_SUBSCRIPTION_ACTIVE, evt)
 
 	g.logger.Debug("subscription activated",
 		zap.Uint("user_id", userID),
@@ -1286,6 +1397,46 @@ func (g *StripeGateway) deactivateSubscription(ctx context.Context, userID uint,
 				return fmt.Errorf("subscription customer is nil for subscription %s", subscription.ID)
 			}
 
+			// CALCULATE CANCELLATION CREDIT before deactivating
+			var creditAmount decimal.Decimal
+			var creditErr error
+
+			if g.credit != nil {
+				creditAmount, creditErr = g.calculateCancellationCredit(ctx, userID, subscription)
+				if creditErr != nil {
+					g.logger.Error("failed to calculate cancellation credit",
+						zap.Error(creditErr),
+						zap.Uint("user_id", userID),
+						zap.String("subscription_id", subscription.ID))
+					// Continue with deactivation even if credit calculation fails
+				}
+
+				// ISSUE CREDIT if applicable
+				if creditAmount.GreaterThan(decimal.Zero) {
+					if err := g.credit.IssueCreditWithIdempotency(
+						ctx,
+						uint64(userID),
+						pluginCore.TransactionTypeComp,
+						creditAmount,
+						pluginCore.ReferenceTypeStripeInvoice,
+						subscription.ID, // Use subscription ID as reference
+						fmt.Sprintf("Subscription cancellation credit - %s", subscription.ID),
+						0,
+					); err != nil {
+						g.logger.Error("failed to issue cancellation credit",
+							zap.Error(err),
+							zap.Uint("user_id", userID),
+							zap.String("subscription_id", subscription.ID))
+						// Continue with deactivation
+					} else {
+						g.logger.Info("cancellation credit issued",
+							zap.Uint("user_id", userID),
+							zap.String("subscription_id", subscription.ID),
+							zap.String("credit_amount", creditAmount.String()))
+					}
+				}
+			}
+
 			// Update subscriber status in billing service
 			if err := g.trackSubscriber(ctx, user.ID, subscription.Customer.ID, "", false, nil); err != nil {
 				g.logger.Error("failed to deactivate subscriber",
@@ -1294,18 +1445,18 @@ func (g *StripeGateway) deactivateSubscription(ctx context.Context, userID uint,
 					zap.String("customer_id", subscription.Customer.ID))
 			}
 
-			// Credit integration for subscription deactivation (if credit service available)
-			if g.credit != nil {
-				g.logger.Debug("credit integration available for subscription deactivation",
-					zap.Uint("user_id", userID),
-					zap.String("subscription_id", subscription.ID))
-
-				// Check if prorated credit adjustment is needed
-				// Actual proration logic requires subscription details and proration rules
-				// This will be enhanced in future iterations with proper proration calculation
-				g.logger.Debug("subscription deactivation credit adjustment - proration rules not yet implemented",
-					zap.Uint("user_id", userID),
-					zap.String("subscription_id", subscription.ID))
+			// Get plan ID for the event
+			planID, hasPlan, err := findPlanIDFromSubscription(subscription)
+			if err == nil && hasPlan {
+				// Fire subscription cancelled event
+				evt := billingEvent.NewSubscriptionCancelledEvent(
+					ctx,
+					user.ID,
+					subscription.ID,
+					GatewayID,
+					planID,
+				)
+				core.Fire(g.coreCtx, billingEvent.EVENT_SUBSCRIPTION_CANCELLED, evt)
 			}
 
 			g.logger.Debug("subscription deactivated - removed quota plan",
@@ -1347,7 +1498,7 @@ func (g *StripeGateway) getUser(ctx context.Context, userID uint) (*models.User,
 }
 
 // trackSubscriber handles subscriber tracking in the billing service
-func (g *StripeGateway) trackSubscriber(ctx context.Context, userID uint, externalID string, subscriptionID string, isActive bool, planID *uint) error {
+func (g *StripeGateway) trackSubscriber(ctx context.Context, userID uint, externalID string, subscriptionID string, isActive bool, pricingPlanPeriodID *uint) error {
 	ctx, span := core.TraceMethod(ctx, "StripeGateway.trackSubscriber")
 	defer span.End()
 
@@ -1356,7 +1507,7 @@ func (g *StripeGateway) trackSubscriber(ctx context.Context, userID uint, extern
 	}
 
 	if isActive {
-		return g.billing.CreateOrUpdateSubscriber(ctx, userID, GatewayID, externalID, subscriptionID, isActive, planID)
+		return g.billing.CreateOrUpdateSubscriber(ctx, userID, GatewayID, externalID, subscriptionID, isActive, pricingPlanPeriodID)
 	} else {
 		return g.billing.DeactivateSubscriber(ctx, userID, GatewayID)
 	}
@@ -1395,7 +1546,7 @@ func (g *StripeGateway) SetCustomerRetrieverForTesting(retriever CustomerRetriev
 // ExtractUserIDFromSubscriptionForTesting extracts the user ID from a Stripe subscription.
 // This is a test-only method that exposes the internal user ID extraction logic.
 // GetCheckoutUI returns UI fragments for Stripe checkout flows
-func (g *StripeGateway) GetCheckoutUI(ctx context.Context, userID uint, planID uint) (*pluginCore.CheckoutUIResponse, error) {
+func (g *StripeGateway) GetCheckoutUI(ctx context.Context, userID uint, planID uint, periodID uint) (*pluginCore.CheckoutUIResponse, error) {
 	ctx, span := core.TraceMethod(ctx, "StripeGateway.GetCheckoutUI")
 	defer span.End()
 
@@ -1420,12 +1571,32 @@ func (g *StripeGateway) GetCheckoutUI(ctx context.Context, userID uint, planID u
 				return nil, fmt.Errorf("plan is not active")
 			}
 
-			// 3. Get Stripe price mapping
-			mapping, err := g.pricing.GetGatewayProductMapping(ctx, planID, GatewayID)
+			// 3. Get pricing plan periods and find the specific period by ID
+			periods, err := g.pricing.GetPricingPlanPeriods(ctx, planID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get pricing plan periods: %w", err)
+			}
+			if len(periods) == 0 {
+				return nil, fmt.Errorf("no pricing plan periods found for plan")
+			}
+
+			// Find the specific period by ID
+			var matchedPeriod *billingModels.PricingPlanPeriod
+			for _, p := range periods {
+				if p.ID == periodID {
+					matchedPeriod = p
+					break
+				}
+			}
+			if matchedPeriod == nil {
+				return nil, fmt.Errorf("period %d not found for plan %d", periodID, planID)
+			}
+
+			mapping, err := g.pricing.GetGatewayProductMapping(ctx, matchedPeriod.ID, GatewayID)
 			if err != nil {
 				return nil, fmt.Errorf("failed to get gateway product mapping: %w", err)
 			}
-			if mapping == nil || mapping.RemoteMonthlyPriceID == "" {
+			if mapping == nil || mapping.RemotePriceID == "" {
 				return nil, fmt.Errorf("plan not synced with stripe (missing remote price ID)")
 			}
 
@@ -1442,11 +1613,12 @@ func (g *StripeGateway) GetCheckoutUI(ctx context.Context, userID uint, planID u
 			}
 
 			// 6. Create checkout session
+			priceID := mapping.RemotePriceID
 			params := &stripe.CheckoutSessionCreateParams{
 				Mode: stripe.String(stripe.CheckoutSessionModeSubscription),
 				LineItems: []*stripe.CheckoutSessionCreateLineItemParams{
 					{
-						Price:    stripe.String(mapping.RemoteMonthlyPriceID),
+						Price:    stripe.String(priceID),
 						Quantity: stripe.Int64(1),
 					},
 				},
@@ -1461,7 +1633,8 @@ func (g *StripeGateway) GetCheckoutUI(ctx context.Context, userID uint, planID u
 				g.logger.Error("failed to create checkout session",
 					zap.Error(err),
 					zap.Uint("user_id", userID),
-					zap.Uint("plan_id", planID))
+					zap.Uint("plan_id", planID),
+					zap.Uint("period_id", periodID))
 				return nil, fmt.Errorf("failed to create checkout session: %w", err)
 			}
 
@@ -1481,6 +1654,7 @@ func (g *StripeGateway) GetCheckoutUI(ctx context.Context, userID uint, planID u
 				zap.String("session_id", session.ID),
 				zap.Uint("user_id", userID),
 				zap.Uint("plan_id", planID),
+				zap.Uint("period_id", periodID),
 			)
 
 			return response, nil
@@ -1621,43 +1795,62 @@ func (g *StripeGateway) SyncPlan(ctx context.Context, plan *pluginCore.PricingPl
 		}, fmt.Errorf("failed to create/update product: %w", err)
 	}
 
-	// Create or update monthly price
-	var monthlyPriceID string
-	if plan.MonthlyPriceUSD != nil {
-		monthlyPriceID, err = g.createOrUpdateStripePrice(ctx, plan.MonthlyPriceUSD, plan.Currency, stripeProduct.ID, "monthly")
-		if err != nil {
-			return &pluginCore.SyncResult{
-				Success: false,
-			}, fmt.Errorf("failed to create/update monthly price: %w", err)
-		}
+	// Get pricing plan periods for this plan
+	periods, err := g.pricing.GetPricingPlanPeriods(ctx, plan.ID)
+	if err != nil {
+		return &pluginCore.SyncResult{
+			Success: false,
+		}, fmt.Errorf("failed to get pricing plan periods: %w", err)
 	}
 
-	// Create or update yearly price
-	var yearlyPriceID string
-	if plan.YearlyPriceUSD != nil {
-		yearlyPriceID, err = g.createOrUpdateStripePrice(ctx, plan.YearlyPriceUSD, plan.Currency, stripeProduct.ID, "yearly")
+	if len(periods) == 0 {
+		g.logger.Warn("no pricing plan periods found for plan",
+			zap.Uint("plan_id", plan.ID))
+		return &pluginCore.SyncResult{
+			Success:   true,
+			ProductID: stripeProduct.ID,
+		}, nil
+	}
+
+	// Create or update prices for each pricing plan period
+	var remotePriceIDs []pluginCore.RemotePriceMapping
+	for _, period := range periods {
+		priceID, err := g.createOrUpdateStripePriceForPeriod(ctx, period, plan.Currency, stripeProduct.ID)
 		if err != nil {
 			return &pluginCore.SyncResult{
 				Success: false,
-			}, fmt.Errorf("failed to create/update yearly price: %w", err)
+			}, fmt.Errorf("failed to create/update price for period %d: %w", period.ID, err)
+		}
+
+		remotePriceIDs = append(remotePriceIDs, pluginCore.RemotePriceMapping{
+			PricingPlanPeriodID: period.ID,
+			PriceID:             priceID,
+		})
+
+		err = g.createOrUpdateGatewayProductMapping(ctx, plan.ID, period.ID, GatewayID, stripeProduct.ID, priceID, "")
+		if err != nil {
+			g.logger.Warn("failed to create/update gateway product mapping",
+				zap.Uint("plan_id", plan.ID),
+				zap.Uint("period_id", period.ID),
+				zap.Error(err))
 		}
 	}
 
 	g.logger.Info("successfully synced pricing plan to Stripe",
 		zap.Uint("plan_id", plan.ID),
 		zap.String("stripe_product_id", stripeProduct.ID),
-		zap.String("monthly_price_id", monthlyPriceID),
-		zap.String("yearly_price_id", yearlyPriceID))
+		zap.Int("num_prices", len(remotePriceIDs)))
 
 	// Create or update portal configuration if plan has upgrade/downgrade paths
 	var portalConfigID string
 	if priceLineID > 0 && (len(upgradePlanIDs) > 0 || len(downgradePlanIDs) > 0) {
-		priceIDs, err := g.resolvePriceIDsFromPlanIDs(ctx, upgradePlanIDs, downgradePlanIDs)
-		if err != nil {
-			g.logger.Warn("failed to resolve price IDs for portal configuration",
-				zap.Uint("plan_id", plan.ID),
-				zap.Error(err))
-		} else {
+		// Build list of price IDs from remotePriceIDs
+		var priceIDs []string
+		for _, mapping := range remotePriceIDs {
+			priceIDs = append(priceIDs, mapping.PriceID)
+		}
+
+		if len(priceIDs) > 0 {
 			configID, err := g.createOrUpdatePortalConfiguration(ctx, plan, stripeProduct.ID, priceIDs)
 			if err != nil {
 				g.logger.Error("failed to create portal configuration",
@@ -1676,9 +1869,8 @@ func (g *StripeGateway) SyncPlan(ctx context.Context, plan *pluginCore.PricingPl
 	return &pluginCore.SyncResult{
 		Success:               true,
 		ProductID:             stripeProduct.ID,
-		MonthlyPriceID:        monthlyPriceID,
-		YearlyPriceID:         yearlyPriceID,
 		PortalConfigurationID: portalConfigID,
+		RemotePriceIDs:        remotePriceIDs,
 	}, nil
 }
 
@@ -1754,25 +1946,34 @@ func (g *StripeGateway) createOrUpdateStripeProduct(ctx context.Context, plan *p
 	return product, nil
 }
 
-// createOrUpdateStripePrice creates or updates a Stripe price for a pricing plan
-func (g *StripeGateway) createOrUpdateStripePrice(ctx context.Context, amount *float64, currency string, productID string, intervalPrefix string) (string, error) {
-	ctx, span := core.TraceMethod(ctx, "StripeGateway.createOrUpdateStripePrice")
+// createOrUpdateStripePriceForPeriod creates or updates a Stripe price for a pricing plan period
+func (g *StripeGateway) createOrUpdateStripePriceForPeriod(ctx context.Context, period *billingModels.PricingPlanPeriod, currency string, productID string) (string, error) {
+	ctx, span := core.TraceMethod(ctx, "StripeGateway.createOrUpdateStripePriceForPeriod")
 	defer span.End()
 
-	if amount == nil {
-		return "", fmt.Errorf("amount cannot be nil for %s price", intervalPrefix)
+	// Map cadence to Stripe interval
+	var interval stripe.PriceRecurringInterval
+	var intervalCount *int64
+
+	switch period.Cadence {
+	case "monthly":
+		interval = stripe.PriceRecurringIntervalMonth
+	case "yearly":
+		interval = stripe.PriceRecurringIntervalYear
+	case "quarterly":
+		interval = stripe.PriceRecurringIntervalMonth
+		count := int64(3)
+		intervalCount = &count
+	case "weekly":
+		interval = stripe.PriceRecurringIntervalWeek
+	case "rolling":
+		return "", fmt.Errorf("rolling periods not supported by Stripe")
+	default:
+		return "", fmt.Errorf("unsupported cadence '%s' for Stripe", period.Cadence)
 	}
 
 	// Convert amount to cents (Stripe uses smallest currency unit)
-	amountCents := int64(*amount * 100)
-
-	// Determine the interval
-	interval := stripe.PriceRecurringIntervalMonth
-	isYearly := intervalPrefix == "yearly"
-
-	if isYearly {
-		interval = stripe.PriceRecurringIntervalYear
-	}
+	amountCents := int64(period.PriceUSD * 100)
 
 	priceParams := &stripe.PriceCreateParams{
 		Currency:   stripe.String(currency),
@@ -1783,19 +1984,104 @@ func (g *StripeGateway) createOrUpdateStripePrice(ctx context.Context, amount *f
 		},
 	}
 
+	// Add interval_count for quarterly (every 3 months)
+	if intervalCount != nil {
+		priceParams.Recurring.IntervalCount = stripe.Int64(*intervalCount)
+	}
+
 	// Create the price using the gateway's client
 	price, err := g.stripeClient.V1Prices().Create(ctx, priceParams)
 	if err != nil {
 		return "", fmt.Errorf("failed to create Stripe price: %w", err)
 	}
 
-	g.logger.Debug("created Stripe price",
-		zap.String("product_id", productID),
+	g.logger.Debug("created Stripe price for period",
+		zap.Uint("plan_id", period.PricingPlanID),
+		zap.Uint("period_id", period.ID),
+		zap.String("cadence", period.Cadence),
 		zap.String("price_id", price.ID),
-		zap.String("interval", intervalPrefix),
 		zap.Int64("amount_cents", amountCents))
 
 	return price.ID, nil
+}
+
+// createOrUpdateGatewayProductMapping creates or updates a gateway product mapping for a pricing plan period
+func (g *StripeGateway) createOrUpdateGatewayProductMapping(ctx context.Context, planID uint, periodID uint, gatewayType string, productID string, priceID string, portalConfigID string) error {
+	ctx, span := core.TraceMethod(ctx, "StripeGateway.createOrUpdateGatewayProductMapping")
+	defer span.End()
+
+	if g.pricing == nil {
+		return fmt.Errorf("pricing service not configured")
+	}
+
+	// Check if a mapping already exists for this period and gateway
+	mappings, err := g.pricing.GetGatewayProductMappingsByPlan(ctx, planID)
+	if err != nil {
+		g.logger.Warn("failed to get existing gateway product mappings",
+			zap.Uint("plan_id", planID),
+			zap.Error(err))
+	}
+
+	var existingMapping *billingModels.GatewayProductMapping
+	for _, mapping := range mappings {
+		if mapping.GatewayType == gatewayType && mapping.PricingPlanPeriodID != nil && *mapping.PricingPlanPeriodID == periodID {
+			existingMapping = mapping
+			break
+		}
+	}
+
+	if existingMapping != nil {
+		// Update existing mapping
+		now := time.Now()
+		existingMapping.RemoteProductID = productID
+		existingMapping.RemotePriceID = priceID
+		if portalConfigID != "" {
+			existingMapping.PortalConfigurationID = &portalConfigID
+		}
+		existingMapping.SyncStatus = "synced"
+		existingMapping.LastSyncedAt = &now
+		existingMapping.ErrorMessage = ""
+		existingMapping.Retries = 0
+
+		err = g.pricing.UpdateGatewayProductMapping(ctx, existingMapping.ID, existingMapping)
+		if err != nil {
+			return fmt.Errorf("failed to update gateway product mapping: %w", err)
+		}
+
+		g.logger.Debug("updated gateway product mapping",
+			zap.Uint("plan_id", planID),
+			zap.Uint("period_id", periodID),
+			zap.String("product_id", productID),
+			zap.String("price_id", priceID))
+	} else {
+		// Create new mapping
+		var portalConfigPtr *string
+		if portalConfigID != "" {
+			portalConfigPtr = &portalConfigID
+		}
+
+		newMapping := &billingModels.GatewayProductMapping{
+			PricingPlanPeriodID:   &periodID,
+			GatewayType:           gatewayType,
+			RemoteProductID:       productID,
+			RemotePriceID:         priceID,
+			PortalConfigurationID: portalConfigPtr,
+			SyncStatus:            "synced",
+		}
+
+		err = g.pricing.CreateGatewayProductMapping(ctx, newMapping)
+		if err != nil {
+			return fmt.Errorf("failed to create gateway product mapping: %w", err)
+		}
+
+		g.logger.Debug("created gateway product mapping",
+			zap.Uint("plan_id", planID),
+			zap.Uint("period_id", periodID),
+			zap.String("product_id", productID),
+			zap.String("price_id", priceID))
+	}
+
+	return nil
 }
 
 // createOrUpdatePortalConfiguration creates or updates a billing portal configuration
@@ -1859,7 +2145,9 @@ func (g *StripeGateway) createOrUpdatePortalConfiguration(ctx context.Context, p
 }
 
 // resolvePriceIDsFromPlanIDs resolves internal plan IDs to Stripe price IDs
-// by fetching gateway product mappings and extracting price IDs
+// by fetching gateway product mappings and extracting price IDs.
+// With the flexible pricing architecture, each plan can have multiple periods,
+// and each period has a single price ID.
 func (g *StripeGateway) resolvePriceIDsFromPlanIDs(ctx context.Context, upgradePlanIDs, downgradePlanIDs []string) ([]string, error) {
 	ctx, span := core.TraceMethod(ctx, "StripeGateway.resolvePriceIDsFromPlanIDs")
 	defer span.End()
@@ -1876,6 +2164,7 @@ func (g *StripeGateway) resolvePriceIDsFromPlanIDs(ctx context.Context, upgradeP
 	// Collect all unique price IDs
 	priceIDSet := make(map[string]bool)
 
+	// For each plan, get its periods and their associated price IDs
 	for planIDStr := range allPlanIDs {
 		var planID uint
 		_, err := fmt.Sscanf(planIDStr, "%d", &planID)
@@ -1884,23 +2173,32 @@ func (g *StripeGateway) resolvePriceIDsFromPlanIDs(ctx context.Context, upgradeP
 			continue
 		}
 
-		// Get gateway product mapping for this plan
-		mapping, err := g.pricing.GetGatewayProductMapping(ctx, planID, GatewayID)
-		if err != nil {
-			g.logger.Debug("could not get gateway mapping for plan",
-				zap.Uint("plan_id", planID),
-				zap.Error(err))
-			continue
-		}
+		// If pricing service is available, query pricing plan periods
+		if g.pricing != nil {
+			periods, err := g.pricing.GetPricingPlanPeriods(ctx, planID)
+			if err != nil {
+				g.logger.Debug("could not get pricing plan periods for plan",
+					zap.Uint("plan_id", planID),
+					zap.Error(err))
+				continue
+			}
 
-		// Add monthly price ID if available
-		if mapping.RemoteMonthlyPriceID != "" {
-			priceIDSet[mapping.RemoteMonthlyPriceID] = true
-		}
+			// For each period, get the gateway product mapping and extract price ID
+			for _, period := range periods {
+				mapping, err := g.pricing.GetGatewayProductMapping(ctx, period.ID, GatewayID)
+				if err != nil {
+					g.logger.Debug("could not get gateway mapping for period",
+						zap.Uint("plan_id", planID),
+						zap.Uint("period_id", period.ID),
+						zap.Error(err))
+					continue
+				}
 
-		// Add yearly price ID if available
-		if mapping.RemoteYearlyPriceID != "" {
-			priceIDSet[mapping.RemoteYearlyPriceID] = true
+				// Add price ID if available
+				if mapping != nil && mapping.RemotePriceID != "" {
+					priceIDSet[mapping.RemotePriceID] = true
+				}
+			}
 		}
 	}
 
@@ -1965,4 +2263,344 @@ func (g *StripeGateway) GetManagementURL(ctx context.Context, userID uint, opera
 	}, nil
 }
 
-var _ pluginCore.PaymentGateway = (*StripeGateway)(nil)
+// extractProrationFromInvoice extracts proration details from Stripe invoice line items
+// Following the pattern from stripe_preview_test.go's calculateProratedAmounts()
+func (g *StripeGateway) extractProrationFromInvoice(invoice *stripe.Invoice) (*InvoiceProrationAnalysis, error) {
+	analysis := &InvoiceProrationAnalysis{
+		InvoiceID:      invoice.ID,
+		TotalLineItems: 0,
+	}
+
+	if invoice.Lines == nil {
+		return analysis, nil
+	}
+
+	analysis.TotalLineItems = len(invoice.Lines.Data)
+
+	for _, line := range invoice.Lines.Data {
+		// Check if this is a prorated line item
+		isProrated := line.Parent != nil &&
+			line.Parent.SubscriptionItemDetails != nil &&
+			line.Parent.SubscriptionItemDetails.Proration
+
+		if isProrated {
+			analysis.HasProratedItems = true
+			if line.Amount >= 0 {
+				analysis.ProrationChargeTotal += line.Amount
+			} else {
+				analysis.ProrationCreditTotal += line.Amount
+			}
+		}
+	}
+
+	// Calculate net proration in dollars
+	if analysis.HasProratedItems {
+		analysis.NetProrationDollars = decimal.NewFromInt(analysis.ProrationChargeTotal + analysis.ProrationCreditTotal).Div(decimal.NewFromInt(100))
+	}
+
+	return analysis, nil
+}
+
+// compareProrationCalculations compares local proration calculation with Stripe's invoice amount
+// and returns a recommendation on which to use.
+func (g *StripeGateway) compareProrationCalculations(
+	ctx context.Context,
+	userID uint,
+	oldPrice, newPrice subscription.Price,
+	oldCycle subscription.BillingCycle,
+	stripeAmount decimal.Decimal,
+	invoice *stripe.Invoice,
+) (*ProrationComparison, error) {
+
+	// Use invoice creation time for deterministic proration calculation
+	prorationTime := time.Now()
+	if invoice != nil && invoice.Created > 0 {
+		prorationTime = time.Unix(invoice.Created, 0)
+	}
+
+	// Calculate local proration using our subscription package
+	localResult, err := subscription.ProratedChange(
+		oldPrice,
+		newPrice,
+		oldCycle,
+		prorationTime,
+		subscription.ProrationBehaviorCreateProrations,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to calculate local proration: %w", err)
+	}
+
+	// Get local net amount
+	localNet := subscription.NetResult(localResult)
+
+	// Calculate difference and percentage
+	difference := stripeAmount.Sub(localNet)
+	averageAmount := localNet.Add(stripeAmount)
+	differencePercent := 0.0
+	if !averageAmount.IsZero() {
+		differencePercent = difference.Abs().Div(averageAmount).Mul(decimal.NewFromInt(100)).InexactFloat64()
+	}
+
+	// Determine if mismatch is significant (any non-zero difference)
+	mismatchDetected := !difference.IsZero()
+
+	comparison := &ProrationComparison{
+		LocalResult:       &localResult,
+		StripeAmount:      stripeAmount,
+		MismatchDetected:  mismatchDetected,
+		Difference:        difference,
+		DifferencePercent: differencePercent,
+		InvoiceAnalysis:   nil,
+	}
+
+	// Decide which to use
+	if mismatchDetected {
+		comparison.RecommendedAction = "use_stripe"
+		g.logProrationMismatch(ctx, userID, comparison, oldCycle)
+	} else {
+		comparison.RecommendedAction = "use_local"
+	}
+
+	return comparison, nil
+}
+
+// logProrationMismatch logs detailed information about proration calculation mismatches
+func (g *StripeGateway) logProrationMismatch(
+	ctx context.Context,
+	userID uint,
+	comparison *ProrationComparison,
+	oldCycle subscription.BillingCycle,
+) {
+	g.logger.Warn("proration calculation mismatch detected",
+		zap.Uint("user_id", userID),
+		zap.String("local_net_amount", subscription.NetResult(*comparison.LocalResult).String()),
+		zap.String("stripe_net_amount", comparison.StripeAmount.String()),
+		zap.String("difference", comparison.Difference.String()),
+		zap.Float64("difference_percent", comparison.DifferencePercent),
+		zap.String("recommended_action", comparison.RecommendedAction),
+		zap.String("local_unused_credit", comparison.LocalResult.UnusedCredit.String()),
+		zap.String("local_new_charge", comparison.LocalResult.NewCharge.String()),
+		zap.String("billing_cycle_start", oldCycle.StartAt.Format(time.RFC3339)),
+		zap.String("billing_cycle_end", oldCycle.EndAt.Format(time.RFC3339)),
+	)
+}
+
+// calculateCancellationCredit computes the credit amount for a subscription cancellation
+// using local proration logic (subscription.UnusedPeriodValue), with Stripe as fallback.
+func (g *StripeGateway) calculateCancellationCredit(
+	ctx context.Context,
+	userID uint,
+	stripeSubscription *stripe.Subscription,
+) (decimal.Decimal, error) {
+
+	// Get current subscriber state
+	subscriber, err := g.billing.GetActiveSubscriber(ctx, userID, GatewayID)
+	if err != nil {
+		return decimal.Zero, fmt.Errorf("failed to get subscriber: %w", err)
+	}
+	if subscriber == nil {
+		return decimal.Zero, fmt.Errorf("no active subscriber found")
+	}
+
+	// Get billing cycle from Stripe subscription
+	// CurrentPeriodStart and CurrentPeriodEnd are on the subscription items
+	var currentPeriodStart, currentPeriodEnd time.Time
+	if stripeSubscription.Items != nil && len(stripeSubscription.Items.Data) > 0 && stripeSubscription.Items.Data[0] != nil {
+		currentPeriodStart = time.Unix(stripeSubscription.Items.Data[0].CurrentPeriodStart, 0)
+		currentPeriodEnd = time.Unix(stripeSubscription.Items.Data[0].CurrentPeriodEnd, 0)
+	}
+	billingCycle := subscription.BillingCycle{
+		StartAt: currentPeriodStart,
+		EndAt:   currentPeriodEnd,
+	}
+
+	// Get old plan details from pricing plan period
+	var oldPrice subscription.Price
+	if subscriber.PricingPlanPeriodID != nil {
+		period, err := g.pricing.GetPricingPlanPeriod(ctx, *subscriber.PricingPlanPeriodID)
+		if err != nil {
+			return decimal.Zero, fmt.Errorf("failed to get pricing plan period: %w", err)
+		}
+		if period == nil {
+			return decimal.Zero, fmt.Errorf("pricing plan period not found")
+		}
+
+		oldPrice = subscription.Price{
+			Amount:  decimal.NewFromFloat(period.PriceUSD),
+			Cadence: subscription.Cadence(period.Cadence),
+		}
+	} else {
+		g.logger.Warn("no pricing plan period for cancellation credit, returning zero",
+			zap.Uint("user_id", userID),
+			zap.String("subscription_id", stripeSubscription.ID))
+		return decimal.Zero, nil
+	}
+
+	// Calculate local proration using existing subscription package
+	localCredit := subscription.UnusedPeriodValue(oldPrice, billingCycle, time.Now())
+
+	// Stripe typically doesn't automatically issue credits on cancellation
+	// The customer just isn't billed again. We issue a credit to the ledger.
+	return localCredit, nil
+}
+
+// determineOperationType determines what type of operation triggered this invoice
+func (g *StripeGateway) determineOperationType(
+	ctx context.Context,
+	currentSubscriber *billingModels.Subscriber,
+	subscription *stripe.Subscription,
+	invoice *stripe.Invoice,
+) pluginCore.SubscriptionChangeType {
+	if currentSubscriber == nil {
+		return pluginCore.ChangeTypeNewSubscription
+	}
+
+	// Check for plan changes
+	if currentSubscriber.PricingPlanPeriodID != nil {
+		newPlanID, found, err := findPlanIDFromSubscription(subscription)
+		if err == nil && found {
+			if *currentSubscriber.PricingPlanPeriodID != newPlanID {
+				// Plan changed - determine upgrade or downgrade
+				return g.determineUpgradeOrDowngrade(ctx, *currentSubscriber.PricingPlanPeriodID, newPlanID)
+			}
+		}
+	}
+
+	return pluginCore.ChangeTypeRenewal
+}
+
+// determineUpgradeOrDowngrade determines if a plan change is an upgrade or downgrade
+func (g *StripeGateway) determineUpgradeOrDowngrade(
+	ctx context.Context,
+	oldPlanPeriodID uint,
+	newPlanPeriodID uint,
+) pluginCore.SubscriptionChangeType {
+	// Get old plan period
+	oldPeriod, err := g.pricing.GetPricingPlanPeriod(ctx, oldPlanPeriodID)
+	if err != nil {
+		g.logger.Warn("failed to get old pricing plan period, defaulting to upgrade",
+			zap.Error(err),
+			zap.Uint("old_plan_period_id", oldPlanPeriodID))
+		return pluginCore.ChangeTypeUpgrade
+	}
+
+	// Get new plan period
+	newPeriod, err := g.pricing.GetPricingPlanPeriod(ctx, newPlanPeriodID)
+	if err != nil {
+		g.logger.Warn("failed to get new pricing plan period, defaulting to upgrade",
+			zap.Error(err),
+			zap.Uint("new_plan_period_id", newPlanPeriodID))
+		return pluginCore.ChangeTypeUpgrade
+	}
+
+	// Compare prices
+	if newPeriod.PriceUSD > oldPeriod.PriceUSD {
+		return pluginCore.ChangeTypeUpgrade
+	} else if newPeriod.PriceUSD < oldPeriod.PriceUSD {
+		return pluginCore.ChangeTypeDowngrade
+	}
+
+	// Same price, treat as upgrade
+	return pluginCore.ChangeTypeUpgrade
+}
+
+// validateAndCalculateCreditAmount validates the credit amount using local logic
+// and returns the amount to actually credit (matching Stripe if mismatch)
+func (g *StripeGateway) validateAndCalculateCreditAmount(
+	ctx context.Context,
+	userID uint,
+	operation pluginCore.SubscriptionChangeType,
+	currentSubscriber *billingModels.Subscriber,
+	stripeSubscription *stripe.Subscription,
+	invoice *stripe.Invoice,
+) (decimal.Decimal, error) {
+
+	stripeAmount := g.calculateNetInvoiceAmount(invoice)
+
+	switch operation {
+	case pluginCore.ChangeTypeNewSubscription, pluginCore.ChangeTypeRenewal:
+		// No local calculation needed - use Stripe's amount directly
+		// But still validate ledger
+		if err := g.credit.ValidateSubscriptionChange(ctx, uint64(userID), operation, stripeAmount); err != nil {
+			return decimal.Zero, err
+		}
+		return stripeAmount, nil
+
+	case pluginCore.ChangeTypeUpgrade, pluginCore.ChangeTypeDowngrade:
+		// Get old and new plan details using subscription types
+		var oldPrice, newPrice subscription.Price
+		var oldCycle subscription.BillingCycle
+
+		// Populate old price and cycle from current subscriber
+		if currentSubscriber.PricingPlanPeriodID != nil {
+			period, err := g.pricing.GetPricingPlanPeriod(ctx, *currentSubscriber.PricingPlanPeriodID)
+			if err != nil {
+				return decimal.Zero, fmt.Errorf("failed to get old pricing plan period: %w", err)
+			}
+			oldPrice = subscription.Price{
+				Amount:  decimal.NewFromFloat(period.PriceUSD),
+				Cadence: subscription.Cadence(period.Cadence),
+			}
+		}
+
+		// Populate new price from subscription
+		newPlanID, found, err := findPlanIDFromSubscription(stripeSubscription)
+		if !found || err != nil {
+			return stripeAmount, nil // Can't compare, use Stripe's amount
+		}
+
+		newPeriod, err := g.pricing.GetPricingPlanPeriod(ctx, newPlanID)
+		if err != nil {
+			return stripeAmount, nil
+		}
+		newPrice = subscription.Price{
+			Amount:  decimal.NewFromFloat(newPeriod.PriceUSD),
+			Cadence: subscription.Cadence(newPeriod.Cadence),
+		}
+
+		// Get billing cycle from Stripe subscription
+		// CurrentPeriodStart and CurrentPeriodEnd are on the subscription items
+		var currentPeriodStart, currentPeriodEnd time.Time
+		if stripeSubscription.Items != nil && len(stripeSubscription.Items.Data) > 0 && stripeSubscription.Items.Data[0] != nil {
+			currentPeriodStart = time.Unix(stripeSubscription.Items.Data[0].CurrentPeriodStart, 0)
+			currentPeriodEnd = time.Unix(stripeSubscription.Items.Data[0].CurrentPeriodEnd, 0)
+		}
+		oldCycle = subscription.BillingCycle{
+			StartAt: currentPeriodStart,
+			EndAt:   currentPeriodEnd,
+		}
+
+		// Compare calculations
+		comparison, err := g.compareProrationCalculations(ctx, userID, oldPrice, newPrice, oldCycle, stripeAmount, invoice)
+		if err != nil {
+			g.logger.Warn("failed to compare proration calculations, using Stripe amount",
+				zap.Uint("user_id", userID),
+				zap.Error(err))
+			return stripeAmount, nil
+		}
+
+		// Validate ledger
+		if err := g.credit.ValidateSubscriptionChange(ctx, uint64(userID), operation, comparison.StripeAmount); err != nil {
+			return decimal.Zero, err
+		}
+
+		// Use Stripe's amount
+		return comparison.StripeAmount, nil
+
+	default:
+		return stripeAmount, nil
+	}
+}
+
+// Compile-time interface checks
+var (
+	_ pluginCore.GatewayIdentity     = (*StripeGateway)(nil)
+	_ pluginCore.WebhookHandler      = (*StripeGateway)(nil)
+	_ pluginCore.CustomerPortal      = (*StripeGateway)(nil)
+	_ pluginCore.CheckoutProvider    = (*StripeGateway)(nil)
+	_ pluginCore.GatewayCapabilities = (*StripeGateway)(nil)
+	_ pluginCore.GatewaySync         = (*StripeGateway)(nil)
+	_ pluginCore.SubscriptionManager = (*StripeGateway)(nil)
+	// Note: StripeGateway does NOT implement SubscriptionExecutor
+	// It uses portal-based management via SubscriptionManager instead
+)

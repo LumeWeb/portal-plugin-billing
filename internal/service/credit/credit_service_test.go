@@ -72,7 +72,7 @@ func TestCreditService_IssueCreditFromGateway_Success(t *testing.T) {
 		err := svc.IssueCreditFromGateway(
 			ctx,
 			userID,
-			pluginCore.CreditTypeCharge,
+			pluginCore.TransactionTypeCharge,
 			amount,
 			pluginCore.ReferenceTypeStripeInvoice,
 			"invoice_123",
@@ -99,7 +99,7 @@ func TestCreditService_IssueCreditFromGateway_RefundDirection(t *testing.T) {
 		err := svc.IssueCreditFromGateway(
 			ctx,
 			123,
-			pluginCore.CreditTypeRefund,
+			pluginCore.TransactionTypeRefund,
 			decimal.NewFromFloat(25.00),
 			pluginCore.ReferenceTypeStripeInvoice,
 			"refund_123",
@@ -124,7 +124,7 @@ func TestCreditService_IssueCreditFromGateway_UsageDirection(t *testing.T) {
 		err := svc.IssueCreditFromGateway(
 			ctx,
 			123,
-			pluginCore.CreditTypeUsage,
+			pluginCore.TransactionTypeUsage,
 			decimal.NewFromFloat(5.00),
 			pluginCore.ReferenceTypeAtlosPayment,
 			"usage_123",
@@ -168,7 +168,7 @@ func TestCreditService_IssueCreditFromGateway_InvalidReferenceType(t *testing.T)
 		err := svc.IssueCreditFromGateway(
 			ctx,
 			123,
-			pluginCore.CreditTypeCharge,
+			pluginCore.TransactionTypeCharge,
 			decimal.NewFromFloat(50.00),
 			"invalid_reference",
 			"invoice_123",
@@ -196,7 +196,7 @@ func TestCreditService_IssueCreditWithIdempotency_Success(t *testing.T) {
 		err := svc.IssueCreditWithIdempotency(
 			ctx,
 			userID,
-			pluginCore.CreditTypeCharge,
+			pluginCore.TransactionTypeCharge,
 			amount,
 			pluginCore.ReferenceTypeStripeInvoice,
 			"invoice_123",
@@ -225,7 +225,7 @@ func TestCreditService_IssueCreditWithIdempotency_Duplicate(t *testing.T) {
 		err := svc.IssueCreditWithIdempotency(
 			ctx,
 			userID,
-			pluginCore.CreditTypeCharge,
+			pluginCore.TransactionTypeCharge,
 			amount,
 			pluginCore.ReferenceTypeStripeInvoice,
 			"invoice_123",
@@ -241,7 +241,7 @@ func TestCreditService_IssueCreditWithIdempotency_Duplicate(t *testing.T) {
 		err = svc.IssueCreditWithIdempotency(
 			ctx,
 			userID,
-			pluginCore.CreditTypeCharge,
+			pluginCore.TransactionTypeCharge,
 			amount,
 			pluginCore.ReferenceTypeStripeInvoice,
 			"invoice_123",
@@ -284,7 +284,7 @@ func TestCreditService_IssueCreditWithIdempotency_InvalidReferenceType(t *testin
 		err := svc.IssueCreditWithIdempotency(
 			ctx,
 			123,
-			pluginCore.CreditTypeCharge,
+			pluginCore.TransactionTypeCharge,
 			decimal.NewFromFloat(50.00),
 			"invalid_reference",
 			"invoice_123",
@@ -309,7 +309,7 @@ func TestCreditService_IssueUsageCredit_Success(t *testing.T) {
 		userID := uint64(123)
 		amount := decimal.NewFromFloat(10.00)
 
-		err := svc.IssueUsageCredit(ctx, userID, pluginCore.CreditTypeUsage, amount, "ref_123", "Test usage", 1)
+		err := svc.IssueUsageCredit(ctx, userID, pluginCore.TransactionTypeUsage, amount, "ref_123", "Test usage", 1)
 		require.NoError(tb, err)
 
 		credits, err := repo.GetCreditsByReference(ctx, "ref_123", "usage")
@@ -326,7 +326,7 @@ func TestCreditService_IssueUsageCredit_TimeCredit(t *testing.T) {
 		svc := getCreditService(ctx)
 		repo := getCreditRepo(ctx)
 
-		err := svc.IssueUsageCredit(ctx, 123, pluginCore.CreditTypeTime, decimal.NewFromFloat(5.0), "time_ref", "Time credit", 1)
+		err := svc.IssueUsageCredit(ctx, 123, pluginCore.TransactionTypeTime, decimal.NewFromFloat(5.0), "time_ref", "Time credit", 1)
 		require.NoError(tb, err)
 
 		credits, err := repo.GetCreditsByReference(ctx, "time_ref", "usage")
@@ -339,7 +339,7 @@ func TestCreditService_IssueUsageCredit_InvalidType(t *testing.T) {
 	coreTesting.RunTestCaseWithDB(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		svc := getCreditService(ctx)
 
-		err := svc.IssueUsageCredit(ctx, 123, pluginCore.CreditTypeCharge, decimal.NewFromFloat(50.00), "ref", "Test", 1)
+		err := svc.IssueUsageCredit(ctx, 123, pluginCore.TransactionTypeCharge, decimal.NewFromFloat(50.00), "ref", "Test", 1)
 
 		assert.Error(tb, err)
 		assert.Contains(tb, err.Error(), "invalid usage credit type")
@@ -395,7 +395,7 @@ func TestCreditService_GetReferenceIdempotencyKey_Success(t *testing.T) {
 	coreTesting.RunTestCaseWithDB(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		svc := getCreditService(ctx)
 
-		err := svc.IssueCreditWithIdempotency(ctx, 123, pluginCore.CreditTypeCharge, decimal.NewFromFloat(50.00), pluginCore.ReferenceTypeStripeInvoice, "invoice_123", "Test", 1)
+		err := svc.IssueCreditWithIdempotency(ctx, 123, pluginCore.TransactionTypeCharge, decimal.NewFromFloat(50.00), pluginCore.ReferenceTypeStripeInvoice, "invoice_123", "Test", 1)
 		require.NoError(tb, err)
 
 		idempotencyKey, err := svc.GetReferenceIdempotencyKey(ctx, "invoice_123")

@@ -61,6 +61,7 @@ func GetPluginInfo() core.PluginInfo {
 			&models.CreditModel{},
 			&models.CreditActiveView{},
 			&models.CreditsBalanceView{},
+			&models.PricingPlanPeriod{},
 		},
 		Migrations: core.DBMigration{
 			core.DB_TYPE_MYSQL:  migrations.GetMySQL(),
@@ -71,6 +72,12 @@ func GetPluginInfo() core.PluginInfo {
 				Name: "sync_pricing_plan",
 				Factory: func() (core.CronJob, error) {
 					return pricing.NewSyncPricingPlanJob(), nil
+				},
+			},
+			{
+				Name: "cancellation_reconciliation",
+				Factory: func() (core.CronJob, error) {
+					return billing.NewCancellationReconciliationJob(), nil
 				},
 			},
 		},

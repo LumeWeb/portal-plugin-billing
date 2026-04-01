@@ -7,10 +7,12 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"gorm.io/gorm"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
 	"go.lumeweb.com/portal-plugin-billing/internal"
 	"go.lumeweb.com/portal-plugin-billing/internal/config"
 	"go.lumeweb.com/portal-plugin-billing/internal/db/migrations"
+	"go.lumeweb.com/portal-plugin-billing/internal/db/models"
 	"go.lumeweb.com/portal-plugin-billing/internal/gateway"
 	quotaCore "go.lumeweb.com/portal-plugin-quota/core"
 	"go.lumeweb.com/portal/core"
@@ -283,7 +285,7 @@ func TestBillingService_CreateOrUpdateSubscriber(t *testing.T) {
 		assert.Equal(t, "cus_123", subscriber.ExternalID)
 		assert.Equal(t, "sub_123", subscriber.SubscriptionID)
 		assert.True(t, subscriber.IsActive)
-		assert.Nil(t, subscriber.PlanID)
+		assert.Nil(t, subscriber.PricingPlanPeriodID)
 	},
 		getBillingTestOptions())
 }
@@ -352,6 +354,14 @@ func TestBillingService_GetSubscriberBySubscriptionID(t *testing.T) {
 
 		// Test case 6: Verify all subscriber fields are correctly populated
 		planID := uint(99)
+		
+		// Mock the GetPricingPlanPeriod call to validate the planID
+		mockPricingService := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
+		mockPricingService.EXPECT().GetPricingPlanPeriod(mock.Anything, planID).
+			Return(&models.PricingPlanPeriod{
+				Model: gorm.Model{ID: planID},
+			}, nil)
+		
 		err = service.CreateOrUpdateSubscriber(context.Background(), 101, "stripe", "cus_field_test", "sub_field_test", true, &planID)
 		assert.NoError(tb, err)
 
@@ -363,7 +373,7 @@ func TestBillingService_GetSubscriberBySubscriptionID(t *testing.T) {
 		assert.Equal(tb, "sub_field_test", subscriber.SubscriptionID)
 		assert.Equal(tb, "cus_field_test", subscriber.ExternalID)
 		assert.True(tb, subscriber.IsActive)
-		assert.Equal(tb, planID, *subscriber.PlanID)
+		assert.Equal(tb, planID, *subscriber.PricingPlanPeriodID)
 
 		// Test case 7: Subscribers with different subscription IDs don't interfere
 		err = service.CreateOrUpdateSubscriber(context.Background(), 202, "stripe", "cus_202", "sub_202", true, nil)
@@ -450,8 +460,16 @@ func TestBillingService_GetSubscriberByExternalID(t *testing.T) {
 func TestBillingService_CreateOrUpdateSubscriber_WithPlanID(t *testing.T) {
 	coreTesting.RunTestCaseWithDB(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		service := core.GetService[pluginCore.BillingService](ctx, pluginCore.BILLING_SERVICE)
+		mockPricingService := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
 
 		planID := uint(42)
+
+		// Mock the GetPricingPlanPeriod call to validate the planID
+		mockPricingService.EXPECT().GetPricingPlanPeriod(mock.Anything, planID).
+			Return(&models.PricingPlanPeriod{
+				Model: gorm.Model{ID: planID},
+			}, nil)
+		
 		err := service.CreateOrUpdateSubscriber(context.Background(), 1, "stripe", "cus_123", "sub_123", true, &planID)
 		assert.NoError(t, err)
 
@@ -459,8 +477,8 @@ func TestBillingService_CreateOrUpdateSubscriber_WithPlanID(t *testing.T) {
 		subscriber, err := service.GetActiveSubscriber(context.Background(), 1, "stripe")
 		assert.NoError(t, err)
 		assert.NotNil(t, subscriber)
-		assert.NotNil(t, subscriber.PlanID)
-		assert.Equal(t, planID, *subscriber.PlanID)
+		assert.NotNil(t, subscriber.PricingPlanPeriodID)
+		assert.Equal(t, planID, *subscriber.PricingPlanPeriodID)
 		assert.Equal(t, "sub_123", subscriber.SubscriptionID)
 	},
 		getBillingTestOptions())
@@ -469,6 +487,7 @@ func TestBillingService_CreateOrUpdateSubscriber_WithPlanID(t *testing.T) {
 func TestBillingService_CreateOrUpdateSubscriber_UpdateExisting(t *testing.T) {
 	coreTesting.RunTestCaseWithDB(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		service := core.GetService[pluginCore.BillingService](ctx, pluginCore.BILLING_SERVICE)
+		mockPricingService := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
 
 		// Create initial subscriber
 		err := service.CreateOrUpdateSubscriber(context.Background(), 1, "stripe", "cus_123", "sub_123", true, nil)
@@ -482,6 +501,14 @@ func TestBillingService_CreateOrUpdateSubscriber_UpdateExisting(t *testing.T) {
 
 		// Update the subscriber (change external ID and plan, keep active)
 		planID := uint(99)
+
+		// Mock the GetPricingPlanPeriod call to validate the planID
+		mockPricingService.EXPECT().GetPricingPlanPeriod(mock.Anything, planID).
+			Return(&models.PricingPlanPeriod{
+				Model: gorm.Model{ID: planID},
+			}, nil)
+
+		
 		err = service.CreateOrUpdateSubscriber(context.Background(), 1, "stripe", "cus_456", "sub_456", true, &planID)
 		assert.NoError(t, err)
 
@@ -492,7 +519,7 @@ func TestBillingService_CreateOrUpdateSubscriber_UpdateExisting(t *testing.T) {
 		assert.Equal(t, "cus_456", subscriber.ExternalID)
 		assert.Equal(t, "sub_456", subscriber.SubscriptionID)
 		assert.True(t, subscriber.IsActive)
-		assert.Equal(t, planID, *subscriber.PlanID)
+		assert.Equal(t, planID, *subscriber.PricingPlanPeriodID)
 
 		// Now test deactivation
 		err = service.CreateOrUpdateSubscriber(context.Background(), 1, "stripe", "cus_456", "sub_456", false, &planID)
@@ -507,6 +534,52 @@ func TestBillingService_CreateOrUpdateSubscriber_UpdateExisting(t *testing.T) {
 		isActive, err := service.IsUserActiveSubscriber(context.Background(), 1)
 		assert.NoError(t, err)
 		assert.False(t, isActive)
+	},
+		getBillingTestOptions())
+}
+
+func TestBillingService_CreateOrUpdateSubscriber_InvalidPricingPlanPeriod(t *testing.T) {
+	coreTesting.RunTestCaseWithDB(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		service := core.GetService[pluginCore.BillingService](ctx, pluginCore.BILLING_SERVICE)
+		mockPricingService := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
+
+		// Test with a non-existent pricing plan period ID
+		invalidPeriodID := uint(99999)
+		mockPricingService.EXPECT().GetPricingPlanPeriod(mock.Anything, invalidPeriodID).
+			Return(nil, errors.New("pricing plan period not found"))
+
+		err := service.CreateOrUpdateSubscriber(context.Background(), 1, "stripe", "cus_123", "sub_123", true, &invalidPeriodID)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "pricing plan period")
+	},
+		getBillingTestOptions())
+}
+
+func TestBillingService_CreateOrUpdateSubscriber_ValidPricingPlanPeriod(t *testing.T) {
+	coreTesting.RunTestCaseWithDB(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		billingService := core.GetService[pluginCore.BillingService](ctx, pluginCore.BILLING_SERVICE)
+		mockPricingService := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
+
+		// Mock a valid pricing plan period ID
+		validPeriodID := uint(123)
+		mockPricingService.EXPECT().GetPricingPlanPeriod(mock.Anything, validPeriodID).
+			Return(&models.PricingPlanPeriod{
+				Model:         gorm.Model{ID: validPeriodID},
+				PricingPlanID: 1,
+				Cadence:       "monthly",
+				PriceUSD:      19.99,
+				QuotaPlanID:   1,
+			}, nil)
+
+		// Create a subscriber with the valid period ID
+		err := billingService.CreateOrUpdateSubscriber(context.Background(), 1, "stripe", "cus_123", "sub_123", true, &validPeriodID)
+		assert.NoError(t, err)
+
+		// Verify the subscriber was created with the period ID
+		subscriber, err := billingService.GetActiveSubscriber(context.Background(), 1, "stripe")
+		assert.NoError(t, err)
+		assert.NotNil(t, subscriber)
+		assert.Equal(t, validPeriodID, *subscriber.PricingPlanPeriodID)
 	},
 		getBillingTestOptions())
 }

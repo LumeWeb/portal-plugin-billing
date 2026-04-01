@@ -437,6 +437,63 @@ func (_c *MockPricingService_CreatePricingPlan_Call) RunAndReturn(run func(ctx c
 	return _c
 }
 
+// CreatePricingPlanPeriod provides a mock function for the type MockPricingService
+func (_mock *MockPricingService) CreatePricingPlanPeriod(ctx context.Context, period *models.PricingPlanPeriod) error {
+	ret := _mock.Called(ctx, period)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CreatePricingPlanPeriod")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *models.PricingPlanPeriod) error); ok {
+		r0 = returnFunc(ctx, period)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockPricingService_CreatePricingPlanPeriod_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CreatePricingPlanPeriod'
+type MockPricingService_CreatePricingPlanPeriod_Call struct {
+	*mock.Call
+}
+
+// CreatePricingPlanPeriod is a helper method to define mock.On call
+//   - ctx context.Context
+//   - period *models.PricingPlanPeriod
+func (_e *MockPricingService_Expecter) CreatePricingPlanPeriod(ctx interface{}, period interface{}) *MockPricingService_CreatePricingPlanPeriod_Call {
+	return &MockPricingService_CreatePricingPlanPeriod_Call{Call: _e.mock.On("CreatePricingPlanPeriod", ctx, period)}
+}
+
+func (_c *MockPricingService_CreatePricingPlanPeriod_Call) Run(run func(ctx context.Context, period *models.PricingPlanPeriod)) *MockPricingService_CreatePricingPlanPeriod_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 *models.PricingPlanPeriod
+		if args[1] != nil {
+			arg1 = args[1].(*models.PricingPlanPeriod)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockPricingService_CreatePricingPlanPeriod_Call) Return(err error) *MockPricingService_CreatePricingPlanPeriod_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockPricingService_CreatePricingPlanPeriod_Call) RunAndReturn(run func(ctx context.Context, period *models.PricingPlanPeriod) error) *MockPricingService_CreatePricingPlanPeriod_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // DB provides a mock function for the type MockPricingService
 func (_mock *MockPricingService) DB() *gorm.DB {
 	ret := _mock.Called()
@@ -650,6 +707,63 @@ func (_c *MockPricingService_DeletePricingPlan_Call) Return(err error) *MockPric
 }
 
 func (_c *MockPricingService_DeletePricingPlan_Call) RunAndReturn(run func(ctx context.Context, id uint) error) *MockPricingService_DeletePricingPlan_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// DeletePricingPlanPeriod provides a mock function for the type MockPricingService
+func (_mock *MockPricingService) DeletePricingPlanPeriod(ctx context.Context, id uint) error {
+	ret := _mock.Called(ctx, id)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeletePricingPlanPeriod")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uint) error); ok {
+		r0 = returnFunc(ctx, id)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockPricingService_DeletePricingPlanPeriod_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeletePricingPlanPeriod'
+type MockPricingService_DeletePricingPlanPeriod_Call struct {
+	*mock.Call
+}
+
+// DeletePricingPlanPeriod is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id uint
+func (_e *MockPricingService_Expecter) DeletePricingPlanPeriod(ctx interface{}, id interface{}) *MockPricingService_DeletePricingPlanPeriod_Call {
+	return &MockPricingService_DeletePricingPlanPeriod_Call{Call: _e.mock.On("DeletePricingPlanPeriod", ctx, id)}
+}
+
+func (_c *MockPricingService_DeletePricingPlanPeriod_Call) Run(run func(ctx context.Context, id uint)) *MockPricingService_DeletePricingPlanPeriod_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 uint
+		if args[1] != nil {
+			arg1 = args[1].(uint)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockPricingService_DeletePricingPlanPeriod_Call) Return(err error) *MockPricingService_DeletePricingPlanPeriod_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockPricingService_DeletePricingPlanPeriod_Call) RunAndReturn(run func(ctx context.Context, id uint) error) *MockPricingService_DeletePricingPlanPeriod_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -1341,6 +1455,228 @@ func (_c *MockPricingService_GetPricingPlan_Call) Return(pricingPlan *models.Pri
 }
 
 func (_c *MockPricingService_GetPricingPlan_Call) RunAndReturn(run func(ctx context.Context, id uint) (*models.PricingPlan, error)) *MockPricingService_GetPricingPlan_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetPricingPlanPeriod provides a mock function for the type MockPricingService
+func (_mock *MockPricingService) GetPricingPlanPeriod(ctx context.Context, id uint) (*models.PricingPlanPeriod, error) {
+	ret := _mock.Called(ctx, id)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetPricingPlanPeriod")
+	}
+
+	var r0 *models.PricingPlanPeriod
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uint) (*models.PricingPlanPeriod, error)); ok {
+		return returnFunc(ctx, id)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uint) *models.PricingPlanPeriod); ok {
+		r0 = returnFunc(ctx, id)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*models.PricingPlanPeriod)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, uint) error); ok {
+		r1 = returnFunc(ctx, id)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockPricingService_GetPricingPlanPeriod_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetPricingPlanPeriod'
+type MockPricingService_GetPricingPlanPeriod_Call struct {
+	*mock.Call
+}
+
+// GetPricingPlanPeriod is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id uint
+func (_e *MockPricingService_Expecter) GetPricingPlanPeriod(ctx interface{}, id interface{}) *MockPricingService_GetPricingPlanPeriod_Call {
+	return &MockPricingService_GetPricingPlanPeriod_Call{Call: _e.mock.On("GetPricingPlanPeriod", ctx, id)}
+}
+
+func (_c *MockPricingService_GetPricingPlanPeriod_Call) Run(run func(ctx context.Context, id uint)) *MockPricingService_GetPricingPlanPeriod_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 uint
+		if args[1] != nil {
+			arg1 = args[1].(uint)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockPricingService_GetPricingPlanPeriod_Call) Return(pricingPlanPeriod *models.PricingPlanPeriod, err error) *MockPricingService_GetPricingPlanPeriod_Call {
+	_c.Call.Return(pricingPlanPeriod, err)
+	return _c
+}
+
+func (_c *MockPricingService_GetPricingPlanPeriod_Call) RunAndReturn(run func(ctx context.Context, id uint) (*models.PricingPlanPeriod, error)) *MockPricingService_GetPricingPlanPeriod_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetPricingPlanPeriods provides a mock function for the type MockPricingService
+func (_mock *MockPricingService) GetPricingPlanPeriods(ctx context.Context, planID uint) ([]*models.PricingPlanPeriod, error) {
+	ret := _mock.Called(ctx, planID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetPricingPlanPeriods")
+	}
+
+	var r0 []*models.PricingPlanPeriod
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uint) ([]*models.PricingPlanPeriod, error)); ok {
+		return returnFunc(ctx, planID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uint) []*models.PricingPlanPeriod); ok {
+		r0 = returnFunc(ctx, planID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*models.PricingPlanPeriod)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, uint) error); ok {
+		r1 = returnFunc(ctx, planID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockPricingService_GetPricingPlanPeriods_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetPricingPlanPeriods'
+type MockPricingService_GetPricingPlanPeriods_Call struct {
+	*mock.Call
+}
+
+// GetPricingPlanPeriods is a helper method to define mock.On call
+//   - ctx context.Context
+//   - planID uint
+func (_e *MockPricingService_Expecter) GetPricingPlanPeriods(ctx interface{}, planID interface{}) *MockPricingService_GetPricingPlanPeriods_Call {
+	return &MockPricingService_GetPricingPlanPeriods_Call{Call: _e.mock.On("GetPricingPlanPeriods", ctx, planID)}
+}
+
+func (_c *MockPricingService_GetPricingPlanPeriods_Call) Run(run func(ctx context.Context, planID uint)) *MockPricingService_GetPricingPlanPeriods_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 uint
+		if args[1] != nil {
+			arg1 = args[1].(uint)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockPricingService_GetPricingPlanPeriods_Call) Return(pricingPlanPeriods []*models.PricingPlanPeriod, err error) *MockPricingService_GetPricingPlanPeriods_Call {
+	_c.Call.Return(pricingPlanPeriods, err)
+	return _c
+}
+
+func (_c *MockPricingService_GetPricingPlanPeriods_Call) RunAndReturn(run func(ctx context.Context, planID uint) ([]*models.PricingPlanPeriod, error)) *MockPricingService_GetPricingPlanPeriods_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetPricingPlanPeriodsWithFilter provides a mock function for the type MockPricingService
+func (_mock *MockPricingService) GetPricingPlanPeriodsWithFilter(ctx context.Context, filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination) ([]*models.PricingPlanPeriod, int64, error) {
+	ret := _mock.Called(ctx, filters, sorts, pagination)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetPricingPlanPeriodsWithFilter")
+	}
+
+	var r0 []*models.PricingPlanPeriod
+	var r1 int64
+	var r2 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, []queryutil.CrudFilter, []queryutil.Sort, queryutil.Pagination) ([]*models.PricingPlanPeriod, int64, error)); ok {
+		return returnFunc(ctx, filters, sorts, pagination)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, []queryutil.CrudFilter, []queryutil.Sort, queryutil.Pagination) []*models.PricingPlanPeriod); ok {
+		r0 = returnFunc(ctx, filters, sorts, pagination)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*models.PricingPlanPeriod)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, []queryutil.CrudFilter, []queryutil.Sort, queryutil.Pagination) int64); ok {
+		r1 = returnFunc(ctx, filters, sorts, pagination)
+	} else {
+		r1 = ret.Get(1).(int64)
+	}
+	if returnFunc, ok := ret.Get(2).(func(context.Context, []queryutil.CrudFilter, []queryutil.Sort, queryutil.Pagination) error); ok {
+		r2 = returnFunc(ctx, filters, sorts, pagination)
+	} else {
+		r2 = ret.Error(2)
+	}
+	return r0, r1, r2
+}
+
+// MockPricingService_GetPricingPlanPeriodsWithFilter_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetPricingPlanPeriodsWithFilter'
+type MockPricingService_GetPricingPlanPeriodsWithFilter_Call struct {
+	*mock.Call
+}
+
+// GetPricingPlanPeriodsWithFilter is a helper method to define mock.On call
+//   - ctx context.Context
+//   - filters []queryutil.CrudFilter
+//   - sorts []queryutil.Sort
+//   - pagination queryutil.Pagination
+func (_e *MockPricingService_Expecter) GetPricingPlanPeriodsWithFilter(ctx interface{}, filters interface{}, sorts interface{}, pagination interface{}) *MockPricingService_GetPricingPlanPeriodsWithFilter_Call {
+	return &MockPricingService_GetPricingPlanPeriodsWithFilter_Call{Call: _e.mock.On("GetPricingPlanPeriodsWithFilter", ctx, filters, sorts, pagination)}
+}
+
+func (_c *MockPricingService_GetPricingPlanPeriodsWithFilter_Call) Run(run func(ctx context.Context, filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination)) *MockPricingService_GetPricingPlanPeriodsWithFilter_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 []queryutil.CrudFilter
+		if args[1] != nil {
+			arg1 = args[1].([]queryutil.CrudFilter)
+		}
+		var arg2 []queryutil.Sort
+		if args[2] != nil {
+			arg2 = args[2].([]queryutil.Sort)
+		}
+		var arg3 queryutil.Pagination
+		if args[3] != nil {
+			arg3 = args[3].(queryutil.Pagination)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+			arg3,
+		)
+	})
+	return _c
+}
+
+func (_c *MockPricingService_GetPricingPlanPeriodsWithFilter_Call) Return(pricingPlanPeriods []*models.PricingPlanPeriod, n int64, err error) *MockPricingService_GetPricingPlanPeriodsWithFilter_Call {
+	_c.Call.Return(pricingPlanPeriods, n, err)
+	return _c
+}
+
+func (_c *MockPricingService_GetPricingPlanPeriodsWithFilter_Call) RunAndReturn(run func(ctx context.Context, filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination) ([]*models.PricingPlanPeriod, int64, error)) *MockPricingService_GetPricingPlanPeriodsWithFilter_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -2147,6 +2483,69 @@ func (_c *MockPricingService_UpdatePricingPlan_Call) Return(err error) *MockPric
 }
 
 func (_c *MockPricingService_UpdatePricingPlan_Call) RunAndReturn(run func(ctx context.Context, id uint, plan *models.PricingPlan) error) *MockPricingService_UpdatePricingPlan_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// UpdatePricingPlanPeriod provides a mock function for the type MockPricingService
+func (_mock *MockPricingService) UpdatePricingPlanPeriod(ctx context.Context, id uint, period *models.PricingPlanPeriod) error {
+	ret := _mock.Called(ctx, id, period)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdatePricingPlanPeriod")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uint, *models.PricingPlanPeriod) error); ok {
+		r0 = returnFunc(ctx, id, period)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockPricingService_UpdatePricingPlanPeriod_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdatePricingPlanPeriod'
+type MockPricingService_UpdatePricingPlanPeriod_Call struct {
+	*mock.Call
+}
+
+// UpdatePricingPlanPeriod is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id uint
+//   - period *models.PricingPlanPeriod
+func (_e *MockPricingService_Expecter) UpdatePricingPlanPeriod(ctx interface{}, id interface{}, period interface{}) *MockPricingService_UpdatePricingPlanPeriod_Call {
+	return &MockPricingService_UpdatePricingPlanPeriod_Call{Call: _e.mock.On("UpdatePricingPlanPeriod", ctx, id, period)}
+}
+
+func (_c *MockPricingService_UpdatePricingPlanPeriod_Call) Run(run func(ctx context.Context, id uint, period *models.PricingPlanPeriod)) *MockPricingService_UpdatePricingPlanPeriod_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 uint
+		if args[1] != nil {
+			arg1 = args[1].(uint)
+		}
+		var arg2 *models.PricingPlanPeriod
+		if args[2] != nil {
+			arg2 = args[2].(*models.PricingPlanPeriod)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockPricingService_UpdatePricingPlanPeriod_Call) Return(err error) *MockPricingService_UpdatePricingPlanPeriod_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockPricingService_UpdatePricingPlanPeriod_Call) RunAndReturn(run func(ctx context.Context, id uint, period *models.PricingPlanPeriod) error) *MockPricingService_UpdatePricingPlanPeriod_Call {
 	_c.Call.Return(run)
 	return _c
 }

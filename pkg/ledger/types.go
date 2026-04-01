@@ -56,7 +56,7 @@ type Credit struct {
 	Amount decimal.Decimal
 
 	// Type specifies the category of credit (e.g., "time", "usage", "charge", "refund").
-	// Type values are defined and validated by CreditType registrations.
+	// Type values (TransactionType constants) are defined and validated by CreditType registrations.
 	Type string
 
 	// Direction indicates value flow direction ("credit" or "debit").

@@ -170,8 +170,8 @@ func (_c *MockFullPaymentGateway_ExtractEventType_Call) RunAndReturn(run func(ct
 }
 
 // GetCheckoutUI provides a mock function for the type MockFullPaymentGateway
-func (_mock *MockFullPaymentGateway) GetCheckoutUI(ctx context.Context, userID uint, planID uint) (*CheckoutUIResponse, error) {
-	ret := _mock.Called(ctx, userID, planID)
+func (_mock *MockFullPaymentGateway) GetCheckoutUI(ctx context.Context, userID uint, planID uint, periodID uint) (*CheckoutUIResponse, error) {
+	ret := _mock.Called(ctx, userID, planID, periodID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetCheckoutUI")
@@ -179,18 +179,18 @@ func (_mock *MockFullPaymentGateway) GetCheckoutUI(ctx context.Context, userID u
 
 	var r0 *CheckoutUIResponse
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, uint, uint) (*CheckoutUIResponse, error)); ok {
-		return returnFunc(ctx, userID, planID)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uint, uint, uint) (*CheckoutUIResponse, error)); ok {
+		return returnFunc(ctx, userID, planID, periodID)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, uint, uint) *CheckoutUIResponse); ok {
-		r0 = returnFunc(ctx, userID, planID)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uint, uint, uint) *CheckoutUIResponse); ok {
+		r0 = returnFunc(ctx, userID, planID, periodID)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*CheckoutUIResponse)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, uint, uint) error); ok {
-		r1 = returnFunc(ctx, userID, planID)
+	if returnFunc, ok := ret.Get(1).(func(context.Context, uint, uint, uint) error); ok {
+		r1 = returnFunc(ctx, userID, planID, periodID)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -206,11 +206,12 @@ type MockFullPaymentGateway_GetCheckoutUI_Call struct {
 //   - ctx context.Context
 //   - userID uint
 //   - planID uint
-func (_e *MockFullPaymentGateway_Expecter) GetCheckoutUI(ctx interface{}, userID interface{}, planID interface{}) *MockFullPaymentGateway_GetCheckoutUI_Call {
-	return &MockFullPaymentGateway_GetCheckoutUI_Call{Call: _e.mock.On("GetCheckoutUI", ctx, userID, planID)}
+//   - periodID uint
+func (_e *MockFullPaymentGateway_Expecter) GetCheckoutUI(ctx interface{}, userID interface{}, planID interface{}, periodID interface{}) *MockFullPaymentGateway_GetCheckoutUI_Call {
+	return &MockFullPaymentGateway_GetCheckoutUI_Call{Call: _e.mock.On("GetCheckoutUI", ctx, userID, planID, periodID)}
 }
 
-func (_c *MockFullPaymentGateway_GetCheckoutUI_Call) Run(run func(ctx context.Context, userID uint, planID uint)) *MockFullPaymentGateway_GetCheckoutUI_Call {
+func (_c *MockFullPaymentGateway_GetCheckoutUI_Call) Run(run func(ctx context.Context, userID uint, planID uint, periodID uint)) *MockFullPaymentGateway_GetCheckoutUI_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -224,10 +225,15 @@ func (_c *MockFullPaymentGateway_GetCheckoutUI_Call) Run(run func(ctx context.Co
 		if args[2] != nil {
 			arg2 = args[2].(uint)
 		}
+		var arg3 uint
+		if args[3] != nil {
+			arg3 = args[3].(uint)
+		}
 		run(
 			arg0,
 			arg1,
 			arg2,
+			arg3,
 		)
 	})
 	return _c
@@ -238,7 +244,7 @@ func (_c *MockFullPaymentGateway_GetCheckoutUI_Call) Return(checkoutUIResponse *
 	return _c
 }
 
-func (_c *MockFullPaymentGateway_GetCheckoutUI_Call) RunAndReturn(run func(ctx context.Context, userID uint, planID uint) (*CheckoutUIResponse, error)) *MockFullPaymentGateway_GetCheckoutUI_Call {
+func (_c *MockFullPaymentGateway_GetCheckoutUI_Call) RunAndReturn(run func(ctx context.Context, userID uint, planID uint, periodID uint) (*CheckoutUIResponse, error)) *MockFullPaymentGateway_GetCheckoutUI_Call {
 	_c.Call.Return(run)
 	return _c
 }

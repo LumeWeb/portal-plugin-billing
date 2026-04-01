@@ -23,7 +23,7 @@ type CreditService interface {
 	IssueCreditFromGateway(
 		ctx context.Context,
 		userID uint64,
-		creditType string,
+		transactionType string,
 		amount decimal.Decimal,
 		referenceType string,
 		referenceID string,
@@ -36,7 +36,7 @@ type CreditService interface {
 	IssueCreditWithIdempotency(
 		ctx context.Context,
 		userID uint64,
-		creditType string,
+		transactionType string,
 		amount decimal.Decimal,
 		referenceType string,
 		referenceID string,
@@ -48,7 +48,7 @@ type CreditService interface {
 	IssueUsageCredit(
 		ctx context.Context,
 		userID uint64,
-		creditType string,
+		transactionType string,
 		amount decimal.Decimal,
 		referenceID string,
 		description string,
@@ -59,6 +59,14 @@ type CreditService interface {
 	// Service-level method that wraps repository GetCredits with logging
 	ListCredits(ctx context.Context, filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination) ([]ledger.Credit, int64, error)
 
+	// ValidateSubscriptionChange validates that a subscription change is acceptable
+	// based on the user's current ledger balance and credit history
+	ValidateSubscriptionChange(
+		ctx context.Context,
+		userID uint64,
+		changeType SubscriptionChangeType,
+		expectedAmount decimal.Decimal,
+	) error
 
 }
 
@@ -72,16 +80,39 @@ const (
 	ReferenceTypeAtlosPayment  = "atlos.payment"
 )
 
-// CreditType constants identify different credit categories
+// TransactionType constants identify different transaction categories
 const (
-	CreditTypeCharge     = "charge"
-	CreditTypeRefund     = "refund"
-	CreditTypeUsage      = "usage"
-	CreditTypeManual     = "manual_adjustment"
-	CreditTypePromo      = "promo"
-	CreditTypeTime       = "time"
-	CreditTypeChargeBack = "charge_back"
-	CreditTypeComp       = "comp"
+	// TransactionTypeCharge represents a credit entry for payments received from payment gateways
+	// Indicates funds added to the user's ledger via successful invoice payments
+	TransactionTypeCharge = "charge"
+
+	// TransactionTypeRefund represents a refund that returns credits to the user
+	// Typically issued as a debit to reduce the ledger balance when payments are reversed
+	TransactionTypeRefund = "refund"
+
+	// TransactionTypeUsage represents resource consumption that debits from the user's balance
+	// Applied when users consume billable resources beyond their allocated amounts
+	TransactionTypeUsage = "usage"
+
+	// TransactionTypeManual represents manual adjustments made by administrators
+	// Used for corrections, credit additions, or balance modifications outside automated systems
+	TransactionTypeManual = "manual_adjustment"
+
+	// TransactionTypePromo represents promotional credits applied to user accounts
+	// Issued as a credit for marketing campaigns, signup bonuses, or promotional offers
+	TransactionTypePromo = "promo"
+
+	// TransactionTypeTime represents subscription time or billing period costs
+	// Debited from the user's ledger when a subscription billing period is consumed
+	TransactionTypeTime = "time"
+
+	// TransactionTypeChargeBack represents a disputed payment reversal
+	// Issued as a debit when a payment is successfully disputed by the user through their bank
+	TransactionTypeChargeBack = "charge_back"
+
+	// TransactionTypeComp represents complimentary or compensation credits
+	// Issued for customer service gestures, goodwill credits, or subscription cancellation prorations
+	TransactionTypeComp = "comp"
 )
 
 // Direction constants

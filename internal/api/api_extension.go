@@ -1,15 +1,18 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gabriel-vasile/mimetype"
 	"github.com/labstack/echo/v4"
+	sseServer "github.com/apt304/sse-go/server"
 	"go.lumeweb.com/httputil"
 	"go.lumeweb.com/portal-middleware/auth/jwt"
 	mcontext "go.lumeweb.com/portal-middleware/context"
@@ -17,6 +20,7 @@ import (
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
 	"go.lumeweb.com/portal-plugin-billing/internal/api/dto"
 	"go.lumeweb.com/portal-plugin-billing/internal/db/models"
+	billingEvent "go.lumeweb.com/portal-plugin-billing/internal/event"
 	router "go.lumeweb.com/portal-router"
 	"go.lumeweb.com/portal/config"
 	"go.lumeweb.com/portal/core"
@@ -38,6 +42,8 @@ type APIExtension struct {
 	db             *gorm.DB
 	pricingService pluginCore.PricingService
 	billingService pluginCore.BillingService
+	creditService  pluginCore.CreditService
+	sseServer      *sseServer.Server
 }
 
 // NewAPIExtension creates a new API extension for billing
@@ -60,6 +66,23 @@ func NewAPIExtension() core.APIExtensionFactory {
 				return fmt.Errorf("billing service not available")
 			}
 
+			// Get and verify the credit service
+			if ext.creditService = core.GetService[pluginCore.CreditService](ctx, pluginCore.CREDIT_SERVICE); ext.creditService == nil {
+				return fmt.Errorf("credit service not available")
+			}
+
+			// Initialize SSE server with apt304/sse-go
+			subscriber := sseServer.NewDropOldestSubscriber(sseServer.Options{
+				Buffer:            100,               // Store up to 100 events per subscriber
+				HeartbeatInterval: 15 * time.Second,  // Send heartbeat every 15s to keep connections alive
+			})
+			ext.sseServer = sseServer.NewServer(sseServer.Config{}, subscriber)
+			
+			// Register event listeners for billing events
+			ext.registerBillingEventListeners(ctx)
+
+			ctx.Logger().Info("SSE server initialized for billing plugin with heartbeat support")
+
 			return nil
 		})), nil
 	}
@@ -72,6 +95,10 @@ func (e *APIExtension) TargetAPI() string {
 
 // Configure is called to set up routes on the API router
 func (e *APIExtension) Configure(gRouter router.Router, accessSvc core.AccessService) error {
+	// Initialize schema provider for filter/sort support
+	schemaProvider := queryutil.NewSchemaProvider()
+	creditItemSchema := schemaProvider.ForType(&dto.UserCreditItem{})
+
 	// Create middleware instances once
 	authMw := middleware.AuthMiddleware(e.Context(), middleware.WithAuthPurpose(jwt.PurposeLogin))
 	// Create auth middleware variant for pricing plans that allows empty authentication
@@ -117,6 +144,23 @@ func (e *APIExtension) Configure(gRouter router.Router, accessSvc core.AccessSer
 			router.WithAccess(core.ACCESS_USER_ROLE),
 			router.WithMiddlewares(authMw, accessMw),
 			router.WithCors(),
+		),
+		// SSE subscription events endpoint
+		router.NewRoute(http.MethodGet, "/api/account/billing/subscription/events", e.handleSubscriptionSSE,
+			router.WithSwagger(
+				router.WithSummary("Subscribe to subscription events via SSE"),
+				router.WithDescription("Establishes a Server-Sent Events (SSE) connection for real-time subscription updates including payment completions, subscription activations, and plan changes"),
+				router.WithTags("Billing"),
+				router.WithSuccessResponse(http.StatusOK, "SSE connection established"),
+				router.WithErrorResponses(
+					router.DefineSwaggerErrorResponses(
+						router.DefineSwaggerErrorResponse(http.StatusUnauthorized, "Authentication required"),
+						router.DefineSwaggerErrorResponse(http.StatusInternalServerError, "Failed to establish SSE connection"),
+					),
+				),
+			),
+			router.WithAccess(core.ACCESS_USER_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
 		),
 		// Subscription management capabilities endpoint
 		router.NewRoute(http.MethodGet, "/api/account/billing/management/capabilities", e.handleGetManagementCapabilities,
@@ -227,6 +271,46 @@ func (e *APIExtension) Configure(gRouter router.Router, accessSvc core.AccessSer
 			router.WithMiddlewares(authMw, accessMw),
 			router.WithCors(),
 		),
+		// User balance endpoint
+		router.NewRoute(http.MethodGet, "/api/account/billing/balance", e.handleGetBalance,
+			router.WithSwagger(
+				router.WithSummary("Get Current User's Credit Balance"),
+				router.WithDescription("Returns the authenticated user's current credit balance. Positive balance indicates available credits, negative balance indicates outstanding dues."),
+				router.WithTags("Billing"),
+				router.WithSuccessResponse(http.StatusOK, "Balance retrieved successfully",
+					router.WithJSONContent(dto.BalanceResponse{})),
+				router.WithErrorResponses(
+					router.DefineSwaggerErrorResponses(
+						router.DefineSwaggerErrorResponse(http.StatusUnauthorized, "Authentication required"),
+						router.DefineSwaggerErrorResponse(http.StatusInternalServerError, "Failed to retrieve balance"),
+					),
+				),
+			),
+			router.WithAccess(core.ACCESS_USER_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
+			router.WithCors(),
+		),
+		// User credits history endpoint
+		router.NewRoute(http.MethodGet, "/api/account/billing/credits", e.handleListUserCredits,
+			router.WithSwagger(
+				router.WithSummary("Get Current User's Credit History"),
+				router.WithDescription("Returns the authenticated user's credit transaction history with support for filtering by transaction type, direction, and date range. Results are paginated."),
+				router.WithTags("Billing"),
+				router.WithSchema(creditItemSchema),
+				router.WithFilterParamsFromSchema(creditItemSchema),
+				router.WithSuccessResponse(http.StatusOK, "Credits retrieved successfully",
+					router.WithJSONContent(dto.UserCreditsListResponse{})),
+				router.WithErrorResponses(
+					router.DefineSwaggerErrorResponses(
+						router.DefineSwaggerErrorResponse(http.StatusUnauthorized, "Authentication required"),
+						router.DefineSwaggerErrorResponse(http.StatusInternalServerError, "Failed to retrieve credit history"),
+					),
+				),
+			),
+			router.WithAccess(core.ACCESS_USER_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
+			router.WithCors(),
+		),
 	)
 
 	// Register dashboard routes
@@ -263,28 +347,12 @@ func (e *APIExtension) Configure(gRouter router.Router, accessSvc core.AccessSer
 		router.NewRoute(http.MethodGet, "/api/billing/plans", e.handleListPricingPlans,
 			router.WithSwagger(
 				router.WithSummary("List Pricing Plans"),
-				router.WithDescription("Returns pricing plans for user's effective price line"),
+				router.WithDescription("Returns pricing plans with their periods for user's effective price line"),
 				router.WithTags("Billing"),
 				router.WithSuccessResponse(http.StatusOK, "Pricing plans retrieved"),
 				router.WithErrorResponses(
 					router.DefineSwaggerErrorResponses(
 						router.DefineSwaggerErrorResponse(http.StatusBadRequest, "Failed to get pricing plans"),
-					),
-				),
-			),
-			router.WithMiddlewares(pricingAuthMw),
-		),
-		router.NewRoute(http.MethodGet, "/api/billing/plans/:id", e.handleGetPricingPlanDetail,
-			router.WithSwagger(
-				router.WithSummary("Get Pricing Plan Detail"),
-				router.WithDescription("Returns detailed information for a pricing plan"),
-				router.WithTags("Billing"),
-				router.WithPathParam("id", "Plan ID", "123"),
-				router.WithSuccessResponse(http.StatusOK, "Plan details retrieved"),
-				router.WithErrorResponses(
-					router.DefineSwaggerErrorResponses(
-						router.DefineSwaggerErrorResponse(http.StatusBadRequest, "Invalid plan ID"),
-						router.DefineSwaggerErrorResponse(http.StatusNotFound, "Pricing plan not found"),
 					),
 				),
 			),
@@ -331,6 +399,38 @@ func (e *APIExtension) handleSubscriptionStatus(c echo.Context) error {
 	return httputil.EncodeResponse[*pluginCore.Subscriber](ctx, sub, &responseDto)
 }
 
+// handleSubscriptionSSE establishes a Server-Sent Events connection for subscription status updates
+func (e *APIExtension) handleSubscriptionSSE(c echo.Context) error {
+	ctx := httputil.Context(c)
+	userID, ok := e.getUser(ctx)
+	if !ok {
+		return ctx.Error(NewError(ErrKeyUnauthorized, fmt.Errorf("failed to get user ID")), http.StatusUnauthorized)
+	}
+
+	// Get the user-specific topic for billing events
+	topic := e.getUserTopic(userID)
+
+	// Set up lifecycle hooks for connection tracking
+	hooks := sseServer.LifecycleHooks{
+		OnConnect: func(sub sseServer.Subscription) {
+			ctx.Logger().Debug("SSE client connected",
+				zap.Uint("user_id", userID),
+				zap.Strings("topics", sub.Topics))
+		},
+		OnDisconnect: func(sub sseServer.Subscription) {
+			ctx.Logger().Debug("SSE client disconnected",
+				zap.Uint("user_id", userID),
+				zap.Strings("topics", sub.Topics))
+		},
+	}
+
+	// Serve SSE connection using apt304/sse-go
+	// This handles all SSE protocol details, heartbeats, and graceful connection management
+	e.sseServer.ServeHTTP(c.Response(), c.Request(), []string{topic}, hooks)
+
+	return nil
+}
+
 // handleGetCheckoutUI returns checkout UI fragments for a plan
 func (e *APIExtension) handleGetCheckoutUI(c echo.Context) error {
 	ctx := httputil.Context(c)
@@ -346,6 +446,13 @@ func (e *APIExtension) handleGetCheckoutUI(c echo.Context) error {
 		return ctx.Error(NewError(ErrKeyInvalidPlanID, fmt.Errorf("invalid plan ID")), http.StatusBadRequest)
 	}
 
+	// Parse period ID from query parameter
+	periodIDParam := c.QueryParam("period_id")
+	periodID, err := strconv.ParseUint(periodIDParam, 10, 64)
+	if err != nil || periodIDParam == "" {
+		return ctx.Error(NewError(ErrKeyInvalidRequest, fmt.Errorf("invalid period ID")), http.StatusBadRequest)
+	}
+
 	// Get gateway type from query param (optional)
 	gatewayType := c.QueryParam("gateway")
 
@@ -355,11 +462,12 @@ func (e *APIExtension) handleGetCheckoutUI(c echo.Context) error {
 	}
 
 	// Get checkout UI from billing service which includes validation logic
-	response, err := e.billingService.GetCheckoutUI(c.Request().Context(), userID, uint(planID), gatewayType)
+	response, err := e.billingService.GetCheckoutUI(c.Request().Context(), userID, uint(planID), gatewayType, uint(periodID))
 	if err != nil {
 		e.Logger().Error("failed to get checkout UI",
 			zap.Uint("user_id", userID),
 			zap.Uint("plan_id", uint(planID)),
+			zap.Uint("period_id", uint(periodID)),
 			zap.String("gateway_type", gatewayType),
 			zap.Error(err))
 
@@ -374,6 +482,7 @@ func (e *APIExtension) handleGetCheckoutUI(c echo.Context) error {
 	e.Logger().Debug("checkout UI retrieved",
 		zap.Uint("user_id", userID),
 		zap.Uint("plan_id", uint(planID)),
+		zap.Uint("period_id", uint(periodID)),
 		zap.String("gateway_type", gatewayType),
 	)
 
@@ -500,7 +609,7 @@ func (e *APIExtension) handleGetGatewayLogo(c echo.Context) error {
 	return c.Blob(http.StatusOK, contentType, logoData)
 }
 
-// handleListPricingPlans returns pricing plans for user
+// handleListPricingPlans returns pricing plans with their periods for user
 func (e *APIExtension) handleListPricingPlans(c echo.Context) error {
 	ctx := httputil.Context(c)
 	reqCtx := ctx.Context.Request().Context()
@@ -513,30 +622,28 @@ func (e *APIExtension) handleListPricingPlans(c echo.Context) error {
 		c.Request(),
 		"pricing_plans",
 		func(filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination) ([]*models.PricingPlan, int64, error) {
-			// If user is not authenticated, return default price line plans
+			var priceLineID uint
+
+			// If user is not authenticated, use default price line
 			if !ok || userID == 0 {
 				priceLine, err := e.pricingService.GetDefaultPriceLine(reqCtx)
 				if err != nil {
 					e.Logger().Error("failed to get default price line", zap.Error(err))
 					return nil, 0, fmt.Errorf("failed to retrieve pricing: %w", err)
 				}
-				plans, err := e.pricingService.GetPlansForPriceLine(reqCtx, priceLine.ID)
+				priceLineID = priceLine.ID
+			} else {
+				// Get effective price line for user
+				priceLine, err := e.pricingService.GetEffectivePriceLineForUser(reqCtx, userID)
 				if err != nil {
-					e.Logger().Error("failed to get pricing plans", zap.Error(err))
-					return nil, 0, fmt.Errorf("failed to retrieve plans: %w", err)
+					e.Logger().Error("failed to get effective price line", zap.Error(err))
+					return nil, 0, fmt.Errorf("failed to retrieve pricing: %w", err)
 				}
-				return plans, int64(len(plans)), nil
+				priceLineID = priceLine.ID
 			}
 
-			// Get effective price line for user
-			priceLine, err := e.pricingService.GetEffectivePriceLineForUser(reqCtx, userID)
-			if err != nil {
-				e.Logger().Error("failed to get effective price line", zap.Error(err))
-				return nil, 0, fmt.Errorf("failed to retrieve pricing: %w", err)
-			}
-
-			// Get pricing plans for the price line with positions
-			plans, err := e.pricingService.GetPlansForPriceLine(reqCtx, priceLine.ID)
+			// Get pricing plans for the price line
+			plans, err := e.pricingService.GetPlansForPriceLine(reqCtx, priceLineID)
 			if err != nil {
 				e.Logger().Error("failed to get pricing plans", zap.Error(err))
 				return nil, 0, fmt.Errorf("failed to retrieve plans: %w", err)
@@ -544,32 +651,19 @@ func (e *APIExtension) handleListPricingPlans(c echo.Context) error {
 
 			return plans, int64(len(plans)), nil
 		},
-		func(plan *models.PricingPlan) dto.PricingPlanResponse {
-			var resp dto.PricingPlanResponse
+		func(plan *models.PricingPlan) dto.PublicPricingPlanResponse {
+			var resp dto.PublicPricingPlanResponse
 			_ = resp.FromModel(plan)
+			// Fetch periods for each plan
+			periods, err := e.pricingService.GetPricingPlanPeriods(reqCtx, plan.ID)
+			if err != nil {
+				e.Logger().Error("failed to get pricing plan periods", zap.Uint("plan_id", plan.ID), zap.Error(err))
+			} else if len(periods) > 0 {
+				resp.SetPricingPeriods(periods)
+			}
 			return resp
 		},
 	)
-}
-
-// handleGetPricingPlanDetail returns detailed plan information
-func (e *APIExtension) handleGetPricingPlanDetail(c echo.Context) error {
-	ctx := httputil.Context(c)
-	reqCtx := ctx.Context.Request().Context()
-
-	idStr := c.Param("id")
-	id, err := strconv.ParseUint(idStr, 10, 64)
-	if err != nil {
-		return ctx.Error(NewError(ErrKeyInvalidPlanID, fmt.Errorf("invalid plan ID format: %w", err)), http.StatusBadRequest)
-	}
-
-	plan, err := e.pricingService.GetPricingPlan(reqCtx, uint(id))
-	if err != nil {
-		return ctx.Error(NewError(ErrKeyPricingPlanNotFound, fmt.Errorf("pricing plan with ID %d not found", id)), http.StatusNotFound)
-	}
-
-	var resp dto.PricingPlanResponse
-	return httputil.EncodeResponse(ctx, plan, &resp)
 }
 
 // handleGetManagementCapabilities returns the subscription management capabilities
@@ -723,7 +817,9 @@ func (e *APIExtension) getUser(ctx httputil.RequestContext) (uint, bool) {
 	return user, true
 }
 
-// handleCancelOperation handles the predefined cancel operation
+// handleCancelOperation executes the cancel operation.
+// This endpoint is called after UI discovers it via POST /management.
+// For API mode gateways, it executes directly. For portal mode, it returns redirect URL.
 func (e *APIExtension) handleCancelOperation(c echo.Context) error {
 	ctx := httputil.Context(c)
 	userID, ok := e.getUser(ctx)
@@ -754,13 +850,13 @@ func (e *APIExtension) handleCancelOperation(c echo.Context) error {
 		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("failed to get payment gateway")), http.StatusInternalServerError)
 	}
 
-	// Check if gateway implements SubscriptionManager
+	// Check if gateway implements SubscriptionManager (for portal mode)
 	manager, ok := gateway.(pluginCore.SubscriptionManager)
 	if !ok {
 		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway does not support subscription management")), http.StatusInternalServerError)
 	}
 
-	// Get management capabilities to check if operation is supported
+	// Get management capabilities to determine mode
 	capabilities, err := manager.GetManagementInfo(c.Request().Context(), userID)
 	if err != nil {
 		e.Logger().Error("failed to get management capabilities",
@@ -770,24 +866,14 @@ func (e *APIExtension) handleCancelOperation(c echo.Context) error {
 		return ctx.Error(NewError(ErrKeyManagementCapabilitiesFailed, fmt.Errorf("failed to get management capabilities: %w", err)), http.StatusInternalServerError)
 	}
 
-	// Check if cancellation is supported
-	supported, exists := capabilities.Operations[pluginCore.OperationCancel]
-	if !exists || !supported {
-		return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("cancellation is not supported by this gateway")), http.StatusBadRequest)
-	}
+	// API mode: execute directly
+	if capabilities.ManagementMode == pluginCore.ModeAPI {
+		// Verify operation is supported (defense in depth)
+		supported, exists := capabilities.Operations[pluginCore.OperationCancel]
+		if !exists || !supported {
+			return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("cancellation is not supported by this gateway")), http.StatusBadRequest)
+		}
 
-	// Get management result for cancellation
-	result, err := manager.GetManagementURL(c.Request().Context(), userID, pluginCore.OperationCancel)
-	if err != nil {
-		e.Logger().Error("failed to get cancellation operation details",
-			zap.Uint("user_id", userID),
-			zap.String("gateway_type", sub.GatewayType),
-			zap.Error(err))
-		return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("failed to get cancellation operation details: %w", err)), http.StatusInternalServerError)
-	}
-
-	// For API-based gateways, execute the cancel operation directly
-	if capabilities.ManagementMode == pluginCore.ModeAPI && result.Action == pluginCore.ActionAPIRequired {
 		executor, ok := gateway.(pluginCore.SubscriptionExecutor)
 		if !ok {
 			return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway does not support subscription execution")), http.StatusInternalServerError)
@@ -801,25 +887,24 @@ func (e *APIExtension) handleCancelOperation(c echo.Context) error {
 			return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("failed to cancel subscription: %w", err)), http.StatusInternalServerError)
 		}
 
-		// Return success response
-		successResult := &pluginCore.ManagementResult{
-			Action:              pluginCore.ActionShowUI,
-			RequiresConfirmation: false,
-		}
-		response := dto.ManagementResultResponse{}
-		if err := response.FromModel(successResult); err != nil {
-			e.Logger().Error("failed to build cancellation success response",
-				zap.Uint("user_id", userID),
-				zap.Error(err))
-			return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("failed to build response: %w", err)), http.StatusInternalServerError)
-		}
-		return httputil.EncodeResponse(ctx, successResult, &response)
+		return c.JSON(http.StatusOK, dto.ManagementResultResponse{
+			Action: pluginCore.ActionShowUI,
+		})
 	}
 
-	// Build response for non-API gateways (redirect, portal, etc.)
+	// Portal mode: return redirect URL
+	result, err := manager.GetManagementURL(c.Request().Context(), userID, pluginCore.OperationCancel)
+	if err != nil {
+		e.Logger().Error("failed to get cancellation portal URL",
+			zap.Uint("user_id", userID),
+			zap.String("gateway_type", sub.GatewayType),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("failed to get cancellation URL: %w", err)), http.StatusInternalServerError)
+	}
+
 	response := dto.ManagementResultResponse{}
 	if err := response.FromModel(result); err != nil {
-		e.Logger().Error("failed to build cancellation operation response",
+		e.Logger().Error("failed to build cancellation response",
 			zap.Uint("user_id", userID),
 			zap.Error(err))
 		return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("failed to build response: %w", err)), http.StatusInternalServerError)
@@ -828,12 +913,21 @@ func (e *APIExtension) handleCancelOperation(c echo.Context) error {
 	return httputil.EncodeResponse(ctx, result, &response)
 }
 
-// handleChangePlanOperation handles the predefined change-plan operation
+// handleChangePlanOperation executes the plan change operation.
+// This endpoint is called after UI discovers it via POST /management.
+// For API mode gateways, it executes directly. For portal mode, it returns redirect URL.
 func (e *APIExtension) handleChangePlanOperation(c echo.Context) error {
 	ctx := httputil.Context(c)
 	userID, ok := e.getUser(ctx)
 	if !ok {
 		return ctx.Error(NewError(ErrKeyUnauthorized, fmt.Errorf("failed to get user ID")), http.StatusUnauthorized)
+	}
+
+	// Parse request body for period_id (required for API mode)
+	var request dto.ChangePlanRequest
+	_, valid := httputil.DecodeAndValidateRequest[*dto.ChangePlanRequest, *dto.ChangePlanRequest](ctx, &request)
+	if !valid {
+		return nil // Error handled by DecodeAndValidateRequest
 	}
 
 	// Get active subscription to determine gateway
@@ -859,13 +953,13 @@ func (e *APIExtension) handleChangePlanOperation(c echo.Context) error {
 		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("failed to get payment gateway")), http.StatusInternalServerError)
 	}
 
-	// Check if gateway implements SubscriptionManager
+	// Check if gateway implements SubscriptionManager (for portal mode)
 	manager, ok := gateway.(pluginCore.SubscriptionManager)
 	if !ok {
 		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway does not support subscription management")), http.StatusInternalServerError)
 	}
 
-	// Get management capabilities to check if operation is supported
+	// Get management capabilities to determine mode
 	capabilities, err := manager.GetManagementInfo(c.Request().Context(), userID)
 	if err != nil {
 		e.Logger().Error("failed to get management capabilities",
@@ -875,26 +969,53 @@ func (e *APIExtension) handleChangePlanOperation(c echo.Context) error {
 		return ctx.Error(NewError(ErrKeyManagementCapabilitiesFailed, fmt.Errorf("failed to get management capabilities: %w", err)), http.StatusInternalServerError)
 	}
 
-	// Check if plan change is supported
-	supported, exists := capabilities.Operations[pluginCore.OperationChangePlan]
-	if !exists || !supported {
-		return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("plan change is not supported by this gateway")), http.StatusBadRequest)
+	// API mode: execute directly
+	if capabilities.ManagementMode == pluginCore.ModeAPI {
+		// Verify operation is supported (defense in depth)
+		supported, exists := capabilities.Operations[pluginCore.OperationChangePlan]
+		if !exists || !supported {
+			return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("plan change is not supported by this gateway")), http.StatusBadRequest)
+		}
+
+		executor, ok := gateway.(pluginCore.SubscriptionExecutor)
+		if !ok {
+			return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway does not support subscription execution")), http.StatusInternalServerError)
+		}
+
+		result, err := executor.ExecutePlanChange(c.Request().Context(), userID, request.PeriodID)
+		if err != nil {
+			e.Logger().Error("failed to execute plan change",
+				zap.Uint("user_id", userID),
+				zap.Uint("period_id", request.PeriodID),
+				zap.String("gateway_type", sub.GatewayType),
+				zap.Error(err))
+			return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("failed to change plan: %w", err)), http.StatusInternalServerError)
+		}
+
+		response := dto.PlanChangeResultResponse{}
+		if err := response.FromModel(result); err != nil {
+			e.Logger().Error("failed to build plan change response",
+				zap.Uint("user_id", userID),
+				zap.Error(err))
+			return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("failed to build response: %w", err)), http.StatusInternalServerError)
+		}
+
+		return httputil.EncodeResponse(ctx, result, &response)
 	}
 
-	// Get management result for plan change
+	// Portal mode: return redirect URL
 	result, err := manager.GetManagementURL(c.Request().Context(), userID, pluginCore.OperationChangePlan)
 	if err != nil {
-		e.Logger().Error("failed to get plan change operation details",
+		e.Logger().Error("failed to get plan change portal URL",
 			zap.Uint("user_id", userID),
 			zap.String("gateway_type", sub.GatewayType),
 			zap.Error(err))
-		return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("failed to get plan change operation details: %w", err)), http.StatusInternalServerError)
+		return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("failed to get plan change URL: %w", err)), http.StatusInternalServerError)
 	}
 
-	// Build response
 	response := dto.ManagementResultResponse{}
 	if err := response.FromModel(result); err != nil {
-		e.Logger().Error("failed to build plan change operation response",
+		e.Logger().Error("failed to build plan change response",
 			zap.Uint("user_id", userID),
 			zap.Error(err))
 		return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("failed to build response: %w", err)), http.StatusInternalServerError)
@@ -911,3 +1032,126 @@ func (e *APIExtension) getUserIDFromContext(c echo.Context) (uint, bool) {
 	}
 	return userID, true
 }
+
+// getUserTopic returns the SSE topic name for a specific user
+// This allows targeted broadcasting of billing events to a specific user
+func (e *APIExtension) getUserTopic(userID uint) string {
+	return fmt.Sprintf("user-%d", userID)
+}
+
+// registerBillingEventListeners registers the SSE server as a listener to portal billing events
+// When billing events occur, they are published to the appropriate user's SSE topic
+func (e *APIExtension) registerBillingEventListeners(coreCtx core.Context) {
+	// Register listener for payment completed events
+	// Note: Use PaymentCompletedEvent (not *PaymentCompletedEvent) to avoid pointer-to-pointer issues
+	core.Listen[billingEvent.PaymentCompletedEvent](coreCtx,
+		billingEvent.EVENT_PAYMENT_COMPLETED,
+		func(ev *core.CoreEvent[billingEvent.PaymentCompletedEvent]) error {
+			e.Logger().Debug("received PaymentCompletedEvent",
+				zap.Uint("user_id", ev.Data.UserID),
+				zap.String("amount", ev.Data.Amount.String()),
+				zap.String("gateway", ev.Data.Gateway))
+			return e.publishBillingEvent(ev.Data.UserID, billingEvent.SSEEventTypePaymentCompleted, &ev.Data)
+		})
+
+	// Register listener for subscription active events
+	core.Listen[billingEvent.SubscriptionActiveEvent](coreCtx,
+		billingEvent.EVENT_SUBSCRIPTION_ACTIVE,
+		func(ev *core.CoreEvent[billingEvent.SubscriptionActiveEvent]) error {
+			return e.publishBillingEvent(ev.Data.UserID, billingEvent.SSEEventTypeSubscriptionActive, ev.Data)
+		})
+
+	// Register listener for subscription created events
+	core.Listen[billingEvent.SubscriptionCreatedEvent](coreCtx,
+		billingEvent.EVENT_SUBSCRIPTION_CREATED,
+		func(ev *core.CoreEvent[billingEvent.SubscriptionCreatedEvent]) error {
+			return e.publishBillingEvent(ev.Data.UserID, billingEvent.SSEEventTypeSubscriptionCreated, ev.Data)
+		})
+
+	// Register listener for subscription updated events
+	core.Listen[billingEvent.SubscriptionUpdatedEvent](coreCtx,
+		billingEvent.EVENT_SUBSCRIPTION_UPDATED,
+		func(ev *core.CoreEvent[billingEvent.SubscriptionUpdatedEvent]) error {
+			return e.publishBillingEvent(ev.Data.UserID, billingEvent.SSEEventTypeSubscriptionUpdated, ev.Data)
+		})
+
+	// Register listener for subscription cancelled events
+	core.Listen[billingEvent.SubscriptionCancelledEvent](coreCtx,
+		billingEvent.EVENT_SUBSCRIPTION_CANCELLED,
+		func(ev *core.CoreEvent[billingEvent.SubscriptionCancelledEvent]) error {
+			return e.publishBillingEvent(ev.Data.UserID, billingEvent.SSEEventTypeSubscriptionCancelled, ev.Data)
+		})
+
+	// Register listener for plan changed events
+	core.Listen[billingEvent.PlanChangedEvent](coreCtx,
+		billingEvent.EVENT_PLAN_CHANGED,
+		func(ev *core.CoreEvent[billingEvent.PlanChangedEvent]) error {
+			return e.publishBillingEvent(ev.Data.UserID, billingEvent.SSEEventTypePlanChanged, ev.Data)
+		})
+
+	// Register listener for credit-only plan changes
+	core.Listen[billingEvent.PlanChangeCreditOnlyEvent](coreCtx,
+		billingEvent.EVENT_PLAN_CHANGE_CREDIT_ONLY,
+		func(ev *core.CoreEvent[billingEvent.PlanChangeCreditOnlyEvent]) error {
+			return e.publishBillingEvent(ev.Data.UserID, billingEvent.SSEEventTypeCreditOnly, ev.Data)
+		})
+
+	// Register listener for zero-amount plan changes
+	core.Listen[billingEvent.PlanChangeZeroAmountEvent](coreCtx,
+		billingEvent.EVENT_PLAN_CHANGE_ZERO_AMOUNT,
+		func(ev *core.CoreEvent[billingEvent.PlanChangeZeroAmountEvent]) error {
+			return e.publishBillingEvent(ev.Data.UserID, billingEvent.SSEEventTypeZeroAmount, ev.Data)
+		})
+
+	coreCtx.Logger().Info("SSE server registered as listener to billing events")
+}
+
+// publishBillingEvent publishes a billing event to a user's SSE topic
+// The eventData parameter should be a portal core billing event with JSON tags
+func (e *APIExtension) publishBillingEvent(userID uint, eventType string, eventData any) error {
+	// Create SSE event wrapper for client consumption
+	sseEvent := billingEvent.NewSSEEvent(eventType, eventData)
+
+	// Marshal the wrapper to JSON
+	eventJSON, err := json.Marshal(sseEvent)
+	if err != nil {
+		e.Logger().Error("failed to marshal billing event for SSE",
+			zap.Uint("user_id", userID),
+			zap.String("event_type", eventType),
+			zap.Error(err))
+		return err
+	}
+
+	// Create SSE event
+	topic := e.getUserTopic(userID)
+	event := sseServer.Event{
+		ID:    fmt.Sprintf("billing-%d-%d", userID, time.Now().UnixNano()),
+		Type:  eventType,
+		Data:  eventJSON,
+		Retry: 3000, // Recommended retry interval in milliseconds
+	}
+
+	if err := e.sseServer.Publish(event, topic); err != nil {
+		e.Logger().Error("failed to publish billing event to SSE",
+			zap.Uint("user_id", userID),
+			zap.String("topic", topic),
+			zap.String("event_type", eventType),
+			zap.Error(err))
+		return err
+	}
+
+	e.Logger().Debug("published billing event to SSE",
+		zap.Uint("user_id", userID),
+		zap.String("event_type", eventType),
+		zap.String("topic", topic))
+	return nil
+}
+
+// min helper for string length
+func min(b []byte, maxLen int) []byte {
+	if len(b) > maxLen {
+		return b[:maxLen]
+	}
+	return b
+}
+

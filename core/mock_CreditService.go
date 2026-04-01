@@ -561,8 +561,8 @@ func (_c *MockCreditService_ID_Call) RunAndReturn(run func() string) *MockCredit
 }
 
 // IssueCreditFromGateway provides a mock function for the type MockCreditService
-func (_mock *MockCreditService) IssueCreditFromGateway(ctx context.Context, userID uint64, creditType string, amount decimal.Decimal, referenceType string, referenceID string, description string, createdBy uint64) error {
-	ret := _mock.Called(ctx, userID, creditType, amount, referenceType, referenceID, description, createdBy)
+func (_mock *MockCreditService) IssueCreditFromGateway(ctx context.Context, userID uint64, transactionType string, amount decimal.Decimal, referenceType string, referenceID string, description string, createdBy uint64) error {
+	ret := _mock.Called(ctx, userID, transactionType, amount, referenceType, referenceID, description, createdBy)
 
 	if len(ret) == 0 {
 		panic("no return value specified for IssueCreditFromGateway")
@@ -570,7 +570,7 @@ func (_mock *MockCreditService) IssueCreditFromGateway(ctx context.Context, user
 
 	var r0 error
 	if returnFunc, ok := ret.Get(0).(func(context.Context, uint64, string, decimal.Decimal, string, string, string, uint64) error); ok {
-		r0 = returnFunc(ctx, userID, creditType, amount, referenceType, referenceID, description, createdBy)
+		r0 = returnFunc(ctx, userID, transactionType, amount, referenceType, referenceID, description, createdBy)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -585,17 +585,17 @@ type MockCreditService_IssueCreditFromGateway_Call struct {
 // IssueCreditFromGateway is a helper method to define mock.On call
 //   - ctx context.Context
 //   - userID uint64
-//   - creditType string
+//   - transactionType string
 //   - amount decimal.Decimal
 //   - referenceType string
 //   - referenceID string
 //   - description string
 //   - createdBy uint64
-func (_e *MockCreditService_Expecter) IssueCreditFromGateway(ctx interface{}, userID interface{}, creditType interface{}, amount interface{}, referenceType interface{}, referenceID interface{}, description interface{}, createdBy interface{}) *MockCreditService_IssueCreditFromGateway_Call {
-	return &MockCreditService_IssueCreditFromGateway_Call{Call: _e.mock.On("IssueCreditFromGateway", ctx, userID, creditType, amount, referenceType, referenceID, description, createdBy)}
+func (_e *MockCreditService_Expecter) IssueCreditFromGateway(ctx interface{}, userID interface{}, transactionType interface{}, amount interface{}, referenceType interface{}, referenceID interface{}, description interface{}, createdBy interface{}) *MockCreditService_IssueCreditFromGateway_Call {
+	return &MockCreditService_IssueCreditFromGateway_Call{Call: _e.mock.On("IssueCreditFromGateway", ctx, userID, transactionType, amount, referenceType, referenceID, description, createdBy)}
 }
 
-func (_c *MockCreditService_IssueCreditFromGateway_Call) Run(run func(ctx context.Context, userID uint64, creditType string, amount decimal.Decimal, referenceType string, referenceID string, description string, createdBy uint64)) *MockCreditService_IssueCreditFromGateway_Call {
+func (_c *MockCreditService_IssueCreditFromGateway_Call) Run(run func(ctx context.Context, userID uint64, transactionType string, amount decimal.Decimal, referenceType string, referenceID string, description string, createdBy uint64)) *MockCreditService_IssueCreditFromGateway_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -648,14 +648,14 @@ func (_c *MockCreditService_IssueCreditFromGateway_Call) Return(err error) *Mock
 	return _c
 }
 
-func (_c *MockCreditService_IssueCreditFromGateway_Call) RunAndReturn(run func(ctx context.Context, userID uint64, creditType string, amount decimal.Decimal, referenceType string, referenceID string, description string, createdBy uint64) error) *MockCreditService_IssueCreditFromGateway_Call {
+func (_c *MockCreditService_IssueCreditFromGateway_Call) RunAndReturn(run func(ctx context.Context, userID uint64, transactionType string, amount decimal.Decimal, referenceType string, referenceID string, description string, createdBy uint64) error) *MockCreditService_IssueCreditFromGateway_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // IssueCreditWithIdempotency provides a mock function for the type MockCreditService
-func (_mock *MockCreditService) IssueCreditWithIdempotency(ctx context.Context, userID uint64, creditType string, amount decimal.Decimal, referenceType string, referenceID string, description string, createdBy uint64) error {
-	ret := _mock.Called(ctx, userID, creditType, amount, referenceType, referenceID, description, createdBy)
+func (_mock *MockCreditService) IssueCreditWithIdempotency(ctx context.Context, userID uint64, transactionType string, amount decimal.Decimal, referenceType string, referenceID string, description string, createdBy uint64) error {
+	ret := _mock.Called(ctx, userID, transactionType, amount, referenceType, referenceID, description, createdBy)
 
 	if len(ret) == 0 {
 		panic("no return value specified for IssueCreditWithIdempotency")
@@ -663,7 +663,7 @@ func (_mock *MockCreditService) IssueCreditWithIdempotency(ctx context.Context, 
 
 	var r0 error
 	if returnFunc, ok := ret.Get(0).(func(context.Context, uint64, string, decimal.Decimal, string, string, string, uint64) error); ok {
-		r0 = returnFunc(ctx, userID, creditType, amount, referenceType, referenceID, description, createdBy)
+		r0 = returnFunc(ctx, userID, transactionType, amount, referenceType, referenceID, description, createdBy)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -678,17 +678,17 @@ type MockCreditService_IssueCreditWithIdempotency_Call struct {
 // IssueCreditWithIdempotency is a helper method to define mock.On call
 //   - ctx context.Context
 //   - userID uint64
-//   - creditType string
+//   - transactionType string
 //   - amount decimal.Decimal
 //   - referenceType string
 //   - referenceID string
 //   - description string
 //   - createdBy uint64
-func (_e *MockCreditService_Expecter) IssueCreditWithIdempotency(ctx interface{}, userID interface{}, creditType interface{}, amount interface{}, referenceType interface{}, referenceID interface{}, description interface{}, createdBy interface{}) *MockCreditService_IssueCreditWithIdempotency_Call {
-	return &MockCreditService_IssueCreditWithIdempotency_Call{Call: _e.mock.On("IssueCreditWithIdempotency", ctx, userID, creditType, amount, referenceType, referenceID, description, createdBy)}
+func (_e *MockCreditService_Expecter) IssueCreditWithIdempotency(ctx interface{}, userID interface{}, transactionType interface{}, amount interface{}, referenceType interface{}, referenceID interface{}, description interface{}, createdBy interface{}) *MockCreditService_IssueCreditWithIdempotency_Call {
+	return &MockCreditService_IssueCreditWithIdempotency_Call{Call: _e.mock.On("IssueCreditWithIdempotency", ctx, userID, transactionType, amount, referenceType, referenceID, description, createdBy)}
 }
 
-func (_c *MockCreditService_IssueCreditWithIdempotency_Call) Run(run func(ctx context.Context, userID uint64, creditType string, amount decimal.Decimal, referenceType string, referenceID string, description string, createdBy uint64)) *MockCreditService_IssueCreditWithIdempotency_Call {
+func (_c *MockCreditService_IssueCreditWithIdempotency_Call) Run(run func(ctx context.Context, userID uint64, transactionType string, amount decimal.Decimal, referenceType string, referenceID string, description string, createdBy uint64)) *MockCreditService_IssueCreditWithIdempotency_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -741,14 +741,14 @@ func (_c *MockCreditService_IssueCreditWithIdempotency_Call) Return(err error) *
 	return _c
 }
 
-func (_c *MockCreditService_IssueCreditWithIdempotency_Call) RunAndReturn(run func(ctx context.Context, userID uint64, creditType string, amount decimal.Decimal, referenceType string, referenceID string, description string, createdBy uint64) error) *MockCreditService_IssueCreditWithIdempotency_Call {
+func (_c *MockCreditService_IssueCreditWithIdempotency_Call) RunAndReturn(run func(ctx context.Context, userID uint64, transactionType string, amount decimal.Decimal, referenceType string, referenceID string, description string, createdBy uint64) error) *MockCreditService_IssueCreditWithIdempotency_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // IssueUsageCredit provides a mock function for the type MockCreditService
-func (_mock *MockCreditService) IssueUsageCredit(ctx context.Context, userID uint64, creditType string, amount decimal.Decimal, referenceID string, description string, createdBy uint64) error {
-	ret := _mock.Called(ctx, userID, creditType, amount, referenceID, description, createdBy)
+func (_mock *MockCreditService) IssueUsageCredit(ctx context.Context, userID uint64, transactionType string, amount decimal.Decimal, referenceID string, description string, createdBy uint64) error {
+	ret := _mock.Called(ctx, userID, transactionType, amount, referenceID, description, createdBy)
 
 	if len(ret) == 0 {
 		panic("no return value specified for IssueUsageCredit")
@@ -756,7 +756,7 @@ func (_mock *MockCreditService) IssueUsageCredit(ctx context.Context, userID uin
 
 	var r0 error
 	if returnFunc, ok := ret.Get(0).(func(context.Context, uint64, string, decimal.Decimal, string, string, uint64) error); ok {
-		r0 = returnFunc(ctx, userID, creditType, amount, referenceID, description, createdBy)
+		r0 = returnFunc(ctx, userID, transactionType, amount, referenceID, description, createdBy)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -771,16 +771,16 @@ type MockCreditService_IssueUsageCredit_Call struct {
 // IssueUsageCredit is a helper method to define mock.On call
 //   - ctx context.Context
 //   - userID uint64
-//   - creditType string
+//   - transactionType string
 //   - amount decimal.Decimal
 //   - referenceID string
 //   - description string
 //   - createdBy uint64
-func (_e *MockCreditService_Expecter) IssueUsageCredit(ctx interface{}, userID interface{}, creditType interface{}, amount interface{}, referenceID interface{}, description interface{}, createdBy interface{}) *MockCreditService_IssueUsageCredit_Call {
-	return &MockCreditService_IssueUsageCredit_Call{Call: _e.mock.On("IssueUsageCredit", ctx, userID, creditType, amount, referenceID, description, createdBy)}
+func (_e *MockCreditService_Expecter) IssueUsageCredit(ctx interface{}, userID interface{}, transactionType interface{}, amount interface{}, referenceID interface{}, description interface{}, createdBy interface{}) *MockCreditService_IssueUsageCredit_Call {
+	return &MockCreditService_IssueUsageCredit_Call{Call: _e.mock.On("IssueUsageCredit", ctx, userID, transactionType, amount, referenceID, description, createdBy)}
 }
 
-func (_c *MockCreditService_IssueUsageCredit_Call) Run(run func(ctx context.Context, userID uint64, creditType string, amount decimal.Decimal, referenceID string, description string, createdBy uint64)) *MockCreditService_IssueUsageCredit_Call {
+func (_c *MockCreditService_IssueUsageCredit_Call) Run(run func(ctx context.Context, userID uint64, transactionType string, amount decimal.Decimal, referenceID string, description string, createdBy uint64)) *MockCreditService_IssueUsageCredit_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -828,7 +828,7 @@ func (_c *MockCreditService_IssueUsageCredit_Call) Return(err error) *MockCredit
 	return _c
 }
 
-func (_c *MockCreditService_IssueUsageCredit_Call) RunAndReturn(run func(ctx context.Context, userID uint64, creditType string, amount decimal.Decimal, referenceID string, description string, createdBy uint64) error) *MockCreditService_IssueUsageCredit_Call {
+func (_c *MockCreditService_IssueUsageCredit_Call) RunAndReturn(run func(ctx context.Context, userID uint64, transactionType string, amount decimal.Decimal, referenceID string, description string, createdBy uint64) error) *MockCreditService_IssueUsageCredit_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -1301,6 +1301,75 @@ func (_c *MockCreditService_SoftDeleteCredit_Call) Return(err error) *MockCredit
 }
 
 func (_c *MockCreditService_SoftDeleteCredit_Call) RunAndReturn(run func(ctx context.Context, id uuid.UUID) error) *MockCreditService_SoftDeleteCredit_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ValidateSubscriptionChange provides a mock function for the type MockCreditService
+func (_mock *MockCreditService) ValidateSubscriptionChange(ctx context.Context, userID uint64, changeType SubscriptionChangeType, expectedAmount decimal.Decimal) error {
+	ret := _mock.Called(ctx, userID, changeType, expectedAmount)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ValidateSubscriptionChange")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uint64, SubscriptionChangeType, decimal.Decimal) error); ok {
+		r0 = returnFunc(ctx, userID, changeType, expectedAmount)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockCreditService_ValidateSubscriptionChange_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ValidateSubscriptionChange'
+type MockCreditService_ValidateSubscriptionChange_Call struct {
+	*mock.Call
+}
+
+// ValidateSubscriptionChange is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID uint64
+//   - changeType SubscriptionChangeType
+//   - expectedAmount decimal.Decimal
+func (_e *MockCreditService_Expecter) ValidateSubscriptionChange(ctx interface{}, userID interface{}, changeType interface{}, expectedAmount interface{}) *MockCreditService_ValidateSubscriptionChange_Call {
+	return &MockCreditService_ValidateSubscriptionChange_Call{Call: _e.mock.On("ValidateSubscriptionChange", ctx, userID, changeType, expectedAmount)}
+}
+
+func (_c *MockCreditService_ValidateSubscriptionChange_Call) Run(run func(ctx context.Context, userID uint64, changeType SubscriptionChangeType, expectedAmount decimal.Decimal)) *MockCreditService_ValidateSubscriptionChange_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 uint64
+		if args[1] != nil {
+			arg1 = args[1].(uint64)
+		}
+		var arg2 SubscriptionChangeType
+		if args[2] != nil {
+			arg2 = args[2].(SubscriptionChangeType)
+		}
+		var arg3 decimal.Decimal
+		if args[3] != nil {
+			arg3 = args[3].(decimal.Decimal)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+			arg3,
+		)
+	})
+	return _c
+}
+
+func (_c *MockCreditService_ValidateSubscriptionChange_Call) Return(err error) *MockCreditService_ValidateSubscriptionChange_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockCreditService_ValidateSubscriptionChange_Call) RunAndReturn(run func(ctx context.Context, userID uint64, changeType SubscriptionChangeType, expectedAmount decimal.Decimal) error) *MockCreditService_ValidateSubscriptionChange_Call {
 	_c.Call.Return(run)
 	return _c
 }

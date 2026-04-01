@@ -27,7 +27,7 @@ func TestBillingService_GetCheckoutUI_Success(t *testing.T) {
 
 		mockGateway := pluginCore.NewMockPaymentGateway(tb)
 		mockGateway.EXPECT().ID(mock.Anything).Return("stripe")
-		mockGateway.EXPECT().GetCheckoutUI(mock.Anything, uint(1), uint(42)).Return(&pluginCore.CheckoutUIResponse{
+		mockGateway.EXPECT().GetCheckoutUI(mock.Anything, uint(1), uint(42), uint(1)).Return(&pluginCore.CheckoutUIResponse{
 			SessionID: "sess_test",
 			ExpiresAt: *createTestExpirationTime(),
 			Metadata:  map[string]any{"plan_id": uint(42)},
@@ -48,7 +48,7 @@ func TestBillingService_GetCheckoutUI_Success(t *testing.T) {
 			require.NoError(tb, err)
 		}
 
-		result, err := service.GetCheckoutUI(ctx, 1, 42, "stripe")
+		result, err := service.GetCheckoutUI(ctx, 1, 42, "stripe", 1)
 
 		require.NoError(tb, err)
 		require.NotNil(tb, result)
@@ -85,17 +85,17 @@ func TestBillingService_GetCheckoutUI_DifferentGateways(t *testing.T) {
 
 		pricingSvc.EXPECT().GetPricingPlan(mock.Anything, uint(42)).Return(plan, nil)
 		stripeResponse := &pluginCore.CheckoutUIResponse{SessionID: "sess_stripe", Fragments: []pluginCore.CheckoutUIFragment{{Type: pluginCore.FragmentTypeLink}}}
-		mockStripeGateway.EXPECT().GetCheckoutUI(mock.Anything, uint(1), uint(42)).Return(stripeResponse, nil)
+		mockStripeGateway.EXPECT().GetCheckoutUI(mock.Anything, uint(1), uint(42), uint(1)).Return(stripeResponse, nil)
 
-		result, err := service.GetCheckoutUI(ctx, 1, 42, "stripe")
+		result, err := service.GetCheckoutUI(ctx, 1, 42, "stripe", 1)
 		require.NoError(tb, err)
 		assert.Equal(tb, "sess_stripe", result.SessionID)
 
 		pricingSvc.EXPECT().GetPricingPlan(mock.Anything, uint(42)).Return(plan, nil)
 		paypalResponse := &pluginCore.CheckoutUIResponse{SessionID: "sess_paypal", Fragments: []pluginCore.CheckoutUIFragment{{Type: pluginCore.FragmentTypeScript}}}
-		mockPaypalGateway.EXPECT().GetCheckoutUI(mock.Anything, uint(1), uint(42)).Return(paypalResponse, nil)
+		mockPaypalGateway.EXPECT().GetCheckoutUI(mock.Anything, uint(1), uint(42), uint(1)).Return(paypalResponse, nil)
 
-		result, err = service.GetCheckoutUI(ctx, 1, 42, "paypal")
+		result, err = service.GetCheckoutUI(ctx, 1, 42, "paypal", 1)
 		require.NoError(tb, err)
 		assert.Equal(tb, "sess_paypal", result.SessionID)
 	}, getBillingTestOptions())
@@ -108,7 +108,7 @@ func TestBillingService_GetCheckoutUI_UserAlreadySubscribed(t *testing.T) {
 		err := service.CreateOrUpdateSubscriber(ctx, 1, "any-gateway", "sub_test", "", true, nil)
 		require.NoError(tb, err)
 
-		_, err = service.GetCheckoutUI(ctx, 1, 42, "stripe")
+		_, err = service.GetCheckoutUI(ctx, 1, 42, "stripe", 1)
 
 		assert.Error(tb, err)
 		assert.Contains(tb, err.Error(), "already has an active subscription")
@@ -122,7 +122,7 @@ func TestBillingService_GetCheckoutUI_PlanNotFound(t *testing.T) {
 
 		pricingSvc.EXPECT().GetPricingPlan(mock.Anything, uint(999)).Return(nil, assert.AnError)
 
-		result, err := service.GetCheckoutUI(ctx, 1, 999, "stripe")
+		result, err := service.GetCheckoutUI(ctx, 1, 999, "stripe", 1)
 
 		assert.Error(tb, err)
 		assert.Nil(tb, result)
@@ -142,7 +142,7 @@ func TestBillingService_GetCheckoutUI_PlanNotActive(t *testing.T) {
 			IsPublic: true,
 		}, nil)
 
-		result, err := service.GetCheckoutUI(ctx, 1, 42, "stripe")
+		result, err := service.GetCheckoutUI(ctx, 1, 42, "stripe", 1)
 
 		assert.Error(tb, err)
 		assert.Nil(tb, result)
@@ -162,7 +162,7 @@ func TestBillingService_GetCheckoutUI_PlanNotPublic(t *testing.T) {
 			IsPublic: false,
 		}, nil)
 
-		result, err := service.GetCheckoutUI(ctx, 1, 42, "stripe")
+		result, err := service.GetCheckoutUI(ctx, 1, 42, "stripe", 1)
 
 		assert.Error(tb, err)
 		assert.Nil(tb, result)
@@ -182,7 +182,7 @@ func TestBillingService_GetCheckoutUI_GatewayNotFound(t *testing.T) {
 			IsPublic: true,
 		}, nil)
 
-		result, err := service.GetCheckoutUI(ctx, 1, 42, "nonexistent")
+		result, err := service.GetCheckoutUI(ctx, 1, 42, "nonexistent", 1)
 
 		assert.Error(tb, err)
 		assert.Nil(tb, result)
@@ -199,7 +199,7 @@ func TestBillingService_GetCheckoutUI_GatewayError(t *testing.T) {
 
 		mockGateway := pluginCore.NewMockPaymentGateway(tb)
 		mockGateway.EXPECT().ID(mock.Anything).Return("stripe")
-		mockGateway.EXPECT().GetCheckoutUI(mock.Anything, uint(1), uint(42)).Return(nil, assert.AnError)
+		mockGateway.EXPECT().GetCheckoutUI(mock.Anything, uint(1), uint(42), uint(1)).Return(nil, assert.AnError)
 		err := service.RegisterGateway(ctx, mockGateway)
 		if err != nil && !errors.Is(err, gateway.ErrGatewayAlreadyRegistered) {
 			require.NoError(tb, err)
@@ -212,7 +212,7 @@ func TestBillingService_GetCheckoutUI_GatewayError(t *testing.T) {
 			IsPublic: true,
 		}, nil)
 
-		result, err := service.GetCheckoutUI(ctx, 1, 42, "stripe")
+		result, err := service.GetCheckoutUI(ctx, 1, 42, "stripe", 1)
 
 		assert.Error(tb, err)
 		assert.Nil(tb, result)
@@ -240,7 +240,7 @@ func TestBillingService_GetCheckoutUI_Response(t *testing.T) {
 			IsActive: true,
 			IsPublic: true,
 		}, nil)
-		mockGateway.EXPECT().GetCheckoutUI(mock.Anything, uint(1), uint(42)).Return(&pluginCore.CheckoutUIResponse{
+		mockGateway.EXPECT().GetCheckoutUI(mock.Anything, uint(1), uint(42), uint(1)).Return(&pluginCore.CheckoutUIResponse{
 			SessionID: "sess_multi",
 			ExpiresAt: *createTestExpirationTime(),
 			Metadata: map[string]any{
@@ -254,7 +254,7 @@ func TestBillingService_GetCheckoutUI_Response(t *testing.T) {
 			},
 		}, nil)
 
-		result, err := service.GetCheckoutUI(ctx, 1, 42, "stripe")
+		result, err := service.GetCheckoutUI(ctx, 1, 42, "stripe", 1)
 
 		require.NoError(tb, err)
 		require.NotNil(tb, result)

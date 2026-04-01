@@ -3,6 +3,8 @@ package core
 import (
 	"context"
 	"time"
+
+	"github.com/shopspring/decimal"
 )
 
 // ManagementOperation represents different subscription management operations
@@ -155,12 +157,60 @@ type SubscriptionManager interface {
 	GetManagementURL(ctx context.Context, userID uint, operation ManagementOperation) (*ManagementResult, error)
 }
 
+// PlanChangeAction defines how the UI should handle a plan change result
+type PlanChangeAction string
+
+const (
+	// PlanChangeActionCheckoutRequired indicates the user must complete a checkout to apply the plan change
+	PlanChangeActionCheckoutRequired PlanChangeAction = "checkout_required"
+	// PlanChangeActionComplete indicates the plan change was completed immediately
+	PlanChangeActionComplete PlanChangeAction = "complete"
+	// PlanChangeActionPending indicates the plan change is pending (e.g., awaiting webhook confirmation)
+	PlanChangeActionPending PlanChangeAction = "pending"
+)
+
+// PlanChangeResult contains the result of a plan change operation
+type PlanChangeResult struct {
+	// Action tells the UI how to handle this result
+	Action PlanChangeAction
+
+	// CheckoutLink contains the checkout session ID for ActionCheckoutRequired
+	CheckoutLink string
+
+	// CreditApplied is the amount of credit issued for unused time in the previous plan
+	CreditApplied decimal.Decimal
+
+	// ChargeDue is the amount the customer needs to pay (may be zero or negative)
+	ChargeDue decimal.Decimal
+
+	// EffectiveDate is when the plan change takes effect
+	EffectiveDate *time.Time
+}
+
 // SubscriptionExecutor defines the interface for executing subscription operations
 // This is used by gateways that require backend API calls for management operations
 type SubscriptionExecutor interface {
 	// ExecuteCancel cancels the subscription through the gateway's API
 	// and updates the local subscriber state
 	ExecuteCancel(ctx context.Context, userID uint) error
+
+	// ExecutePlanChange executes a plan change operation
+	// For gateways that don't support direct plan updates (like ATLOS), this involves:
+	// - Calculating proration between old and new plans
+	// - Issuing credit for unused time in the old plan
+	// - Canceling the old subscription
+	// - Returning checkout UI for the new plan
+	ExecutePlanChange(ctx context.Context, userID uint, newPeriodID uint) (*PlanChangeResult, error)
+
+	// ReconcileCancellation handles pending subscription cancellations that were scheduled
+	// for a future date. This method is called by the cancellation reconciliation cron job
+	// to process subscriptions where WillCancelAt has been reached. Gateways should implement
+	// this to:
+	// - Verify the cancellation status with the gateway
+	// - Deactivate the subscriber locally
+	// - Issue any applicable credits
+	// - Update the subscriber's CancelledAt field
+	ReconcileCancellation(ctx context.Context, userID uint) error
 }
 
 // ManagementCapabilities describes what management operations a gateway supports

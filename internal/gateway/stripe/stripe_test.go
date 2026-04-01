@@ -1,12 +1,14 @@
 package stripe
 
 import (
+	"fmt"
 	"context"
 	"encoding/json"
 	"strconv"
 	"testing"
 	"time"
 
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stripe/stripe-go/v83"
@@ -44,13 +46,13 @@ func TestMain(m *testing.M) {
 
 func TestStripeGateway_ID(t *testing.T) {
 	ctx, _ := coreTesting.NewTestContext(t)
-	gw := New(ctx.Logger(), TestWebhookSecret, "", nil, nil, nil, nil, nil)
+	gw := New(ctx.Logger(), ctx, TestWebhookSecret, "", nil, nil, nil, nil, nil)
 	assert.Equal(t, "stripe", gw.ID(context.Background()))
 }
 
 func TestStripeGateway_SignatureHeader(t *testing.T) {
 	ctx, _ := coreTesting.NewTestContext(t)
-	gw := New(ctx.Logger(), TestWebhookSecret, "", nil, nil, nil, nil, nil)
+	gw := New(ctx.Logger(), ctx, TestWebhookSecret, "", nil, nil, nil, nil, nil)
 	assert.Equal(t, "Stripe-Signature", gw.SignatureHeader(context.Background()))
 }
 
@@ -145,7 +147,7 @@ func TestStripeGateway_ValidateWebhook(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx, _ := coreTesting.NewTestContext(t)
-			gw := New(ctx.Logger(), tt.secret, "", nil, nil, nil, nil, nil)
+			gw := New(ctx.Logger(), ctx, tt.secret, "", nil, nil, nil, nil, nil)
 
 			err := gw.ValidateWebhook(context.Background(), tt.signature, tt.payload)
 			if tt.expectError {
@@ -222,20 +224,7 @@ func setupMockServices(ctx coreTesting.TestContext) (*quotaCore.MockQuotaService
 func setupSubscriptionActivationMocks(mockQuota *quotaCore.MockQuotaService, mockUsers *coreTesting.MockUserService, mockBilling *pluginCore.MockBillingService, mockPricing *pluginCore.MockPricingService, userID uint, pricingPlanID, quotaPlanID uint) {
 	mockUsers.EXPECT().AccountExists(mock.Anything, userID).Return(true, createTestUser(userID), nil)
 
-	// Mock pricing service to return PricingPlan with QuotaPlanID
-	pricingPlan := &billingModels.PricingPlan{
-		Model:       gorm.Model{ID: pricingPlanID},
-		QuotaPlanID: &quotaPlanID,
-		Name:        "Test Plan",
-		Description: "Test Description",
-	}
-	mockPricing.EXPECT().GetPricingPlan(mock.Anything, pricingPlanID).Return(pricingPlan, nil)
-
-	// Mock quota service calls with QuotaPlanID (not PricingPlanID)
-	mockQuota.EXPECT().GetQuotaPlan(mock.Anything, quotaPlanID).Return(&quotaCore.QuotaPlan{}, nil)
-	mockQuota.EXPECT().AssignUserToPlan(mock.Anything, userID, quotaPlanID).Return(nil)
-
-	// Billing service still tracks with PricingPlanID
+	// Billing service tracks with PricingPlanPeriodID
 	mockBilling.EXPECT().CreateOrUpdateSubscriber(mock.Anything, userID, "stripe", TestCustomerID, TestSubscriptionID, true, mock.AnythingOfType("*uint")).Return(nil)
 }
 
@@ -260,7 +249,7 @@ func runSubscriptionActivationTest(t *testing.T, eventType string, pricingPlanID
 		mockSubService.SetupGetSuccess(&subscription)
 		setupSubscriptionActivationMocks(mockQuota, mockUsers, mockBilling, mockPricing, TestUserID, pricingPlanID, quotaPlanID)
 
-		gw := New(ctx.Logger(), TestWebhookSecret, "", mockQuota, mockUsers, mockBilling, mockPricing, nil)
+		gw := New(ctx.Logger(), ctx, TestWebhookSecret, "", mockQuota, mockUsers, mockBilling, mockPricing, nil)
 		gw.subService = mockSubService
 		err := gw.HandleWebhook(context.Background(), payload)
 
@@ -282,7 +271,7 @@ func runSubscriptionDeactivationTest(t *testing.T, eventType string) {
 		mockSubService.SetupGetSuccess(&subscription)
 		setupSubscriptionDeactivationMocks(mockQuota, mockUsers, mockBilling, TestUserID)
 
-		gw := New(ctx.Logger(), TestWebhookSecret, "", mockQuota, mockUsers, mockBilling, nil, nil)
+		gw := New(ctx.Logger(), ctx, TestWebhookSecret, "", mockQuota, mockUsers, mockBilling, nil, nil)
 		gw.subService = mockSubService
 		err := gw.HandleWebhook(context.Background(), payload)
 
@@ -306,7 +295,7 @@ func TestStripeGateway_HandleWebhook_UnknownEvent(t *testing.T) {
 
 	ctx, _ := coreTesting.NewTestContext(t)
 
-	gw := New(ctx.Logger(), TestWebhookSecret, "", nil, nil, nil, nil, nil)
+	gw := New(ctx.Logger(), ctx, TestWebhookSecret, "", nil, nil, nil, nil, nil)
 	err := gw.HandleWebhook(context.Background(), payload)
 	assert.NoError(t, err)
 }
@@ -350,7 +339,7 @@ func TestStripeGateway_ExtractEventID(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx, _ := coreTesting.NewTestContext(t)
-			gw := New(ctx.Logger(), TestWebhookSecret, "", nil, nil, nil, nil, nil)
+			gw := New(ctx.Logger(), ctx, TestWebhookSecret, "", nil, nil, nil, nil, nil)
 
 			eventID, err := gw.ExtractEventID(context.Background(), tt.payload)
 			if tt.expectError {
@@ -402,7 +391,7 @@ func TestStripeGateway_ExtractEventType(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx, _ := coreTesting.NewTestContext(t)
-			gw := New(ctx.Logger(), TestWebhookSecret, "", nil, nil, nil, nil, nil)
+			gw := New(ctx.Logger(), ctx, TestWebhookSecret, "", nil, nil, nil, nil, nil)
 
 			eventType, err := gw.ExtractEventType(context.Background(), tt.payload)
 			if tt.expectError {
@@ -428,7 +417,7 @@ func TestStripeGateway_HandleWebhook_InvalidPayload(t *testing.T) {
 	signedPayload := webhook.GenerateTestSignedPayload(unsignedPayload)
 
 	ctx, _ := coreTesting.NewTestContext(t)
-	gw := New(ctx.Logger(), secret, "", nil, nil, nil, nil, nil)
+	gw := New(ctx.Logger(), ctx, secret, "", nil, nil, nil, nil, nil)
 	err := gw.HandleWebhook(context.Background(), signedPayload.Payload)
 	assert.Error(t, err)
 }
@@ -446,7 +435,7 @@ func TestStripeGateway_HandleWebhook_UserNotFound(t *testing.T) {
 		mockSubService.SetupGetSuccess(&subscription)
 		mockUsers.EXPECT().AccountExists(mock.Anything, TestUserID).Return(false, nil, nil)
 
-		gw := New(ctx.Logger(), TestWebhookSecret, "", mockQuota, mockUsers, nil, nil, nil)
+		gw := New(ctx.Logger(), ctx, TestWebhookSecret, "", mockQuota, mockUsers, nil, nil, nil)
 		gw.subService = mockSubService
 		err := gw.HandleWebhook(context.Background(), payload)
 
@@ -468,7 +457,7 @@ func TestStripeGateway_HandleWebhook_MissingPlanID(t *testing.T) {
 		mockSubService.SetupGetSuccess(&subscription)
 		setupSubscriptionDeactivationMocks(mockQuota, mockUsers, mockBilling, TestUserID)
 
-		gw := New(ctx.Logger(), TestWebhookSecret, "", mockQuota, mockUsers, mockBilling, nil, nil)
+		gw := New(ctx.Logger(), ctx, TestWebhookSecret, "", mockQuota, mockUsers, mockBilling, nil, nil)
 		gw.subService = mockSubService
 		err := gw.HandleWebhook(context.Background(), payload)
 
@@ -504,7 +493,7 @@ func TestStripeGateway_HandleWebhook_NilSubscriptionItems(t *testing.T) {
 		mockSubService.SetupGetSuccess(&subscription)
 		setupSubscriptionDeactivationMocks(mockQuota, mockUsers, mockBilling, TestUserID)
 
-		gw := New(ctx.Logger(), TestWebhookSecret, "", mockQuota, mockUsers, mockBilling, nil, nil)
+		gw := New(ctx.Logger(), ctx, TestWebhookSecret, "", mockQuota, mockUsers, mockBilling, nil, nil)
 		gw.subService = mockSubService
 		err := gw.HandleWebhook(context.Background(), payload)
 
@@ -558,7 +547,7 @@ func TestStripeGateway_HandleWebhook_SubscriptionUpdated_CancellationRequest(t *
 
 		mockSubService.SetupGetSuccess(&subscription)
 
-		gw := New(ctx.Logger(), TestWebhookSecret, "", mockQuota, mockUsers, mockBilling, nil, nil)
+		gw := New(ctx.Logger(), ctx, TestWebhookSecret, "", mockQuota, mockUsers, mockBilling, nil, nil)
 		gw.subService = mockSubService
 		err := gw.HandleWebhook(context.Background(), payload)
 
@@ -610,7 +599,7 @@ func TestStripeGateway_HandleWebhook_SubscriptionUpdated_AllPricesNil(t *testing
 		mockSubService.SetupGetSuccess(&subscription)
 		setupSubscriptionDeactivationMocks(mockQuota, mockUsers, mockBilling, TestUserID)
 
-		gw := New(ctx.Logger(), TestWebhookSecret, "", mockQuota, mockUsers, mockBilling, nil, nil)
+		gw := New(ctx.Logger(), ctx, TestWebhookSecret, "", mockQuota, mockUsers, mockBilling, nil, nil)
 		gw.subService = mockSubService
 		err := gw.HandleWebhook(context.Background(), payload)
 
@@ -636,12 +625,12 @@ func TestStripeGateway_GetCustomerPortalURL_Success(t *testing.T) {
 		// Mock active subscription
 		planID := uint(42)
 		mockSubscriber := &pluginCore.Subscriber{
-			UserID:         123,
-			GatewayType:    "stripe",
-			ExternalID:     "cus_123",
-			SubscriptionID: "sub_123",
-			IsActive:       true,
-			PlanID:         &planID,
+			UserID:               123,
+			GatewayType:          "stripe",
+			ExternalID:           "cus_123",
+			SubscriptionID:       "sub_123",
+			IsActive:             true,
+			PricingPlanPeriodID:  &planID,
 		}
 		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, uint(123)).Return(mockSubscriber, nil)
 
@@ -659,7 +648,7 @@ func TestStripeGateway_GetCustomerPortalURL_Success(t *testing.T) {
 			}).
 			Return(mockSession, nil)
 
-		gw := New(ctx.Logger(), TestWebhookSecret, "test_api_key", nil, nil, mockBilling, nil, nil)
+		gw := New(ctx.Logger(), ctx, TestWebhookSecret, "test_api_key", nil, nil, mockBilling, nil, nil)
 		gw.stripeClient = mockStripeClient
 
 		url, err := gw.GetCustomerPortalURL(context.Background(), 123, "https://example.com/return")
@@ -693,7 +682,7 @@ func TestStripeGateway_HandleWebhook_CheckoutSessionCompleted(t *testing.T) {
 		// Billing service creates a pending (inactive) subscriber
 		mockBilling.EXPECT().CreateOrUpdateSubscriber(mock.Anything, userID, "stripe", customerID, "sub_456", false, mock.AnythingOfType("*uint")).Return(nil)
 
-		gw := New(ctx.Logger(), TestWebhookSecret, "test_api_key", mockQuota, mockUsers, mockBilling, mockPricing, nil)
+		gw := New(ctx.Logger(), ctx, TestWebhookSecret, "test_api_key", mockQuota, mockUsers, mockBilling, mockPricing, nil)
 
 		err := gw.HandleWebhook(context.Background(), payload)
 
@@ -708,7 +697,7 @@ func TestStripeGateway_GetCustomerPortalURL_NoActiveSubscription(t *testing.T) {
 		// Mock no active subscription
 		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, uint(123)).Return((*pluginCore.Subscriber)(nil), nil)
 
-		gw := New(ctx.Logger(), TestWebhookSecret, "", nil, nil, mockBilling, nil, nil)
+		gw := New(ctx.Logger(), ctx, TestWebhookSecret, "", nil, nil, mockBilling, nil, nil)
 
 		url, err := gw.GetCustomerPortalURL(context.Background(), 123, "https://example.com/return")
 
@@ -728,7 +717,7 @@ func TestStripeGateway_ExtractUserIDFromSubscription_DatabaseFallback(t *testing
 		mockCustomerRetriever := &mockCustomerRetriever{}
 
 		// Setup gateway with mock services and inject the mock customer retriever
-		gw := New(ctx.Logger(), TestWebhookSecret, "", nil, mockUser, mockBilling, nil, nil)
+		gw := New(ctx.Logger(), ctx, TestWebhookSecret, "", nil, mockUser, mockBilling, nil, nil)
 		gw.SetCustomerRetrieverForTesting(mockCustomerRetriever)
 
 		// Test case 1: Customer metadata has user_id
@@ -758,12 +747,14 @@ func TestStripeGateway_ExtractUserIDFromSubscription_DatabaseFallback(t *testing
 		}
 
 		// Setup mock billing service to return subscriber
+		planID := uint(100)
 		mockSubscriber := &pluginCore.Subscriber{
-			UserID:         789,
-			GatewayType:    "stripe",
-			ExternalID:     "cus_test_456",
-			SubscriptionID: "sub_test_456",
-			IsActive:       true,
+			UserID:              789,
+			GatewayType:         "stripe",
+			ExternalID:          "cus_test_456",
+			SubscriptionID:      "sub_test_456",
+			IsActive:            true,
+			PricingPlanPeriodID: &planID,
 		}
 		mockBilling.EXPECT().GetSubscriberByExternalID(mock.Anything, "cus_test_456", "stripe").Return(mockSubscriber, nil)
 
@@ -800,7 +791,7 @@ func TestStripeGateway_GetCustomerPortalURL_SessionCreateError(t *testing.T) {
 
 		planID := uint(42)
 		mockSubscriber := &pluginCore.Subscriber{
-			UserID: 123, GatewayType: "stripe", ExternalID: "cus_123", IsActive: true, PlanID: &planID,
+			UserID: 123, GatewayType: "stripe", ExternalID: "cus_123", IsActive: true, PricingPlanPeriodID: &planID,
 		}
 		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, uint(123)).Return(mockSubscriber, nil)
 
@@ -809,7 +800,7 @@ func TestStripeGateway_GetCustomerPortalURL_SessionCreateError(t *testing.T) {
 			On("Create", mock.Anything, mock.AnythingOfType("*stripe.BillingPortalSessionCreateParams")).
 			Return((*stripe.BillingPortalSession)(nil), assert.AnError)
 
-		gw := New(ctx.Logger(), TestWebhookSecret, "test_api_key", nil, nil, mockBilling, nil, nil)
+		gw := New(ctx.Logger(), ctx, TestWebhookSecret, "test_api_key", nil, nil, mockBilling, nil, nil)
 		gw.stripeClient = mockStripeClient
 
 		url, err := gw.GetCustomerPortalURL(context.Background(), 123, "https://example.com/return")
@@ -825,14 +816,14 @@ func TestStripeGateway_GetCustomerPortalURL_NonStripeSubscription(t *testing.T) 
 		// Mock active subscription with different gateway
 		planID := uint(42)
 		mockSubscriber := &pluginCore.Subscriber{
-			UserID:      123,
-			GatewayType: "paypal", // Different gateway
-			IsActive:    true,
-			PlanID:      &planID,
+			UserID:              123,
+			GatewayType:         "paypal", // Different gateway
+			IsActive:            true,
+			PricingPlanPeriodID: &planID,
 		}
 		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, uint(123)).Return(mockSubscriber, nil)
 
-		gw := New(ctx.Logger(), TestWebhookSecret, "", nil, nil, mockBilling, nil, nil)
+		gw := New(ctx.Logger(), ctx, TestWebhookSecret, "", nil, nil, mockBilling, nil, nil)
 
 		url, err := gw.GetCustomerPortalURL(context.Background(), 123, "https://example.com/return")
 
@@ -862,7 +853,7 @@ func TestStripeGateway_GetCustomerPortalURL_BillingServiceError(t *testing.T) {
 		// Mock billing service error
 		mockBilling.On("GetActiveSubscription", mock.Anything, uint(123)).Return((*pluginCore.Subscriber)(nil), assert.AnError)
 
-		gw := New(ctx.Logger(), TestWebhookSecret, "", nil, nil, mockBilling, nil, nil)
+		gw := New(ctx.Logger(), ctx, TestWebhookSecret, "", nil, nil, mockBilling, nil, nil)
 
 		url, err := gw.GetCustomerPortalURL(context.Background(), 123, "https://example.com/return")
 
@@ -879,16 +870,16 @@ func TestStripeGateway_GetCustomerPortalURL_InvalidCustomerID(t *testing.T) {
 		// Mock active subscription with invalid ExternalID (not starting with cus_)
 		planID := uint(42)
 		mockSubscriber := &pluginCore.Subscriber{
-			UserID:         123,
-			GatewayType:    "stripe",
-			ExternalID:     "sub_123", // This is a subscription ID, not a customer ID
-			SubscriptionID: "sub_123",
-			IsActive:       true,
-			PlanID:         &planID,
+			UserID:               123,
+			GatewayType:          "stripe",
+			ExternalID:           "sub_123", // This is a subscription ID, not a customer ID
+			SubscriptionID:       "sub_123",
+			IsActive:             true,
+			PricingPlanPeriodID:  &planID,
 		}
 		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, uint(123)).Return(mockSubscriber, nil)
 
-		gw := New(ctx.Logger(), TestWebhookSecret, "", nil, nil, mockBilling, nil, nil)
+		gw := New(ctx.Logger(), ctx, TestWebhookSecret, "", nil, nil, mockBilling, nil, nil)
 
 		url, err := gw.GetCustomerPortalURL(context.Background(), 123, "https://example.com/return")
 
@@ -905,16 +896,16 @@ func TestStripeGateway_GetCustomerPortalURL_EmptyCustomerID(t *testing.T) {
 		// Mock active subscription with empty ExternalID
 		planID := uint(42)
 		mockSubscriber := &pluginCore.Subscriber{
-			UserID:         123,
-			GatewayType:    "stripe",
-			ExternalID:     "", // Empty ExternalID
-			SubscriptionID: "sub_123",
-			IsActive:       true,
-			PlanID:         &planID,
+			UserID:               123,
+			GatewayType:          "stripe",
+			ExternalID:           "", // Empty ExternalID
+			SubscriptionID:       "sub_123",
+			IsActive:             true,
+			PricingPlanPeriodID:  &planID,
 		}
 		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, uint(123)).Return(mockSubscriber, nil)
 
-		gw := New(ctx.Logger(), TestWebhookSecret, "", nil, nil, mockBilling, nil, nil)
+		gw := New(ctx.Logger(), ctx, TestWebhookSecret, "", nil, nil, mockBilling, nil, nil)
 
 		url, err := gw.GetCustomerPortalURL(context.Background(), 123, "https://example.com/return")
 
@@ -922,4 +913,314 @@ func TestStripeGateway_GetCustomerPortalURL_EmptyCustomerID(t *testing.T) {
 		assert.Contains(t, err.Error(), "subscriber ExternalID is empty")
 		assert.Empty(t, url)
 	})
+}
+
+// ============== SyncPlan Tests for Flexible Pricing ==============
+// Note: Most SyncPlan tests are in stripe_syncplan_test.go to avoid conflicts
+// This file contains additional edge case tests not covered elsewhere
+
+// TestStripeGateway_SyncPlan_MultiplePeriodsDifferentCadences tests plan with multiple periods of different cadences (monthly, quarterly, yearly, weekly)
+func TestStripeGateway_SyncPlan_MultiplePeriodsDifferentCadences(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+		mockPricing := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
+		mockStripeClient := &MockStripeClient{
+			V1ProductsService:                   &MockProducts{},
+			V1PricesService:                     &MockPrices{},
+			V1BillingPortalConfigurationsService: &MockBillingPortalConfigurations{},
+			BillingPortalSessionsService:        &MockBillingPortalSessions{},
+			CustomersService:                    &MockCustomers{},
+			SubscriptionsService:                &MockSubscriptions{},
+			V1CheckoutSessionsService:           &MockCheckoutSessions{},
+		}
+
+		planID := uint(100)
+		monthlyID := uint(200)
+		quarterlyID := uint(201)
+		yearlyID := uint(202)
+		weeklyID := uint(203)
+		productID := "prod_test"
+
+		planInfo := &pluginCore.PricingPlanInfo{
+			ID:          planID,
+			Name:        "Multi-Cadence Plan",
+			Description: "All billing cadences",
+			Currency:    "USD",
+			PricingVariants: []pluginCore.PricingVariant{
+				{BillingPeriodID: monthlyID, PriceUSD: 9.99, QuotaPlanID: 300, Cadence: "monthly"},
+				{BillingPeriodID: quarterlyID, PriceUSD: 24.99, QuotaPlanID: 300, Cadence: "quarterly"},
+				{BillingPeriodID: yearlyID, PriceUSD: 99.99, QuotaPlanID: 300, Cadence: "yearly"},
+				{BillingPeriodID: weeklyID, PriceUSD: 2.49, QuotaPlanID: 300, Cadence: "weekly"},
+			},
+			IsActive: true,
+			IsPublic: true,
+		}
+
+		mockPricing.EXPECT().GetPriceLinesForPlan(mock.Anything, planID).Return([]*billingModels.PriceLinePlan{}, nil)
+		mockPricing.EXPECT().GetPricingPlanPeriods(mock.Anything, planID).Return([]*billingModels.PricingPlanPeriod{
+			{Model: gorm.Model{ID: monthlyID}, PricingPlanID: planID, Cadence: "monthly", PriceUSD: 9.99, QuotaPlanID: 300},
+			{Model: gorm.Model{ID: quarterlyID}, PricingPlanID: planID, Cadence: "quarterly", PriceUSD: 24.99, QuotaPlanID: 300},
+			{Model: gorm.Model{ID: yearlyID}, PricingPlanID: planID, Cadence: "yearly", PriceUSD: 99.99, QuotaPlanID: 300},
+			{Model: gorm.Model{ID: weeklyID}, PricingPlanID: planID, Cadence: "weekly", PriceUSD: 2.49, QuotaPlanID: 300},
+		}, nil)
+		mockPricing.EXPECT().GetGatewayProductMappingsByPlan(mock.Anything, planID).Return([]*billingModels.GatewayProductMapping{}, nil)
+		mockPricing.EXPECT().CreateGatewayProductMapping(mock.Anything, mock.Anything).Return(nil).Times(4)
+
+		mockStripeClient.V1ProductsService.On("Create", mock.Anything, mock.Anything).Return(&stripe.Product{ID: productID}, nil)
+
+		priceCreatedCount := 0
+		mockStripeClient.V1PricesService.On("Create", mock.Anything, mock.MatchedBy(func(params *stripe.PriceCreateParams) bool {
+			priceCreatedCount++
+			interval := stripe.StringValue(params.Recurring.Interval)
+
+			// Validate each cadence mapping
+			switch priceCreatedCount {
+			case 1:
+				return interval == "month" && params.Recurring.IntervalCount == nil
+			case 2:
+				return interval == "month" && params.Recurring.IntervalCount != nil &&
+					stripe.Int64Value(params.Recurring.IntervalCount) == 3
+			case 3:
+				return interval == "year" && params.Recurring.IntervalCount == nil
+			case 4:
+				return interval == "week" && params.Recurring.IntervalCount == nil
+			default:
+				return false
+			}
+		})).Return(&stripe.Price{ID: "price_test"}, nil)
+
+		gw := New(ctx.Logger(), ctx, TestWebhookSecret, "test_key", nil, nil, mockBilling, mockPricing, nil)
+		gw.stripeClient = mockStripeClient
+
+		result, err := gw.SyncPlan(context.Background(), planInfo)
+
+		assert.NoError(t, err)
+		assert.True(t, result.Success)
+		assert.Len(t, result.RemotePriceIDs, 4)
+		assert.Equal(t, priceCreatedCount, 4)
+	})
+}
+
+// TestStripeGateway_SyncPlan_UnsupportedCadence tests that unsupported cadences (like "biennially") return error
+func TestStripeGateway_SyncPlan_UnsupportedCadence(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+		mockPricing := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
+		mockStripeClient := &MockStripeClient{
+			V1ProductsService:                   &MockProducts{},
+			V1PricesService:                     &MockPrices{},
+			V1BillingPortalConfigurationsService: &MockBillingPortalConfigurations{},
+			BillingPortalSessionsService:        &MockBillingPortalSessions{},
+			CustomersService:                    &MockCustomers{},
+			SubscriptionsService:                &MockSubscriptions{},
+			V1CheckoutSessionsService:           &MockCheckoutSessions{},
+		}
+
+		planID := uint(100)
+		periodID := uint(200)
+		productID := "prod_test"
+
+		planInfo := &pluginCore.PricingPlanInfo{
+			ID:          planID,
+			Name:        "Unsupported Cadence Plan",
+			Description: "Tests unsupported cadence rejection",
+			Currency:    "USD",
+			PricingVariants: []pluginCore.PricingVariant{
+				{
+					BillingPeriodID: periodID,
+					PriceUSD:        29.99,
+					QuotaPlanID:     uint(300),
+					Cadence:         "biennially",
+				},
+			},
+			IsActive: true,
+			IsPublic: true,
+		}
+
+		mockPricing.EXPECT().GetPriceLinesForPlan(mock.Anything, planID).Return([]*billingModels.PriceLinePlan{}, nil)
+		mockPricing.EXPECT().GetPricingPlanPeriods(mock.Anything, planID).Return([]*billingModels.PricingPlanPeriod{
+			{
+				Model:         gorm.Model{ID: periodID},
+				PricingPlanID: planID,
+				Cadence:       "biennially",
+				PriceUSD:      29.99,
+				QuotaPlanID:   300,
+			},
+		}, nil)
+
+		mockStripeClient.V1ProductsService.On("Create", mock.Anything, mock.Anything).Return(&stripe.Product{ID: productID}, nil)
+
+		gw := New(ctx.Logger(), ctx, TestWebhookSecret, "test_key", nil, nil, mockBilling, mockPricing, nil)
+		gw.stripeClient = mockStripeClient
+
+		result, err := gw.SyncPlan(context.Background(), planInfo)
+
+		assert.Error(t, err)
+		assert.False(t, result.Success)
+		assert.Contains(t, err.Error(), "unsupported cadence 'biennially'")
+	})
+}
+
+
+func TestStripeGateway_HandleWebhook_InvoicePaid_Success(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockQuota, mockUsers, mockBilling, mockPricing := setupMockServices(ctx)
+		mockCredit := core.GetService[*pluginCore.MockCreditService](ctx, pluginCore.CREDIT_SERVICE)
+
+		subscriptionID := TestSubscriptionID
+		customerID := TestCustomerID
+		invoiceID := "in_test_123"
+		pricingPlanPeriodID := uint(200)
+		userID := TestUserID
+
+		planID := uint(pricingPlanPeriodID)
+		mockSubscriber := &pluginCore.Subscriber{
+			UserID:              userID,
+			GatewayType:         "stripe",
+			ExternalID:          customerID,
+			SubscriptionID:      subscriptionID,
+			IsActive:            false,
+			PricingPlanPeriodID: &planID,
+		}
+
+		mockBilling.EXPECT().GetSubscriberBySubscriptionID(mock.Anything, subscriptionID, "stripe").Return(mockSubscriber, nil)
+		mockUsers.EXPECT().AccountExists(mock.Anything, userID).Return(true, createTestUser(userID), nil).Maybe()
+
+		mockPricing.EXPECT().GetPricingPlanPeriod(mock.Anything, pricingPlanPeriodID).Return(&billingModels.PricingPlanPeriod{
+			Model:         gorm.Model{ID: pricingPlanPeriodID},
+			PricingPlanID: 1,
+			Cadence:       "monthly",
+			PriceUSD:      19.99,
+			QuotaPlanID:   100,
+		}, nil)
+
+		subscription := createTestSubscription("123", fmt.Sprintf("%d", pricingPlanPeriodID))
+		mockSubService := &MockSubscriptionRetriever{}
+		mockSubService.SetupGetSuccess(&subscription)
+
+		mockCredit.EXPECT().ValidateSubscriptionChange(mock.Anything, uint64(userID), pluginCore.ChangeTypeRenewal, mock.Anything).Return(nil)
+		mockCredit.EXPECT().IssueUsageCredit(
+			mock.Anything,
+			uint64(userID),
+			pluginCore.TransactionTypeTime,
+			mock.Anything,
+			invoiceID,
+			mock.AnythingOfType("string"),
+			uint64(0),
+		).Return(nil).Times(1)
+
+		mockCredit.EXPECT().IssueCreditWithIdempotency(
+			mock.Anything,
+			uint64(userID),
+			pluginCore.TransactionTypeCharge,
+			mock.Anything,
+			pluginCore.ReferenceTypeStripeInvoice,
+			invoiceID,
+			mock.AnythingOfType("string"),
+			uint64(0),
+		).Return(nil).Times(1)
+
+		mockCredit.EXPECT().GetUserBalance(mock.Anything, uint64(userID)).Return(decimal.NewFromFloat(19.99), nil).Times(1)
+
+		mockQuota.EXPECT().RemoveUserFromPlan(mock.Anything, mock.Anything).Return(nil).Maybe()
+		mockBilling.On("CreateOrUpdateSubscriber", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+		mockQuota.EXPECT().RemoveUserFromPlan(mock.Anything, mock.Anything).Return(nil).Maybe()
+		mockBilling.On("CreateOrUpdateSubscriber", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+
+		gw := New(ctx.Logger(), ctx, TestWebhookSecret, "", mockQuota, mockUsers, mockBilling, mockPricing, mockCredit)
+		gw.subService = mockSubService
+
+		event := createTestInvoiceEvent(invoiceID, customerID, subscriptionID, 19.99)
+
+		err := gw.handleInvoicePaid(ctx, event)
+		assert.NoError(t, err)
+	})
+}
+
+func TestStripeGateway_HandleWebhook_InvoicePaid_InsufficientBalance(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockQuota, mockUsers, mockBilling, mockPricing := setupMockServices(ctx)
+		mockCredit := core.GetService[*pluginCore.MockCreditService](ctx, pluginCore.CREDIT_SERVICE)
+
+		subscriptionID := TestSubscriptionID
+		customerID := TestCustomerID
+		invoiceID := "in_test_insufficient"
+		userID := TestUserID
+
+		planID := uint(200)
+		mockSubscriber := &pluginCore.Subscriber{
+			UserID:              userID,
+			GatewayType:         "stripe",
+			ExternalID:          customerID,
+			SubscriptionID:      subscriptionID,
+			IsActive:            false,
+			PricingPlanPeriodID: &planID,
+		}
+
+		mockBilling.EXPECT().GetSubscriberBySubscriptionID(mock.Anything, subscriptionID, "stripe").Return(mockSubscriber, nil)
+		mockUsers.EXPECT().AccountExists(mock.Anything, userID).Return(true, createTestUser(userID), nil).Maybe()
+
+		subscription := createTestSubscription("123", "200")
+		mockSubService := &MockSubscriptionRetriever{}
+		mockSubService.SetupGetSuccess(&subscription)
+
+		mockCredit.EXPECT().ValidateSubscriptionChange(mock.Anything, uint64(userID), pluginCore.ChangeTypeRenewal, mock.Anything).Return(nil)
+
+		mockCredit.EXPECT().IssueCreditWithIdempotency(
+			mock.Anything,
+			uint64(userID),
+			pluginCore.TransactionTypeCharge,
+			mock.Anything,
+			pluginCore.ReferenceTypeStripeInvoice,
+			invoiceID,
+			mock.AnythingOfType("string"),
+			uint64(0),
+		).Return(nil).Times(1)
+
+		mockCredit.EXPECT().GetUserBalance(mock.Anything, uint64(userID)).Return(decimal.NewFromFloat(-5.00), nil).Times(1)
+
+		gw := New(ctx.Logger(), ctx, TestWebhookSecret, "", mockQuota, mockUsers, mockBilling, mockPricing, mockCredit)
+		gw.subService = mockSubService
+
+		event := createTestInvoiceEvent(invoiceID, customerID, subscriptionID, 19.99)
+
+		err := gw.handleInvoicePaid(ctx, event)
+		assert.NoError(t, err)
+		mockBilling.AssertNotCalled(t, "CreateOrUpdateSubscriber", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, true, mock.Anything, mock.Anything)
+	})
+}
+
+func createTestInvoiceEvent(invoiceID string, customerID string, subscriptionID string, amount float64) stripe.Event {
+	lineItemData := fmt.Sprintf(`{
+		"id": "il_test_123",
+		"type": "subscription",
+		"subscription": "%s",
+		"period": {"start": 1704067200, "end": 1706745600},
+		"amount": %d,
+		"quantity": 1,
+		"price": {
+			"id": "price_200",
+			"unit_amount": %d,
+			"currency": "usd",
+			"recurring": {"interval": "month", "usage_type": "licensed"},
+			"product": "200"
+		}
+	}`, subscriptionID, int(amount*100), int(amount*100))
+	
+	invoiceData := fmt.Sprintf(`{
+		"id": "%s",
+		"object": "invoice",
+		"customer": {"id": "%s"},
+		"subscription": {"id": "%s"},
+		"status": "paid",
+		"amount_paid": %d,
+		"currency": "usd",
+		"lines": {
+			"data": [%s]
+		},
+		"total": %d,
+		"subtotal": %d
+	}`, invoiceID, customerID, subscriptionID, int(amount*100), lineItemData, int(amount*100), int(amount*100))
+	
+	return createTestEvent("invoice.paid", []byte(invoiceData))
 }

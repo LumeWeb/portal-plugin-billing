@@ -4,16 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"go.lumeweb.com/atlos-sdk"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
 	pluginConfig "go.lumeweb.com/portal-plugin-billing/internal/config"
+	billingModels "go.lumeweb.com/portal-plugin-billing/internal/db/models"
+	"go.lumeweb.com/portal-plugin-billing/pkg/subscription"
 	quotaCore "go.lumeweb.com/portal-plugin-quota/core"
 	core "go.lumeweb.com/portal/core"
 	coreTesting "go.lumeweb.com/portal/core/testing"
-	billingModels "go.lumeweb.com/portal-plugin-billing/internal/db/models"
 	portalModels "go.lumeweb.com/portal/db/models"
 	"gorm.io/gorm"
 )
@@ -43,37 +45,37 @@ func TestMain(m *testing.M) {
 
 func TestAtlosGateway_ID(t *testing.T) {
 	ctx, _ := coreTesting.NewTestContext(t)
-	gw := New(ctx.Logger(), TestAPISecret, TestMerchantID, nil, nil, nil, nil, nil, nil)
+	gw := New(ctx.Logger(), ctx, TestAPISecret, TestMerchantID, nil, nil, nil, nil, nil, nil)
 	assert.Equal(t, GatewayID, gw.ID(context.Background()))
 }
 
 func TestAtlosGateway_SignatureHeader(t *testing.T) {
 	ctx, _ := coreTesting.NewTestContext(t)
-	gw := New(ctx.Logger(), TestAPISecret, TestMerchantID, nil, nil, nil, nil, nil, nil)
+	gw := New(ctx.Logger(), ctx, TestAPISecret, TestMerchantID, nil, nil, nil, nil, nil, nil)
 	assert.Equal(t, atlos.ApiSecretHeader, gw.SignatureHeader(context.Background()))
 }
 
 func TestAtlosGateway_GetName(t *testing.T) {
 	ctx, _ := coreTesting.NewTestContext(t)
-	gw := New(ctx.Logger(), TestAPISecret, TestMerchantID, nil, nil, nil, nil, nil, nil)
+	gw := New(ctx.Logger(), ctx, TestAPISecret, TestMerchantID, nil, nil, nil, nil, nil, nil)
 	assert.Equal(t, "ATLOS", gw.GetName(context.Background()))
 }
 
 func TestAtlosGateway_GetDescription(t *testing.T) {
 	ctx, _ := coreTesting.NewTestContext(t)
-	gw := New(ctx.Logger(), TestAPISecret, TestMerchantID, nil, nil, nil, nil, nil, nil)
+	gw := New(ctx.Logger(), ctx, TestAPISecret, TestMerchantID, nil, nil, nil, nil, nil, nil)
 	assert.Equal(t, "Accept crypto payments using the ATLOS payment widget", gw.GetDescription(context.Background()))
 }
 
 func TestAtlosGateway_SupportsProductSync(t *testing.T) {
 	ctx, _ := coreTesting.NewTestContext(t)
-	gw := New(ctx.Logger(), TestAPISecret, TestMerchantID, nil, nil, nil, nil, nil, nil)
+	gw := New(ctx.Logger(), ctx, TestAPISecret, TestMerchantID, nil, nil, nil, nil, nil, nil)
 	assert.False(t, gw.SupportsProductSync())
 }
 
 func TestAtlosGateway_SyncPlan(t *testing.T) {
 	ctx, _ := coreTesting.NewTestContext(t)
-	gw := New(ctx.Logger(), TestAPISecret, TestMerchantID, nil, nil, nil, nil, nil, nil)
+	gw := New(ctx.Logger(), ctx, TestAPISecret, TestMerchantID, nil, nil, nil, nil, nil, nil)
 
 	plan := &pluginCore.PricingPlanInfo{
 		ID:   TestPlanID,
@@ -89,7 +91,7 @@ func TestAtlosGateway_SyncPlan(t *testing.T) {
 
 func TestAtlosGateway_GetCustomerPortalURL(t *testing.T) {
 	ctx, _ := coreTesting.NewTestContext(t)
-	gw := New(ctx.Logger(), TestAPISecret, TestMerchantID, nil, nil, nil, nil, nil, nil)
+	gw := New(ctx.Logger(), ctx, TestAPISecret, TestMerchantID, nil, nil, nil, nil, nil, nil)
 
 	url, err := gw.GetCustomerPortalURL(context.Background(), TestUserID, "https://example.com/return")
 	assert.Error(t, err)
@@ -99,7 +101,7 @@ func TestAtlosGateway_GetCustomerPortalURL(t *testing.T) {
 
 func TestAtlosGateway_GetCustomerPortalMetadata(t *testing.T) {
 	ctx, _ := coreTesting.NewTestContext(t)
-	gw := New(ctx.Logger(), TestAPISecret, TestMerchantID, nil, nil, nil, nil, nil, nil)
+	gw := New(ctx.Logger(), ctx, TestAPISecret, TestMerchantID, nil, nil, nil, nil, nil, nil)
 
 	metadata, err := gw.GetCustomerPortalMetadata(context.Background(), TestUserID)
 	assert.NoError(t, err)
@@ -152,7 +154,7 @@ func TestAtlosGateway_ExtractEventID(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx, _ := coreTesting.NewTestContext(t)
-			gw := New(ctx.Logger(), TestAPISecret, TestMerchantID, nil, nil, nil, nil, nil, nil)
+			gw := New(ctx.Logger(), ctx, TestAPISecret, TestMerchantID, nil, nil, nil, nil, nil, nil)
 
 			eventID, err := gw.ExtractEventID(context.Background(), tt.payload)
 			if tt.expectError {
@@ -196,7 +198,7 @@ func TestAtlosGateway_ExtractEventType(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx, _ := coreTesting.NewTestContext(t)
-			gw := New(ctx.Logger(), TestAPISecret, TestMerchantID, nil, nil, nil, nil, nil, nil)
+			gw := New(ctx.Logger(), ctx, TestAPISecret, TestMerchantID, nil, nil, nil, nil, nil, nil)
 
 			eventType, err := gw.ExtractEventType(context.Background(), tt.payload)
 			if tt.expectError {
@@ -254,7 +256,7 @@ func TestAtlosGateway_ValidateWebhook(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx, _ := coreTesting.NewTestContext(t)
-			gw := New(ctx.Logger(), TestAPISecret, TestMerchantID, nil, nil, nil, nil, nil, nil)
+			gw := New(ctx.Logger(), ctx, TestAPISecret, TestMerchantID, nil, nil, nil, nil, nil, nil)
 
 			err := gw.ValidateWebhook(context.Background(), tt.signature, tt.payload)
 			if tt.expectError {
@@ -272,30 +274,85 @@ func TestAtlosGateway_HandleWebhook_Success(t *testing.T) {
 		mockUsers := core.GetService[*coreTesting.MockUserService](ctx, core.USER_SERVICE)
 		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
 		mockPricing := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
+		mockCredit := core.GetService[*pluginCore.MockCreditService](ctx, pluginCore.CREDIT_SERVICE)
 
 		userID := uint(456)
-		planID := uint(2)
-		orderID := "456-plan2"
+		periodID := uint(2)
+		orderID := "456-period2"
 
 		notification := atlos.CreateTestPostback(TestMerchantID)
 		notification.OrderId = orderID
 		notification.TransactionId = TestTransactionID
 		notification.SubscriptionId = TestSubscriptionID
+		notification.PaidAmount = 10.0
 		payload, _ := json.Marshal(notification)
 
+		// Pricing plan period
+		period := &billingModels.PricingPlanPeriod{
+			Model:        gorm.Model{ID: periodID},
+			PricingPlanID: 1,
+			Cadence:       "monthly",
+			PriceUSD:      10.0,
+		}
+
+		// Pricing plan for validation
 		pricingPlan := &billingModels.PricingPlan{
-			Model:       gorm.Model{ID: planID},
+			Model:       gorm.Model{ID: 1},
 			Name:        "Test Plan",
 			Description: "Test Description",
 			IsActive:    true,
 		}
-		mockPricing.EXPECT().GetPricingPlan(mock.Anything, planID).Return(pricingPlan, nil)
 
-		mockBilling.EXPECT().CreateOrUpdateSubscriber(
-			mock.Anything, userID, GatewayID, TestTransactionID, TestSubscriptionID, true, &planID,
+		// GetPricingPlanPeriod is called twice (validation + subscriber check)
+		mockPricing.EXPECT().GetPricingPlanPeriod(mock.AnythingOfType("*context.valueCtx"), periodID).Return(period, nil)
+		mockPricing.EXPECT().GetPricingPlanPeriod(mock.AnythingOfType("*context.valueCtx"), periodID).Return(period, nil)
+		mockPricing.EXPECT().GetPricingPlan(mock.AnythingOfType("*context.valueCtx"), uint(1)).Return(pricingPlan, nil)
+
+		// No existing subscriber (new subscription)
+		mockBilling.EXPECT().GetActiveSubscriber(mock.AnythingOfType("*context.valueCtx"), userID, GatewayID).Return(nil, nil)
+
+		// Calculate expected billing cycle
+		cadence := subscription.Cadence(period.Cadence)
+		billingCycle := subscription.CalculateFirstCycle(time.Now().UTC(), cadence)
+
+		// Debit credit for subscription period
+		referenceID := TestTransactionID
+		description := "Subscription period " + billingCycle.StartAt.Format("2006-01-02") + " to " + billingCycle.EndAt.Format("2006-01-02")
+		mockCredit.EXPECT().IssueUsageCredit(
+			mock.AnythingOfType("*context.valueCtx"),
+			uint64(userID),
+			pluginCore.TransactionTypeTime,
+			mock.AnythingOfType("decimal.Decimal"), // Use AnythingOfType since decimal representation may differ
+			referenceID,
+			description,
+			uint64(0),
 		).Return(nil)
 
-		gw := New(ctx.Logger(), TestAPISecret, TestMerchantID, nil, mockQuota, mockUsers, mockBilling, mockPricing, nil)
+		// Create or update subscriber with billing period options
+		mockBilling.EXPECT().CreateOrUpdateSubscriber(
+			mock.Anything,
+			userID,
+			GatewayID,
+			TestTransactionID,
+			TestSubscriptionID,
+			true,
+			&periodID,
+			mock.Anything, mock.Anything, // Two SubscriberOption args: WithBillingPeriodStart and WithBillingPeriodEnd
+		).Return(nil)
+
+		// Issue payment credit
+		mockCredit.EXPECT().IssueCreditWithIdempotency(
+			mock.AnythingOfType("*context.valueCtx"),
+			uint64(userID),
+			pluginCore.TransactionTypeCharge,
+			mock.AnythingOfType("decimal.Decimal"), // Use AnythingOfType since decimal representation may differ
+			pluginCore.ReferenceTypeAtlosPayment,
+			TestTransactionID,
+			"ATLOS payment completed",
+			uint64(0),
+		).Return(nil)
+
+		gw := New(ctx.Logger(), ctx, TestAPISecret, TestMerchantID, nil, mockQuota, mockUsers, mockBilling, mockPricing, mockCredit)
 		err := gw.HandleWebhook(context.Background(), payload)
 
 		assert.NoError(t, err)
@@ -304,7 +361,7 @@ func TestAtlosGateway_HandleWebhook_Success(t *testing.T) {
 
 func TestAtlosGateway_HandleWebhook_InvalidPayload(t *testing.T) {
 	ctx, _ := coreTesting.NewTestContext(t)
-	gw := New(ctx.Logger(), TestAPISecret, TestMerchantID, nil, nil, nil, nil, nil, nil)
+	gw := New(ctx.Logger(), ctx, TestAPISecret, TestMerchantID, nil, nil, nil, nil, nil, nil)
 
 	err := gw.HandleWebhook(context.Background(), []byte("invalid json"))
 	assert.Error(t, err)
@@ -319,7 +376,7 @@ func TestAtlosGateway_HandleWebhook_InvalidOrderID(t *testing.T) {
 		notification.OrderId = "invalid-order-id"
 		payload, _ := json.Marshal(notification)
 
-		gw := New(ctx.Logger(), TestAPISecret, TestMerchantID, nil, nil, nil, nil, mockPricing, nil)
+		gw := New(ctx.Logger(), ctx, TestAPISecret, TestMerchantID, nil, nil, nil, nil, mockPricing, nil)
 		err := gw.HandleWebhook(context.Background(), payload)
 
 		assert.Error(t, err)
@@ -337,7 +394,7 @@ func TestAtlosGateway_HandleWebhook_PlanNotFound(t *testing.T) {
 
 		mockPricing.EXPECT().GetPricingPlan(mock.Anything, uint(999)).Return(nil, nil)
 
-		gw := New(ctx.Logger(), TestAPISecret, TestMerchantID, nil, nil, nil, nil, mockPricing, nil)
+		gw := New(ctx.Logger(), ctx, TestAPISecret, TestMerchantID, nil, nil, nil, nil, mockPricing, nil)
 		err := gw.HandleWebhook(context.Background(), payload)
 
 		assert.Error(t, err)
@@ -362,7 +419,7 @@ func TestAtlosGateway_HandleWebhook_PlanNotActive(t *testing.T) {
 		}
 		mockPricing.EXPECT().GetPricingPlan(mock.Anything, planID).Return(pricingPlan, nil)
 
-		gw := New(ctx.Logger(), TestAPISecret, TestMerchantID, nil, nil, nil, nil, mockPricing, nil)
+		gw := New(ctx.Logger(), ctx, TestAPISecret, TestMerchantID, nil, nil, nil, nil, mockPricing, nil)
 		err := gw.HandleWebhook(context.Background(), payload)
 
 		assert.Error(t, err)
@@ -370,15 +427,100 @@ func TestAtlosGateway_HandleWebhook_PlanNotActive(t *testing.T) {
 	})
 }
 
-func TestAtlosGateway_GetCheckoutUI_Success(t *testing.T) {
-	t.Skip("Template execution requires embedded FS context")
+func TestAtlosGateway_GetCheckoutUI_UserNotFound(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockQuota := core.GetService[*quotaCore.MockQuotaService](ctx, quotaCore.QUOTA_SERVICE)
+		mockUsers := core.GetService[*coreTesting.MockUserService](ctx, core.USER_SERVICE)
+		mockPricing := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
+
+		pricingPlan := &billingModels.PricingPlan{
+			Model:       gorm.Model{ID: TestPlanID},
+			Name:        "Test Plan",
+			Description: "Test Description",
+			IsActive:    true,
+		}
+		period := &billingModels.PricingPlanPeriod{
+			Model:        gorm.Model{ID: 1},
+			PricingPlanID: TestPlanID,
+			Cadence:       "monthly",
+			PriceUSD:      10.0,
+		}
+
+		mockPricing.EXPECT().GetPricingPlan(mock.Anything, TestPlanID).Return(pricingPlan, nil)
+		mockPricing.EXPECT().GetPricingPlanPeriods(mock.Anything, TestPlanID).Return([]*billingModels.PricingPlanPeriod{period}, nil)
+		mockUsers.EXPECT().AccountExists(mock.Anything, TestUserID).Return(false, nil, nil)
+
+		gw := New(ctx.Logger(), ctx, TestAPISecret, TestMerchantID, nil, mockQuota, mockUsers, nil, mockPricing, nil)
+		_, err := gw.GetCheckoutUI(context.Background(), TestUserID, TestPlanID, 1)
+
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "user with ID")
+		assert.Contains(t, err.Error(), "not found")
+	})
+}
+
+func TestBuildPaymentConfigData(t *testing.T) {
+	period := &billingModels.PricingPlanPeriod{
+		Model:        gorm.Model{ID: 2},
+		PricingPlanID: 1,
+		Cadence:       "monthly",
+		PriceUSD:      15.99,
+	}
+	userName := "Test User"
+	userEmail := "test@example.com"
+	merchantID := "merchant_123"
+	orderID := "456-period2"
+	postbackURL := "https://example.com/api/billing/webhook/atlos"
+	currency := "USD"
+
+	data := buildPaymentConfigData(merchantID, orderID, period, currency, userName, userEmail, postbackURL)
+
+	assert.Equal(t, "atlos-pay-btn-456-period2", data.ButtonID, "button ID should be prefixed with atlos-pay-btn- and order ID")
+	assert.Equal(t, merchantID, data.MerchantID, "merchant ID should match")
+	assert.Equal(t, orderID, data.OrderID, "order ID should match")
+	assert.Equal(t, 15.99, data.Amount, "amount should match period price")
+	assert.Equal(t, currency, data.Currency, "currency should match")
+	assert.Equal(t, userName, data.UserName, "user name should match")
+	assert.Equal(t, userEmail, data.UserEmail, "user email should match")
+	assert.Equal(t, postbackURL, data.PostbackURL, "postback URL should match")
+}
+
+func TestAtlosGateway_GetCheckoutUI_PeriodNotFound(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockQuota := core.GetService[*quotaCore.MockQuotaService](ctx, quotaCore.QUOTA_SERVICE)
+		mockUsers := core.GetService[*coreTesting.MockUserService](ctx, core.USER_SERVICE)
+		mockPricing := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
+
+		pricingPlan := &billingModels.PricingPlan{
+			Model:       gorm.Model{ID: TestPlanID},
+			Name:        "Test Plan",
+			Description: "Test Description",
+			IsActive:    true,
+			Currency:    "USD",
+		}
+		period := &billingModels.PricingPlanPeriod{
+			Model:        gorm.Model{ID: 1},
+			PricingPlanID: TestPlanID,
+			Cadence:       "monthly",
+			PriceUSD:      10.0,
+		}
+
+		mockPricing.EXPECT().GetPricingPlan(mock.Anything, TestPlanID).Return(pricingPlan, nil)
+		mockPricing.EXPECT().GetPricingPlanPeriods(mock.Anything, TestPlanID).Return([]*billingModels.PricingPlanPeriod{period}, nil)
+
+		gw := New(ctx.Logger(), ctx, TestAPISecret, TestMerchantID, nil, mockQuota, mockUsers, nil, mockPricing, nil)
+		_, err := gw.GetCheckoutUI(context.Background(), TestUserID, TestPlanID, 999)
+
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "period 999 not found for plan")
+	})
 }
 
 func TestAtlosGateway_GetCheckoutUI_MissingUserService(t *testing.T) {
 	ctx, _ := coreTesting.NewTestContext(t)
-	gw := New(ctx.Logger(), TestAPISecret, TestMerchantID, nil, nil, nil, nil, nil, nil)
+	gw := New(ctx.Logger(), ctx, TestAPISecret, TestMerchantID, nil, nil, nil, nil, nil, nil)
 
-	_, err := gw.GetCheckoutUI(context.Background(), TestUserID, TestPlanID)
+	_, err := gw.GetCheckoutUI(context.Background(), TestUserID, TestPlanID, 1)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "user service not configured")
 }
@@ -391,8 +533,8 @@ func TestAtlosGateway_GetCheckoutUI_PlanNotFound(t *testing.T) {
 
 		mockPricing.EXPECT().GetPricingPlan(mock.Anything, TestPlanID).Return(nil, nil)
 
-		gw := New(ctx.Logger(), TestAPISecret, TestMerchantID, nil, mockQuota, mockUsers, nil, mockPricing, nil)
-		_, err := gw.GetCheckoutUI(context.Background(), TestUserID, TestPlanID)
+		gw := New(ctx.Logger(), ctx, TestAPISecret, TestMerchantID, nil, mockQuota, mockUsers, nil, mockPricing, nil)
+		_, err := gw.GetCheckoutUI(context.Background(), TestUserID, TestPlanID, 1)
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "pricing plan not found")
@@ -413,56 +555,87 @@ func TestAtlosGateway_GetCheckoutUI_PlanNotActive(t *testing.T) {
 		}
 		mockPricing.EXPECT().GetPricingPlan(mock.Anything, TestPlanID).Return(pricingPlan, nil)
 
-		gw := New(ctx.Logger(), TestAPISecret, TestMerchantID, nil, mockQuota, mockUsers, nil, mockPricing, nil)
-		_, err := gw.GetCheckoutUI(context.Background(), TestUserID, TestPlanID)
+		gw := New(ctx.Logger(), ctx, TestAPISecret, TestMerchantID, nil, mockQuota, mockUsers, nil, mockPricing, nil)
+		_, err := gw.GetCheckoutUI(context.Background(), TestUserID, TestPlanID, 1)
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "plan is not active")
 	})
 }
 
-func TestAtlosGateway_GetCheckoutUI_NoMonthlyPrice(t *testing.T) {
+func TestAtlosGateway_GetCheckoutUI_NoPricingPeriods(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		mockQuota := core.GetService[*quotaCore.MockQuotaService](ctx, quotaCore.QUOTA_SERVICE)
 		mockUsers := core.GetService[*coreTesting.MockUserService](ctx, core.USER_SERVICE)
 		mockPricing := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
 
 		pricingPlan := &billingModels.PricingPlan{
-			Model:           gorm.Model{ID: TestPlanID},
-			Name:            "Test Plan",
-			Description:     "Test Description",
-			IsActive:        true,
-			MonthlyPriceUSD: nil,
+			Model:       gorm.Model{ID: TestPlanID},
+			Name:        "Test Plan",
+			Description: "Test Description",
+			IsActive:    true,
 		}
 		mockPricing.EXPECT().GetPricingPlan(mock.Anything, TestPlanID).Return(pricingPlan, nil)
+		mockPricing.EXPECT().GetPricingPlanPeriods(mock.Anything, TestPlanID).Return([]*billingModels.PricingPlanPeriod{}, nil)
 
-		gw := New(ctx.Logger(), TestAPISecret, TestMerchantID, nil, mockQuota, mockUsers, nil, mockPricing, nil)
-		_, err := gw.GetCheckoutUI(context.Background(), TestUserID, TestPlanID)
+		gw := New(ctx.Logger(), ctx, TestAPISecret, TestMerchantID, nil, mockQuota, mockUsers, nil, mockPricing, nil)
+		_, err := gw.GetCheckoutUI(context.Background(), TestUserID, TestPlanID, 1)
 
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "does not have a monthly price configured")
+		assert.Contains(t, err.Error(), "no pricing periods configured")
 	})
 }
 
 func TestAtlosGateway_ExecuteCancel_Success(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+		mockPricing := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
 
 		userID := uint(999)
-		planID := uint(5)
+		periodID := uint(5)
+
+		// Set billing period dates (1 month ago to 1 month from now)
+		start := time.Now().AddDate(0, -1, 0).UTC()
+		end := time.Now().AddDate(0, 1, 0).UTC()
 
 		mockSubscriber := &pluginCore.Subscriber{
-			UserID:         userID,
-			GatewayType:    GatewayID,
-			ExternalID:     TestTransactionID,
-			SubscriptionID: TestSubscriptionID,
-			IsActive:       true,
-			PlanID:         &planID,
+			UserID:              userID,
+			GatewayType:         GatewayID,
+			ExternalID:          TestTransactionID,
+			SubscriptionID:      TestSubscriptionID,
+			IsActive:            true,
+			PricingPlanPeriodID: &periodID,
+			BillingPeriodStart:  &start,
+			BillingPeriodEnd:    &end,
 		}
-		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, userID).Return(mockSubscriber, nil)
-		mockBilling.EXPECT().DeactivateSubscriber(mock.Anything, userID, GatewayID).Return(nil)
 
-		gw := New(ctx.Logger(), TestAPISecret, TestMerchantID, nil, nil, nil, mockBilling, nil, nil)
+		// Pricing plan period
+		period := &billingModels.PricingPlanPeriod{
+			Model:         gorm.Model{ID: periodID},
+			PricingPlanID: 1,
+			Cadence:       "monthly",
+			PriceUSD:      10.0,
+		}
+
+		// Mock expectations - ExecuteCancel now schedules cancellation at end of billing period
+		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, userID).Return(mockSubscriber, nil)
+		mockPricing.EXPECT().GetPricingPlanPeriod(mock.Anything, periodID).Return(period, nil)
+
+		// Schedule cancellation with WillCancelAt option
+		mockBilling.EXPECT().CreateOrUpdateSubscriber(
+			mock.Anything,
+			userID,
+			GatewayID,
+			TestTransactionID,
+			TestSubscriptionID,
+			true,
+			&periodID,
+			mock.Anything, // WithBillingPeriodStart option
+			mock.Anything, // WithBillingPeriodEnd option
+			mock.Anything, // WithWillCancelAt option
+		).Return(nil)
+
+		gw := New(ctx.Logger(), ctx, TestAPISecret, TestMerchantID, nil, nil, nil, mockBilling, mockPricing, nil)
 		err := gw.ExecuteCancel(context.Background(), userID)
 
 		assert.NoError(t, err)
@@ -475,7 +648,7 @@ func TestAtlosGateway_ExecuteCancel_NoActiveSubscription(t *testing.T) {
 
 		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, TestUserID).Return(nil, nil)
 
-		gw := New(ctx.Logger(), TestAPISecret, TestMerchantID, nil, nil, nil, mockBilling, nil, nil)
+		gw := New(ctx.Logger(), ctx, TestAPISecret, TestMerchantID, nil, nil, nil, mockBilling, nil, nil)
 		err := gw.ExecuteCancel(context.Background(), TestUserID)
 
 		assert.Error(t, err)
@@ -494,11 +667,11 @@ func TestAtlosGateway_ExecuteCancel_WrongGateway(t *testing.T) {
 			ExternalID:     TestTransactionID,
 			SubscriptionID: TestSubscriptionID,
 			IsActive:       true,
-			PlanID:         &planID,
+			PricingPlanPeriodID: &planID,
 		}
 		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, TestUserID).Return(mockSubscriber, nil)
 
-		gw := New(ctx.Logger(), TestAPISecret, TestMerchantID, nil, nil, nil, mockBilling, nil, nil)
+		gw := New(ctx.Logger(), ctx, TestAPISecret, TestMerchantID, nil, nil, nil, mockBilling, nil, nil)
 		err := gw.ExecuteCancel(context.Background(), TestUserID)
 
 		assert.Error(t, err)
@@ -508,14 +681,14 @@ func TestAtlosGateway_ExecuteCancel_WrongGateway(t *testing.T) {
 
 func TestAtlosGateway_GetManagementInfo(t *testing.T) {
 	ctx, _ := coreTesting.NewTestContext(t)
-	gw := New(ctx.Logger(), TestAPISecret, TestMerchantID, nil, nil, nil, nil, nil, nil)
+	gw := New(ctx.Logger(), ctx, TestAPISecret, TestMerchantID, nil, nil, nil, nil, nil, nil)
 
 	info, err := gw.GetManagementInfo(context.Background(), TestUserID)
 	assert.NoError(t, err)
 	assert.NotNil(t, info)
 	assert.Equal(t, pluginCore.ModeAPI, info.ManagementMode)
 	assert.True(t, info.Operations[pluginCore.OperationCancel])
-	assert.False(t, info.Operations[pluginCore.OperationChangePlan])
+	assert.True(t, info.Operations[pluginCore.OperationChangePlan])
 }
 
 func TestAtlosGateway_GetManagementURL_Cancel(t *testing.T) {
@@ -529,11 +702,11 @@ func TestAtlosGateway_GetManagementURL_Cancel(t *testing.T) {
 			ExternalID:     TestTransactionID,
 			SubscriptionID: TestSubscriptionID,
 			IsActive:       true,
-			PlanID:         &planID,
+			PricingPlanPeriodID: &planID,
 		}
 		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, TestUserID).Return(mockSubscriber, nil)
 
-		gw := New(ctx.Logger(), TestAPISecret, TestMerchantID, nil, nil, nil, mockBilling, nil, nil)
+		gw := New(ctx.Logger(), ctx, TestAPISecret, TestMerchantID, nil, nil, nil, mockBilling, nil, nil)
 		result, err := gw.GetManagementURL(context.Background(), TestUserID, pluginCore.OperationCancel)
 
 		assert.NoError(t, err)
@@ -554,17 +727,19 @@ func TestAtlosGateway_GetManagementURL_ChangePlan(t *testing.T) {
 			ExternalID:     TestTransactionID,
 			SubscriptionID: TestSubscriptionID,
 			IsActive:       true,
-			PlanID:         &planID,
+			PricingPlanPeriodID: &planID,
 		}
 		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, TestUserID).Return(mockSubscriber, nil)
 
-		gw := New(ctx.Logger(), TestAPISecret, TestMerchantID, nil, nil, nil, mockBilling, nil, nil)
+		gw := New(ctx.Logger(), ctx, TestAPISecret, TestMerchantID, nil, nil, nil, mockBilling, nil, nil)
 		result, err := gw.GetManagementURL(context.Background(), TestUserID, pluginCore.OperationChangePlan)
 
 		assert.NoError(t, err)
 		assert.NotNil(t, result)
-		assert.Equal(t, pluginCore.ActionUnsupported, result.Action)
-		assert.Contains(t, result.ErrorMessage, "Plan changes are not yet supported")
+		assert.Equal(t, pluginCore.ActionAPIRequired, result.Action)
+		assert.NotNil(t, result.APIEndpoint)
+		assert.Equal(t, pluginCore.ChangePlanEndpointPath, result.APIEndpoint.Path)
+		assert.Equal(t, "POST", result.APIEndpoint.Method)
 	})
 }
 
@@ -574,7 +749,7 @@ func TestAtlosGateway_GetManagementURL_NoActiveSubscription(t *testing.T) {
 
 		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, TestUserID).Return(nil, nil)
 
-		gw := New(ctx.Logger(), TestAPISecret, TestMerchantID, nil, nil, nil, mockBilling, nil, nil)
+		gw := New(ctx.Logger(), ctx, TestAPISecret, TestMerchantID, nil, nil, nil, mockBilling, nil, nil)
 		_, err := gw.GetManagementURL(context.Background(), TestUserID, pluginCore.OperationCancel)
 
 		assert.Error(t, err)
@@ -593,11 +768,11 @@ func TestAtlosGateway_GetManagementURL_UnsupportedOperation(t *testing.T) {
 			ExternalID:     TestTransactionID,
 			SubscriptionID: TestSubscriptionID,
 			IsActive:       true,
-			PlanID:         &planID,
+			PricingPlanPeriodID: &planID,
 		}
 		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, TestUserID).Return(mockSubscriber, nil)
 
-		gw := New(ctx.Logger(), TestAPISecret, TestMerchantID, nil, nil, nil, mockBilling, nil, nil)
+		gw := New(ctx.Logger(), ctx, TestAPISecret, TestMerchantID, nil, nil, nil, mockBilling, nil, nil)
 		result, err := gw.GetManagementURL(context.Background(), TestUserID, pluginCore.ManagementOperation("unsupported"))
 
 		assert.NoError(t, err)
@@ -607,61 +782,6 @@ func TestAtlosGateway_GetManagementURL_UnsupportedOperation(t *testing.T) {
 	})
 }
 
-func TestParseOrderID(t *testing.T) {
-	tests := []struct {
-		name           string
-		orderID        string
-		expectError    bool
-		expectedUserID uint
-		expectedPlanID uint
-	}{
-		{
-			name:           "valid order ID",
-			orderID:        "123-plan456",
-			expectError:    false,
-			expectedUserID: 123,
-			expectedPlanID: 456,
-		},
-		{
-			name:        "invalid format - missing dash",
-			orderID:     "123plan456",
-			expectError: true,
-		},
-		{
-			name:        "invalid format - missing plan prefix",
-			orderID:     "123-456",
-			expectError: true,
-		},
-		{
-			name:        "invalid user ID",
-			orderID:     "abc-plan456",
-			expectError: true,
-		},
-		{
-			name:        "invalid plan ID",
-			orderID:     "123-planabc",
-			expectError: true,
-		},
-		{
-			name:        "empty order ID",
-			orderID:     "",
-			expectError: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			userID, planID, err := parseOrderID(tt.orderID)
-			if tt.expectError {
-				assert.Error(t, err)
-			} else {
-				assert.NoError(t, err)
-				assert.Equal(t, tt.expectedUserID, userID)
-				assert.Equal(t, tt.expectedPlanID, planID)
-			}
-		})
-	}
-}
 
 func TestSetup(t *testing.T) {
 	tests := []struct {
@@ -725,7 +845,7 @@ func TestSetup(t *testing.T) {
 
 func TestAtlosGateway_SetQuota(t *testing.T) {
 	ctx, _ := coreTesting.NewTestContext(t)
-	gw := New(ctx.Logger(), TestAPISecret, TestMerchantID, nil, nil, nil, nil, nil, nil)
+	gw := New(ctx.Logger(), ctx, TestAPISecret, TestMerchantID, nil, nil, nil, nil, nil, nil)
 
 	mockQuota := &quotaCore.MockQuotaService{}
 	gw.SetQuota(mockQuota)
@@ -738,11 +858,18 @@ func TestAtlosGateway_CreateOrUpdateSubscriber(t *testing.T) {
 		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
 
 		planID := uint(10)
-		mockBilling.EXPECT().CreateOrUpdateSubscriber(
-			mock.Anything, TestUserID, GatewayID, TestTransactionID, TestSubscriptionID, true, &planID,
+		mockBilling.On("CreateOrUpdateSubscriber",
+			mock.AnythingOfType("*context.valueCtx"),
+			TestUserID,
+			GatewayID,
+			TestTransactionID,
+			TestSubscriptionID,
+			true,
+			&planID,
+			mock.Anything, // Variadic SubscriberOption args
 		).Return(nil)
 
-		gw := New(ctx.Logger(), TestAPISecret, TestMerchantID, nil, nil, nil, mockBilling, nil, nil)
+		gw := New(ctx.Logger(), ctx, TestAPISecret, TestMerchantID, nil, nil, nil, mockBilling, nil, nil)
 		err := gw.CreateOrUpdateSubscriber(context.Background(), TestUserID, TestTransactionID, TestSubscriptionID, true, &planID)
 
 		assert.NoError(t, err)
@@ -755,7 +882,7 @@ func TestAtlosGateway_DeactivateSubscriber(t *testing.T) {
 
 		mockBilling.EXPECT().DeactivateSubscriber(mock.Anything, TestUserID, GatewayID).Return(nil)
 
-		gw := New(ctx.Logger(), TestAPISecret, TestMerchantID, nil, nil, nil, mockBilling, nil, nil)
+		gw := New(ctx.Logger(), ctx, TestAPISecret, TestMerchantID, nil, nil, nil, mockBilling, nil, nil)
 		err := gw.DeactivateSubscriber(context.Background(), TestUserID, GatewayID)
 
 		assert.NoError(t, err)
@@ -764,7 +891,7 @@ func TestAtlosGateway_DeactivateSubscriber(t *testing.T) {
 
 func TestAtlosGateway_GetLogo(t *testing.T) {
 	ctx, _ := coreTesting.NewTestContext(t)
-	gw := New(ctx.Logger(), TestAPISecret, TestMerchantID, nil, nil, nil, nil, nil, nil)
+	gw := New(ctx.Logger(), ctx, TestAPISecret, TestMerchantID, nil, nil, nil, nil, nil, nil)
 
 	logo, err := gw.GetLogo(context.Background())
 	assert.NoError(t, err)

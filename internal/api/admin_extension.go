@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -12,7 +11,6 @@ import (
 	"github.com/samber/lo"
 	"github.com/shopspring/decimal"
 	"go.lumeweb.com/httputil"
-	"gorm.io/datatypes"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
 	"go.lumeweb.com/portal-plugin-billing/internal/api/dto"
 	"go.lumeweb.com/portal-plugin-billing/internal/db/models"
@@ -121,6 +119,36 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 			router.WithSwagger(
 				router.WithSummary("List Price Lines"),
 				router.WithDescription("Retrieves all price lines with filtering, sorting, and pagination support"),
+				router.WithTags("Billing Admin"),
+			)),
+		router.NewRoute(http.MethodPost, "/api/billing/pricing-plan-periods", e.handleCreatePricingPlanPeriod,
+			router.WithSwagger(
+				router.WithSummary("Create Pricing Plan Period"),
+				router.WithDescription("Creates a new pricing plan period with billing cadence information"),
+				router.WithTags("Billing Admin"),
+			)),
+		router.NewRoute(http.MethodPut, "/api/billing/pricing-plan-periods/:id", e.handleUpdatePricingPlanPeriod,
+			router.WithSwagger(
+				router.WithSummary("Update Pricing Plan Period"),
+				router.WithDescription("Updates an existing pricing plan period"),
+				router.WithTags("Billing Admin"),
+			)),
+		router.NewRoute(http.MethodDelete, "/api/billing/pricing-plan-periods/:id", e.handleDeletePricingPlanPeriod,
+			router.WithSwagger(
+				router.WithSummary("Delete Pricing Plan Period"),
+				router.WithDescription("Deletes a pricing plan period (soft delete)"),
+				router.WithTags("Billing Admin"),
+			)),
+		router.NewRoute(http.MethodGet, "/api/billing/pricing-plan-periods", e.handleListPricingPlanPeriods,
+			router.WithSwagger(
+				router.WithSummary("List Pricing Plan Periods"),
+				router.WithDescription("Retrieves all pricing plan periods with filtering, sorting, and pagination support"),
+				router.WithTags("Billing Admin"),
+			)),
+		router.NewRoute(http.MethodGet, "/api/billing/pricing-plan-periods/:id", e.handleGetPricingPlanPeriod,
+			router.WithSwagger(
+				router.WithSummary("Get Pricing Plan Period"),
+				router.WithDescription("Retrieves a specific pricing plan period by ID"),
 				router.WithTags("Billing Admin"),
 			)),
 		router.NewRoute(http.MethodPost, "/api/billing/credits", e.handleCreateCredit,
@@ -255,7 +283,7 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 				router.WithTags("Billing Admin"),
 				router.WithRequestBody(dto.CreditPurgeRequest{}, "Purge request with duration", true),
 				router.WithSuccessResponse(http.StatusOK, "Credits purged successfully",
-					router.WithJSONContent(map[string]interface{}{"purged_count": 0})),
+					router.WithJSONContent(dto.CreditPurgeResponse{PurgedCount: 0})),
 				router.WithErrorResponses(
 					router.DefineSwaggerErrorResponses(
 						router.DefineSwaggerErrorResponse(http.StatusUnauthorized, "Authentication required"),
@@ -550,7 +578,7 @@ func (e *AdminExtension) handleCreateCredit(c echo.Context) error {
 			if err := e.creditService.IssueCreditWithIdempotency(
 				reqCtx,
 				req.UserID,
-				req.CreditType,
+				req.TransactionType,
 				amount,
 				req.ReferenceType,
 				req.ReferenceID,
@@ -576,7 +604,7 @@ func (e *AdminExtension) handleCreateCredit(c echo.Context) error {
 			ID:            uuid.New(),
 			UserID:        req.UserID,
 			Amount:        amount,
-			Type:          req.CreditType,
+			Type:          req.TransactionType,
 			Direction:     req.Direction,
 			Description:   req.Description,
 			ReferenceID:   req.ReferenceID,
@@ -746,12 +774,14 @@ func (e *AdminExtension) handleGetUserBalance(c echo.Context) error {
 		return ctx.Error(NewError(ErrKeyCreditNotFound, fmt.Errorf("failed to get user balance: %w", err)), http.StatusInternalServerError)
 	}
 
-	resp := dto.BalanceResponse{
+	// Create balance view model for proper DTO conversion
+	balanceView := &models.CreditsBalanceView{
 		UserID:  userID,
 		Balance: balance,
 	}
 
-	return ctx.JSON(http.StatusOK, resp)
+	var resp dto.BalanceResponse
+	return httputil.EncodeResponse(ctx, balanceView, &resp)
 }
 
 // handlePurgeCredits permanently removes soft-deleted credits older than specified duration
@@ -778,38 +808,143 @@ func (e *AdminExtension) handlePurgeCredits(c echo.Context) error {
 		return ctx.Error(NewError(ErrKeyCreditDeleteFailed, fmt.Errorf("failed to purge credits: %w", err)), http.StatusInternalServerError)
 	}
 
-	return ctx.JSON(http.StatusOK, map[string]interface{}{
-		"purged_count": count,
-	})
+	result := &dto.PurgeResult{Count: count}
+	var resp dto.CreditPurgeResponse
+	return httputil.EncodeResponse(ctx, result, &resp)
 }
 
-// convertCreditToModel converts a ledger Credit to CreditModel for DTO conversion
-func convertCreditToModel(credit *ledger.Credit) *models.CreditModel {
-	if credit == nil {
+// handleCreatePricingPlanPeriod creates a new pricing plan period
+func (e *AdminExtension) handleCreatePricingPlanPeriod(c echo.Context) error {
+	ctx := httputil.Context(c)
+	reqCtx := ctx.Context.Request().Context()
+
+	// Parse and validate request body using DTO
+	var req dto.PricingPlanPeriodCreateRequest
+	if _, ok := httputil.DecodeAndValidateRequest(ctx, &req); !ok {
 		return nil
 	}
 
-	var metaJSON datatypes.JSON
-	if len(credit.Metadata) > 0 {
-		metaBytes, err := json.Marshal(credit.Metadata)
-		if err == nil {
-			metaJSON = datatypes.JSON(metaBytes)
-		}
+	// Convert DTO to model
+	period, err := req.ToModel()
+	if err != nil {
+		e.Logger().Error("failed to convert pricing plan period request", zap.Error(err))
+		return ctx.Error(NewError(ErrKeyInvalidRequest, fmt.Errorf("invalid request: %w", err)), http.StatusBadRequest)
 	}
 
-	return &models.CreditModel{
-		ID:            credit.ID,
-		UserID:        credit.UserID,
-		Amount:        credit.Amount,
-		Type:          credit.Type,
-		Direction:     credit.Direction,
-		ReferenceID:   credit.ReferenceID,
-		ReferenceType: credit.ReferenceType,
-		Description:   credit.Description,
-		Metadata:      metaJSON,
-		CreatedBy:     credit.CreatedBy,
-		CreatedAt:     credit.CreatedAt,
-		UpdatedAt:     credit.UpdatedAt,
-		DeletedAt:     &credit.DeletedAt,
+	// Create period
+	if err := e.pricingService.CreatePricingPlanPeriod(reqCtx, period); err != nil {
+		e.Logger().Error("failed to create pricing plan period", zap.Error(err))
+		return ctx.Error(NewError(ErrKeyPricingPeriodCreateFailed, fmt.Errorf("failed to create pricing plan period: %w", err)), http.StatusInternalServerError)
 	}
+
+	ctx.Response().Before(func() {
+		ctx.Response().Status = http.StatusCreated
+	})
+
+	var resp dto.PricingPlanPeriodDTO
+	_ = resp.FromModel(period)
+	return ctx.JSON(http.StatusCreated, resp)
 }
+
+// handleUpdatePricingPlanPeriod updates an existing pricing plan period
+func (e *AdminExtension) handleUpdatePricingPlanPeriod(c echo.Context) error {
+	ctx := httputil.Context(c)
+	reqCtx := ctx.Context.Request().Context()
+
+	idStr := c.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 64)
+	if err != nil {
+		return ctx.Error(NewError(ErrKeyInvalidPlanID, fmt.Errorf("invalid id: %w", err)), http.StatusBadRequest)
+	}
+
+	// Parse and validate request body using DTO
+	var req dto.PricingPlanPeriodUpdateRequest
+	if _, ok := httputil.DecodeAndValidateRequest(ctx, &req); !ok {
+		return nil
+	}
+
+	// Convert DTO to model
+	period, err := req.ToModel()
+	if err != nil {
+		e.Logger().Error("failed to convert pricing plan period request", zap.Error(err))
+		return ctx.Error(NewError(ErrKeyInvalidRequest, fmt.Errorf("invalid request: %w", err)), http.StatusBadRequest)
+	}
+
+	// Update period
+	if err := e.pricingService.UpdatePricingPlanPeriod(reqCtx, uint(id), period); err != nil {
+		e.Logger().Error("failed to update pricing plan period", zap.Error(err))
+		return ctx.Error(NewError(ErrKeyPricingPeriodUpdateFailed, fmt.Errorf("failed to update pricing plan period: %w", err)), http.StatusInternalServerError)
+	}
+
+	var resp dto.PricingPlanPeriodDTO
+	updatedPeriod, err := e.pricingService.GetPricingPlanPeriod(reqCtx, uint(id))
+	if err != nil {
+		return ctx.Error(NewError(ErrKeyPricingPeriodNotFound, fmt.Errorf("failed to retrieve updated period: %w", err)), http.StatusInternalServerError)
+	}
+	_ = resp.FromModel(updatedPeriod)
+	return ctx.JSON(http.StatusOK, resp)
+}
+
+// handleDeletePricingPlanPeriod deletes a pricing plan period
+func (e *AdminExtension) handleDeletePricingPlanPeriod(c echo.Context) error {
+	ctx := httputil.Context(c)
+	reqCtx := ctx.Context.Request().Context()
+
+	idStr := c.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 64)
+	if err != nil {
+		return ctx.Error(NewError(ErrKeyInvalidPlanID, fmt.Errorf("invalid id: %w", err)), http.StatusBadRequest)
+	}
+
+	// Delete period
+	if err := e.pricingService.DeletePricingPlanPeriod(reqCtx, uint(id)); err != nil {
+		e.Logger().Error("failed to delete pricing plan period", zap.Error(err))
+		return ctx.Error(NewError(ErrKeyPricingPeriodDeleteFailed, fmt.Errorf("failed to delete pricing plan period: %w", err)), http.StatusInternalServerError)
+	}
+
+	return ctx.NoContent(http.StatusNoContent)
+}
+
+// handleListPricingPlanPeriods lists all pricing plan periods with filtering and pagination
+func (e *AdminExtension) handleListPricingPlanPeriods(c echo.Context) error {
+	ctx := httputil.Context(c)
+	reqCtx := ctx.Context.Request().Context()
+
+	return queryutilHttp.ProcessListRequest(
+		c.Response(),
+		c.Request(),
+		"pricing_plan_periods",
+		func(filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination) ([]*models.PricingPlanPeriod, int64, error) {
+			return e.pricingService.GetPricingPlanPeriodsWithFilter(reqCtx, filters, sorts, pagination)
+		},
+		func(period *models.PricingPlanPeriod) dto.PricingPlanPeriodDTO {
+			var dto dto.PricingPlanPeriodDTO
+			_ = dto.FromModel(period)
+			return dto
+		},
+	)
+}
+
+// handleGetPricingPlanPeriod retrieves a specific pricing plan period by ID
+func (e *AdminExtension) handleGetPricingPlanPeriod(c echo.Context) error {
+	ctx := httputil.Context(c)
+	reqCtx := ctx.Context.Request().Context()
+
+	idStr := c.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 64)
+	if err != nil {
+		return ctx.Error(NewError(ErrKeyInvalidPlanID, fmt.Errorf("invalid id: %w", err)), http.StatusBadRequest)
+	}
+
+	period, err := e.pricingService.GetPricingPlanPeriod(reqCtx, uint(id))
+	if err != nil {
+		return ctx.Error(NewError(ErrKeyPricingPeriodNotFound, fmt.Errorf("pricing plan period with ID %d not found", id)), http.StatusNotFound)
+	}
+
+	var resp dto.PricingPlanPeriodDTO
+	_ = resp.FromModel(period)
+	return ctx.JSON(http.StatusOK, resp)
+}
+
+// convertCreditToModel converts a ledger Credit to CreditModel for DTO conversion
+

@@ -14,7 +14,12 @@ func (s *BillingServiceDefault) GetCheckoutUI(
 	userID uint,
 	planID uint,
 	gatewayType string,
+	periodID uint,
 ) (*pluginCore.CheckoutUIResponse, error) {
+	if periodID == 0 {
+		return nil, fmt.Errorf("periodID is required")
+	}
+
 	// 1. Validate subscription state
 	sub, err := s.GetActiveSubscription(ctx, userID)
 	if err == nil && sub != nil {
@@ -50,7 +55,7 @@ func (s *BillingServiceDefault) GetCheckoutUI(
 		CheckoutUIErrors.WithLabelValues(gatewayType, "interface_not_implemented").Inc()
 		return nil, fmt.Errorf("gateway %s does not implement CheckoutProvider", gatewayType)
 	}
-	return checkoutProvider.GetCheckoutUI(ctx, userID, planID)
+	return checkoutProvider.GetCheckoutUI(ctx, userID, planID, periodID)
 }
 
 // Predefined checkout errors

@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"time"
 
 	"go.lumeweb.com/portal-plugin-billing/internal/db/models"
 	"go.lumeweb.com/portal/core"
@@ -24,11 +25,12 @@ type BillingService interface {
 	RegisterGateway(ctx context.Context, gateway PaymentGateway) error
 	// GetGateway returns a registered payment gateway by type
 	// Returns pluginCore.ErrGatewayNotFound if the gateway is not registered
-	GetGateway(ctx context.Context, gatewayType string) (PaymentGateway, error)
+	GetGateway(ctx context.Context, gatewayType string) (GatewayIdentity, error)
 
 	// Subscriber management methods
 	// CreateOrUpdateSubscriber creates or updates a subscriber record
-	CreateOrUpdateSubscriber(ctx context.Context, userID uint, gatewayType, externalID, subscriptionID string, isActive bool, planID *uint) error
+	// Optional parameters can be passed using WithBillingPeriodStart and WithBillingPeriodEnd
+	CreateOrUpdateSubscriber(ctx context.Context, userID uint, gatewayType, externalID, subscriptionID string, isActive bool, pricingPlanPeriodID *uint, opts ...SubscriberOption) error
 	// DeactivateSubscriber deactivates a subscriber
 	DeactivateSubscriber(ctx context.Context, userID uint, gatewayType string) error
 	// GetActiveSubscriber returns an active subscriber for the given user and gateway
@@ -41,15 +43,18 @@ type BillingService interface {
 	IsUserActiveSubscriber(ctx context.Context, userID uint) (bool, error)
 	// GetActiveSubscribersByGateway returns all active subscribers for a specific gateway
 	GetActiveSubscribersByGateway(ctx context.Context, gatewayType string) ([]Subscriber, error)
+	// GetPendingCancellations returns subscribers with pending cancellations for a gateway
+	// These are subscribers with WillCancelAt set to a date in the past or equal to now
+	GetPendingCancellations(ctx context.Context, gatewayType string, now time.Time) ([]Subscriber, error)
 	// GetActiveSubscription returns the first active subscription for a user across all gateways
 	GetActiveSubscription(ctx context.Context, userID uint) (*Subscriber, error)
 	// GetRegistry returns the gateway registry for querying available gateways
 	GetRegistry(ctx context.Context) GatewayRegistry
 	// GetCheckoutUI returns checkout UI fragments for a plan
-	GetCheckoutUI(ctx context.Context, userID uint, planID uint, gatewayType string) (*CheckoutUIResponse, error)
+	GetCheckoutUI(ctx context.Context, userID uint, planID uint, gatewayType string, periodID uint) (*CheckoutUIResponse, error)
 }
 
 // GatewayRegistry provides access to gateway information
 type GatewayRegistry interface {
-	GetAllGateways() map[string]PaymentGateway
+	GetAllGateways() map[string]GatewayIdentity
 }

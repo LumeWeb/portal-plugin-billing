@@ -95,7 +95,7 @@ func (s *SyncManager) SyncPricingPlan(ctx context.Context, planID uint) (*SyncGa
 // syncGatewayAttempt wraps syncGatewayPlan with metrics tracking using retry-go for transient failures
 func (s *SyncManager) syncGatewayAttempt(
 	ctx context.Context,
-	gateway pluginCore.PaymentGateway,
+	gateway pluginCore.GatewayIdentity,
 	plan *models.PricingPlan,
 	gatewayID string,
 ) (*pluginCore.SyncResult, error) {
@@ -136,7 +136,7 @@ func (s *SyncManager) syncGatewayAttempt(
 // syncGatewayPlan synchronizes a pricing plan with a specific gateway
 func (s *SyncManager) syncGatewayPlan(
 	ctx context.Context,
-	gateway pluginCore.PaymentGateway,
+	gateway pluginCore.GatewayIdentity,
 	plan *models.PricingPlan,
 	gatewayID string,
 ) (*pluginCore.SyncResult, error) {
@@ -163,13 +163,32 @@ func (s *SyncManager) syncGatewayPlan(
 		zap.Uint("plan_id", plan.ID),
 		zap.String("plan_name", plan.Name))
 
+	// Fetch pricing periods
+	periods, err := s.pricingSvc.GetPricingPlanPeriods(ctx, plan.ID)
+	if err != nil {
+		s.ctx.Logger().Error("failed to get pricing plan periods", zap.Error(err))
+		return nil, err
+	}
+
+	// Convert pricing plan periods to pricing variants
+	pricingVariants := make([]pluginCore.PricingVariant, 0, len(periods))
+	for _, period := range periods {
+		variant := pluginCore.PricingVariant{
+			BillingPeriodID: period.ID,
+			PriceUSD:        period.PriceUSD,
+			QuotaPlanID:     period.QuotaPlanID,
+			Cadence:         period.Cadence,
+			RollingDays:     period.RollingDays,
+		}
+		pricingVariants = append(pricingVariants, variant)
+	}
+
 	planInfo := &pluginCore.PricingPlanInfo{
 		ID:              plan.ID,
 		Name:            plan.Name,
 		Description:     plan.Description,
 		Currency:        plan.Currency,
-		MonthlyPriceUSD: plan.MonthlyPriceUSD,
-		YearlyPriceUSD:  plan.YearlyPriceUSD,
+		PricingVariants: pricingVariants,
 		IsActive:        plan.IsActive,
 		IsPublic:        plan.IsPublic,
 	}

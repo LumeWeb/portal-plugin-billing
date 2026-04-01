@@ -25,7 +25,7 @@
 
     button.addEventListener('click', function() {
       try {
-        window.atlos.Pay({
+        var paymentConfig = {
           merchantId: {{.MerchantID | quote}},
           orderId: {{.OrderID | quote}},
           orderAmount: {{.Amount}},
@@ -33,7 +33,13 @@
           userName: {{.UserName | quote}},
           userEmail: {{.UserEmail | quote}},
           captureEmail: false,
-          postbackUrl: {{.PostbackURL | quote}},
+          postbackUrl: {{.PostbackURL | quote}}{{if .RecurringAmount}},
+          subscription: [{
+            amount: {{.RecurringAmount}},
+            unit: {{.RecurringUnit | quote}},
+            interval: {{.RecurringInterval}},
+            startInterval: 1
+          }]{{end}},
           onSuccess: function(response) {
             console.log('Payment successful:', response);
             dispatchPaymentEvent('paymentSuccess', null);
@@ -52,7 +58,9 @@
           },
           language: 'en',
           theme: 'light'
-        });
+        };
+
+        window.atlos.Pay(paymentConfig);
       } catch (error) {
         console.error('Failed to initialize ATLOS payment:', error);
         dispatchPaymentEvent('paymentError', { error: error.message || error });

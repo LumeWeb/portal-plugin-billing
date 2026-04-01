@@ -25,8 +25,8 @@ import (
 
 type BillingServiceDefault struct {
 	*core.BaseComponent
-	gateways      *gateway.Registry
-	config        *config.ServiceConfig
+	gateways       *gateway.Registry
+	config         *config.ServiceConfig
 	pricingService pluginCore.PricingService
 }
 
@@ -63,7 +63,7 @@ func NewBillingServiceWithRegistry(registry *gateway.Registry) (core.Service, []
 }
 
 // gatewaySetupFunc is a function that sets up a gateway
-type gatewaySetupFunc func() (string, pluginCore.PaymentGateway, error)
+type gatewaySetupFunc func() (string, pluginCore.GatewayIdentity, error)
 
 // gatewaySetup holds the setup configuration for a gateway
 type gatewaySetup struct {
@@ -120,13 +120,13 @@ func (s *BillingServiceDefault) getGatewaySetups(opts pluginCore.GatewaySetupOpt
 	return []gatewaySetup{
 		{
 			name: "stripe",
-			fn: func() (string, pluginCore.PaymentGateway, error) {
+			fn: func() (string, pluginCore.GatewayIdentity, error) {
 				return stripe.Setup(opts, s.config.Stripe.WebhookSecret, s.config.Stripe.SecretKey)
 			},
 		},
 		{
 			name: "atlos",
-			fn: func() (string, pluginCore.PaymentGateway, error) {
+			fn: func() (string, pluginCore.GatewayIdentity, error) {
 				return atlos.Setup(opts, s.config.Atlos.APIKey, s.config.Atlos.MerchantID)
 			},
 		},
@@ -157,7 +157,7 @@ func (s *BillingServiceDefault) RegisterGateway(ctx context.Context, gateway plu
 	return s.gateways.Register(ctx, gateway)
 }
 
-func (s *BillingServiceDefault) GetGateway(_ context.Context, gatewayType string) (pluginCore.PaymentGateway, error) {
+func (s *BillingServiceDefault) GetGateway(_ context.Context, gatewayType string) (pluginCore.GatewayIdentity, error) {
 	if s.gateways == nil {
 		return nil, fmt.Errorf("gateway registry not initialized")
 	}
@@ -266,24 +266,50 @@ func (s *BillingServiceDefault) releaseWebhookEventClaim(ctx context.Context, ga
 	})
 }
 
-func (s *BillingServiceDefault) CreateOrUpdateSubscriber(ctx context.Context, userID uint, gatewayType, externalID, subscriptionID string, isActive bool, planID *uint) error {
+func (s *BillingServiceDefault) CreateOrUpdateSubscriber(ctx context.Context, userID uint, gatewayType, externalID, subscriptionID string, isActive bool, pricingPlanPeriodID *uint, opts ...pluginCore.SubscriberOption) error {
 	ctx, span := core.TraceMethod(ctx, "BillingServiceDefault.CreateOrUpdateSubscriber")
 	defer span.End()
+
+	// Apply subscriber options
+	subOptions := pluginCore.ApplySubscriberOptions(opts...)
 
 	return core.MetricTrack(
 		nil,
 		SubscriberCreated.WithLabelValues(gatewayType, LabelStatusError),
 		func() error {
+			// Validate pricing plan period if provided
+			if pricingPlanPeriodID != nil {
+				period, err := s.pricingService.GetPricingPlanPeriod(ctx, *pricingPlanPeriodID)
+				if err != nil {
+					return fmt.Errorf("failed to validate pricing plan period: %w", err)
+				}
+				if period == nil {
+					return fmt.Errorf("pricing plan period with ID %d not found", *pricingPlanPeriodID)
+				}
+			}
+
+			// Prepare updates map with option fields if provided
+			updates := map[string]any{
+				"external_id":            externalID,
+				"subscription_id":        subscriptionID,
+				"is_active":              isActive,
+				"pricing_plan_period_id": pricingPlanPeriodID,
+				"deleted_at":             nil,
+			}
+			if subOptions.BillingPeriodStart != nil {
+				updates["billing_period_start"] = *subOptions.BillingPeriodStart
+			}
+			if subOptions.BillingPeriodEnd != nil {
+				updates["billing_period_end"] = *subOptions.BillingPeriodEnd
+			}
+			if subOptions.WillCancelAt != nil {
+				updates["will_cancel_at"] = *subOptions.WillCancelAt
+			}
+
 			return db.RetryableComponentTransaction(s, ctx, func(tx *gorm.DB) *gorm.DB {
 				result := tx.Unscoped().Model(&models.Subscriber{}).
 					Where("user_id = ? AND gateway_type = ?", userID, gatewayType).
-					Updates(map[string]any{
-						"external_id":     externalID,
-						"subscription_id": subscriptionID,
-						"is_active":       isActive,
-						"plan_id":         planID,
-						"deleted_at":      nil,
-					})
+					Updates(updates)
 
 				if result.Error != nil {
 					return result
@@ -294,12 +320,15 @@ func (s *BillingServiceDefault) CreateOrUpdateSubscriber(ctx context.Context, us
 				}
 
 				sub := models.Subscriber{
-					UserID:        userID,
-					GatewayType:   gatewayType,
-					ExternalID:    externalID,
-					SubscriptionID: subscriptionID,
-					IsActive:      isActive,
-					PlanID:        planID,
+					UserID:              userID,
+					GatewayType:         gatewayType,
+					ExternalID:          externalID,
+					SubscriptionID:      subscriptionID,
+					IsActive:            isActive,
+					PricingPlanPeriodID: pricingPlanPeriodID,
+					BillingPeriodStart:  subOptions.BillingPeriodStart,
+					BillingPeriodEnd:    subOptions.BillingPeriodEnd,
+					WillCancelAt:        subOptions.WillCancelAt,
 				}
 
 				result = tx.Create(&sub)
@@ -310,13 +339,7 @@ func (s *BillingServiceDefault) CreateOrUpdateSubscriber(ctx context.Context, us
 				if strings.Contains(result.Error.Error(), "UNIQUE constraint failed") {
 					result = tx.Unscoped().Model(&models.Subscriber{}).
 						Where("user_id = ? AND gateway_type = ?", userID, gatewayType).
-						Updates(map[string]any{
-							"external_id":     externalID,
-							"subscription_id": subscriptionID,
-							"is_active":       isActive,
-							"plan_id":         planID,
-							"deleted_at":      nil,
-						})
+						Updates(updates)
 
 					return result
 				}
@@ -338,7 +361,7 @@ func (s *BillingServiceDefault) DeactivateSubscriber(ctx context.Context, userID
 			return db.RetryableComponentTransaction(s, ctx, func(tx *gorm.DB) *gorm.DB {
 				return tx.Model(&models.Subscriber{}).
 					Where("user_id = ? AND gateway_type = ?", userID, gatewayType).
-					Updates(map[string]any{"is_active": false, "plan_id": nil})
+					Updates(map[string]any{"is_active": false, "pricing_plan_period_id": nil})
 			})
 		},
 	)
@@ -350,7 +373,7 @@ func (s *BillingServiceDefault) GetActiveSubscriber(ctx context.Context, userID 
 
 	var subscriber models.Subscriber
 	err := db.RetryableComponentTransaction(s, ctx, func(tx *gorm.DB) *gorm.DB {
-		return tx.Where("user_id = ? AND gateway_type = ? AND is_active = ?", userID, gatewayType, true).
+		return tx.Preload("PricingPlanPeriod").Where("user_id = ? AND gateway_type = ? AND is_active = ?", userID, gatewayType, true).
 			First(&subscriber)
 	})
 	if err != nil {
@@ -419,7 +442,7 @@ func (s *BillingServiceDefault) GetActiveSubscribersByGateway(ctx context.Contex
 
 	var subscribers []models.Subscriber
 	err := db.RetryableComponentTransaction(s, ctx, func(tx *gorm.DB) *gorm.DB {
-		return tx.Where("gateway_type = ? AND is_active = ?", gatewayType, true).
+		return tx.Preload("PricingPlanPeriod").Where("gateway_type = ? AND is_active = ?", gatewayType, true).
 			Find(&subscribers)
 	})
 	if err != nil {
@@ -438,7 +461,7 @@ func (s *BillingServiceDefault) GetActiveSubscription(ctx context.Context, userI
 
 	var subscriber models.Subscriber
 	err := db.RetryableComponentTransaction(s, ctx, func(tx *gorm.DB) *gorm.DB {
-		return tx.Where("user_id = ? AND is_active = ?", userID, true).
+		return tx.Preload("PricingPlanPeriod").Where("user_id = ? AND is_active = ?", userID, true).
 			First(&subscriber)
 	})
 	if err != nil {
@@ -455,4 +478,24 @@ func (s *BillingServiceDefault) GetRegistry(ctx context.Context) pluginCore.Gate
 	defer span.End()
 
 	return s.gateways
+}
+
+func (s *BillingServiceDefault) GetPendingCancellations(ctx context.Context, gatewayType string, now time.Time) ([]pluginCore.Subscriber, error) {
+	ctx, span := core.TraceMethod(ctx, "BillingServiceDefault.GetPendingCancellations")
+	defer span.End()
+
+	var subscribers []models.Subscriber
+	err := db.RetryableComponentTransaction(s, ctx, func(tx *gorm.DB) *gorm.DB {
+		return tx.Preload("PricingPlanPeriod").
+			Where("gateway_type = ? AND is_active = ? AND will_cancel_at IS NOT NULL AND will_cancel_at <= ?", gatewayType, true, now).
+			Find(&subscribers)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	result := lo.Map(subscribers, func(sub models.Subscriber, _ int) pluginCore.Subscriber {
+		return sub
+	})
+	return result, nil
 }

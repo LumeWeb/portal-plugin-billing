@@ -66,6 +66,11 @@ const (
 	ErrKeyManagementOperationFailed    core.ErrorType = "MANAGEMENT_OPERATION_FAILED"
 
 	// Credit errors
+	ErrKeyPricingPeriodNotFound     core.ErrorType = "PRICING_PERIOD_NOT_FOUND"
+	ErrKeyPricingPeriodCreateFailed core.ErrorType = "PRICING_PERIOD_CREATE_FAILED"
+	ErrKeyPricingPeriodUpdateFailed core.ErrorType = "PRICING_PERIOD_UPDATE_FAILED"
+	ErrKeyPricingPeriodDeleteFailed core.ErrorType = "PRICING_PERIOD_DELETE_FAILED"
+
 	ErrKeyCreditCreateFailed   core.ErrorType = "CREDIT_CREATE_FAILED"
 	ErrKeyCreditNotFound       core.ErrorType = "CREDIT_NOT_FOUND"
 	ErrKeyCreditDeleteFailed   core.ErrorType = "CREDIT_DELETE_FAILED"
