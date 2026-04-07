@@ -4,6 +4,7 @@ go 1.26.0
 
 require (
 	github.com/Oudwins/zog v0.22.0
+	github.com/apt304/sse-go v0.0.3
 	github.com/avast/retry-go v3.0.0+incompatible
 	github.com/gabriel-vasile/mimetype v1.4.13
 	github.com/google/uuid v1.6.0
@@ -13,11 +14,12 @@ require (
 	github.com/shopspring/decimal v1.4.0
 	github.com/stretchr/testify v1.11.1
 	github.com/stripe/stripe-go/v83 v83.2.1
+	github.com/tkuchiki/faketime v0.1.1
 	go.lumeweb.com/atlos-sdk v0.1.0
 	go.lumeweb.com/httputil v0.5.4
-	go.lumeweb.com/portal v0.4.2-0.20260326193613-0d8baf399db2
+	go.lumeweb.com/portal v0.4.2-0.20260406130429-83de39040acf
 	go.lumeweb.com/portal-middleware v0.3.7
-	go.lumeweb.com/portal-plugin-quota v0.0.0-20251229183341-d3147a18bb0f
+	go.lumeweb.com/portal-plugin-quota v0.0.0-20260407174945-e2b2217206a8
 	go.lumeweb.com/portal-router v0.6.13
 	go.lumeweb.com/queryutil v0.3.16
 	go.uber.org/zap v1.27.1
@@ -35,26 +37,25 @@ require (
 	github.com/adjust/rmq/v5 v5.2.0 // indirect
 	github.com/alicebob/miniredis/v2 v2.37.0 // indirect
 	github.com/andybalholm/brotli v1.2.0 // indirect
-	github.com/apt304/sse-go v0.0.3 // indirect
 	github.com/aws/aws-sdk-go-v2 v1.41.5 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.8 // indirect
-	github.com/aws/aws-sdk-go-v2/config v1.32.13 // indirect
-	github.com/aws/aws-sdk-go-v2/credentials v1.19.13 // indirect
+	github.com/aws/aws-sdk-go-v2/config v1.32.14 // indirect
+	github.com/aws/aws-sdk-go-v2/credentials v1.19.14 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.18.21 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.21 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.21 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/ini v1.8.6 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/v4a v1.4.21 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/v4a v1.4.22 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.7 // indirect
-	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.9.12 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.9.13 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.21 // indirect
-	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.19.20 // indirect
-	github.com/aws/aws-sdk-go-v2/service/s3 v1.97.2 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.19.21 // indirect
+	github.com/aws/aws-sdk-go-v2/service/s3 v1.98.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/signin v1.0.9 // indirect
-	github.com/aws/aws-sdk-go-v2/service/sso v1.30.14 // indirect
-	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.35.18 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sso v1.30.15 // indirect
+	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.35.19 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.41.10 // indirect
-	github.com/aws/smithy-go v1.24.2 // indirect
+	github.com/aws/smithy-go v1.24.3 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bmatcuk/doublestar/v4 v4.9.1 // indirect
@@ -130,7 +131,7 @@ require (
 	github.com/mailru/easyjson v0.9.1 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
-	github.com/mattn/go-sqlite3 v1.14.34 // indirect
+	github.com/mattn/go-sqlite3 v1.14.40 // indirect
 	github.com/mfridman/interpolate v0.0.2 // indirect
 	github.com/microsoft/go-mssqldb v1.9.6 // indirect
 	github.com/miekg/dns v1.1.72 // indirect
@@ -171,9 +172,8 @@ require (
 	github.com/spf13/afero v1.15.0 // indirect
 	github.com/spf13/cast v1.10.0 // indirect
 	github.com/stretchr/objx v0.5.3 // indirect
-	github.com/tkuchiki/faketime v0.1.1 // indirect
 	github.com/tus/tusd/v2 v2.9.2 // indirect
-	github.com/uptrace/uptrace-go v1.41.0 // indirect
+	github.com/uptrace/uptrace-go v1.41.1 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasttemplate v1.2.2 // indirect
 	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
@@ -190,18 +190,18 @@ require (
 	go.opentelemetry.io/contrib/bridges/otelzap v0.17.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/runtime v0.67.0 // indirect
 	go.opentelemetry.io/contrib/processors/minsev v0.15.0 // indirect
-	go.opentelemetry.io/otel v1.42.0 // indirect
+	go.opentelemetry.io/otel v1.43.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp v0.18.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp v1.42.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.42.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.42.0 // indirect
 	go.opentelemetry.io/otel/exporters/stdout/stdouttrace v1.42.0 // indirect
-	go.opentelemetry.io/otel/log v0.18.0 // indirect
-	go.opentelemetry.io/otel/metric v1.42.0 // indirect
+	go.opentelemetry.io/otel/log v0.19.0 // indirect
+	go.opentelemetry.io/otel/metric v1.43.0 // indirect
 	go.opentelemetry.io/otel/sdk v1.42.0 // indirect
 	go.opentelemetry.io/otel/sdk/log v0.18.0 // indirect
 	go.opentelemetry.io/otel/sdk/metric v1.42.0 // indirect
-	go.opentelemetry.io/otel/trace v1.42.0 // indirect
+	go.opentelemetry.io/otel/trace v1.43.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.10.0 // indirect
 	go.shabbyrobe.org/gocovmerge v0.0.0-20230507111327-fa4f82cfbf4d // indirect
 	go.sia.tech/core v0.19.1-0.20251215141429-887336e35dd9 // indirect
@@ -224,9 +224,9 @@ require (
 	golang.org/x/text v0.35.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
 	golang.org/x/tools v0.43.0 // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20260319201613-d00831a3d3e7 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260319201613-d00831a3d3e7 // indirect
-	google.golang.org/grpc v1.79.3 // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20260401024825-9d38bb4040a9 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260401024825-9d38bb4040a9 // indirect
+	google.golang.org/grpc v1.80.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/cenkalti/backoff.v1 v1.1.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
