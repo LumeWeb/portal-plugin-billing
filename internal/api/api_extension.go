@@ -325,7 +325,8 @@ func (e *APIExtension) Configure(gRouter router.Router, accessSvc core.AccessSer
 				router.WithSummary("List Available Payment Gateways"),
 				router.WithDescription("Returns list of available payment gateways with metadata"),
 				router.WithTags("Billing"),
-				router.WithSuccessResponse(http.StatusOK, "Gateways retrieved"),
+				router.WithSuccessResponse(http.StatusOK, "Gateways retrieved",
+					router.WithJSONContent(dto.GatewayListResponse{})),
 				router.WithErrorResponses(
 					router.DefineSwaggerErrorResponses(
 						router.DefineSwaggerErrorResponse(http.StatusInternalServerError, "Gateway registry not initialized"),
@@ -338,6 +339,7 @@ func (e *APIExtension) Configure(gRouter router.Router, accessSvc core.AccessSer
 				router.WithDescription("Returns embedded logo image for payment gateway"),
 				router.WithTags("Billing"),
 				router.WithPathParam("id", "Gateway identifier", "stripe"),
+				router.WithSuccessResponse(http.StatusOK, "Gateway logo retrieved"),
 				router.WithErrorResponses(
 					router.DefineSwaggerErrorResponses(
 						router.DefineSwaggerErrorResponse(http.StatusNotFound, "Gateway logo not found"),
@@ -349,7 +351,8 @@ func (e *APIExtension) Configure(gRouter router.Router, accessSvc core.AccessSer
 				router.WithSummary("List Pricing Plans"),
 				router.WithDescription("Returns pricing plans with their periods for user's effective price line"),
 				router.WithTags("Billing"),
-				router.WithSuccessResponse(http.StatusOK, "Pricing plans retrieved"),
+				router.WithSuccessResponse(http.StatusOK, "Pricing plans retrieved",
+					router.WithJSONContent(dto.PublicPricingPlansListResponse{})),
 				router.WithErrorResponses(
 					router.DefineSwaggerErrorResponses(
 						router.DefineSwaggerErrorResponse(http.StatusBadRequest, "Failed to get pricing plans"),
