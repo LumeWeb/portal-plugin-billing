@@ -14,6 +14,7 @@ require (
 	github.com/shopspring/decimal v1.4.0
 	github.com/stretchr/testify v1.11.1
 	github.com/stripe/stripe-go/v83 v83.2.1
+	github.com/stripe/stripe-go/v85 v85.0.1
 	github.com/tkuchiki/faketime v0.1.1
 	go.lumeweb.com/atlos-sdk v0.1.0
 	go.lumeweb.com/httputil v0.5.4
