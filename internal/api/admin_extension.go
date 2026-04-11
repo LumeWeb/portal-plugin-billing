@@ -79,6 +79,7 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 			)),
 		router.NewRoute(http.MethodPost, "/api/billing/pricing-plans", e.handleCreatePricingPlan,
 			router.WithSwagger(
+				router.WithoutDefaultSuccessResponse(),
 				router.WithSummary("Create Pricing Plan"),
 				router.WithDescription("Creates a new pricing plan and queues gateway sync"),
 				router.WithTags("Billing Admin"),
@@ -97,6 +98,7 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 			)),
 		router.NewRoute(http.MethodDelete, "/api/billing/pricing-plans/:id", e.handleDeletePricingPlan,
 			router.WithSwagger(
+				router.WithoutDefaultSuccessResponse(),
 				router.WithSummary("Delete Pricing Plan"),
 				router.WithTags("Billing Admin"),
 				router.WithPathParam("id", "Pricing Plan ID", "123"),
@@ -112,6 +114,7 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 			)),
 		router.NewRoute(http.MethodPost, "/api/billing/price-lines", e.handleCreatePriceLine,
 			router.WithSwagger(
+				router.WithoutDefaultSuccessResponse(),
 				router.WithSummary("Create Price Line"),
 				router.WithDescription("Creates a new price line"),
 				router.WithTags("Billing Admin"),
@@ -130,6 +133,7 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 			)),
 		router.NewRoute(http.MethodDelete, "/api/billing/price-lines/:id", e.handleDeletePriceLine,
 			router.WithSwagger(
+				router.WithoutDefaultSuccessResponse(),
 				router.WithSummary("Delete Price Line"),
 				router.WithTags("Billing Admin"),
 				router.WithPathParam("id", "Price Line ID", "123"),
@@ -145,6 +149,7 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 			)),
 		router.NewRoute(http.MethodPost, "/api/billing/pricing-plan-periods", e.handleCreatePricingPlanPeriod,
 			router.WithSwagger(
+				router.WithoutDefaultSuccessResponse(),
 				router.WithSummary("Create Pricing Plan Period"),
 				router.WithDescription("Creates a new pricing plan period with billing cadence information"),
 				router.WithTags("Billing Admin"),
@@ -164,6 +169,7 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 			)),
 		router.NewRoute(http.MethodDelete, "/api/billing/pricing-plan-periods/:id", e.handleDeletePricingPlanPeriod,
 			router.WithSwagger(
+				router.WithoutDefaultSuccessResponse(),
 				router.WithSummary("Delete Pricing Plan Period"),
 				router.WithDescription("Deletes a pricing plan period (soft delete)"),
 				router.WithTags("Billing Admin"),
@@ -189,11 +195,14 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 			)),
 		router.NewRoute(http.MethodPost, "/api/billing/credits", e.handleCreateCredit,
 			router.WithSwagger(
+				router.WithoutDefaultSuccessResponse(),
 				router.WithSummary("Create Credit"),
-				router.WithDescription("Creates a new credit entry"),
+				router.WithDescription("Creates a new credit entry. Returns 201 for new credits or 200 if credit already exists (idempotent via reference_id)"),
 				router.WithTags("Billing Admin"),
 				router.WithRequestBody(dto.CreditCreateRequest{}, "Credit creation request", true),
 				router.WithSuccessResponse(http.StatusCreated, "Credit created successfully",
+					router.WithJSONContent(dto.CreditResponse{})),
+				router.WithSuccessResponse(http.StatusOK, "Credit already exists (idempotent)",
 					router.WithJSONContent(dto.CreditResponse{})),
 				router.WithErrorResponses(
 					router.DefineSwaggerErrorResponses(
@@ -242,6 +251,7 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 			)),
 		router.NewRoute(http.MethodDelete, "/api/billing/credits/:id", e.handleDeleteCredit,
 			router.WithSwagger(
+				router.WithoutDefaultSuccessResponse(),
 				router.WithSummary("Delete Credit"),
 				router.WithDescription("Soft deletes a credit entry"),
 				router.WithTags("Billing Admin"),
