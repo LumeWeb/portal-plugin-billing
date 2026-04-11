@@ -24,6 +24,7 @@ var (
 	ErrPriceLineDescriptionRequired    = errors.New("price line description is required")
 	ErrGatewayTypeRequired             = errors.New("gateway type is required")
 	ErrPricingPlanNotFound             = errors.New("pricing plan not found")
+	ErrPriceLineNotFound               = errors.New("price line not found")
 	ErrDefaultPriceLineNotFound        = errors.New("default price line not found")
 	ErrPricingPlanPeriodNotFound       = errors.New("pricing plan period not found")
 	ErrInvalidCadence                  = errors.New("invalid cadence: must be one of 'monthly', 'yearly', 'quarterly', 'weekly'")
@@ -317,6 +318,23 @@ func (s *PricingServiceDefault) GetPriceLines(ctx context.Context, userID uint, 
 		s.logger.Error("failed to count price lines", zap.Error(err))
 	})
 	return lines, total, nil
+}
+
+// GetPriceLine retrieves a single price line by ID
+func (s *PricingServiceDefault) GetPriceLine(ctx context.Context, id uint) (*models.PriceLine, error) {
+	var line models.PriceLine
+	err := s.withTracedTransaction(ctx, "GetPriceLine", func(tx *gorm.DB) error {
+		return tx.First(&line, id).Error
+	})
+
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("%w: ID %d", ErrPriceLineNotFound, id)
+		}
+		return nil, err
+	}
+
+	return &line, nil
 }
 
 // GetUpgradeDowngradePlans returns upgrade (>Position) and downgrade (<Position) options

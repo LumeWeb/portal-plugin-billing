@@ -14,8 +14,6 @@ packages:
       CheckoutProvider: {}
       GatewayCapabilities: {}
       GatewaySync: {}
-      # Test-specific composite interface that includes all gateway interfaces
-      FullPaymentGateway: {}
       PaymentGateway: {}
       SubscriptionExecutor: {}
       SubscriptionManager: {}

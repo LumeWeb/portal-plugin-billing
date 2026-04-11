@@ -147,6 +147,15 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 				router.WithSuccessResponse(http.StatusOK, "",
 					router.WithJSONContent(dto.PriceLinesListResponse{})),
 			)),
+		router.NewRoute(http.MethodGet, "/api/billing/price-lines/:id", e.handleGetPriceLine,
+			router.WithSwagger(
+				router.WithSummary("Get Price Line"),
+				router.WithDescription("Retrieves a specific price line by ID"),
+				router.WithTags("Billing Admin"),
+				router.WithPathParam("id", "Price Line ID", "123"),
+				router.WithSuccessResponse(http.StatusOK, "",
+					router.WithJSONContent(dto.PriceLineResponse{})),
+			)),
 		router.NewRoute(http.MethodPost, "/api/billing/pricing-plan-periods", e.handleCreatePricingPlanPeriod,
 			router.WithSwagger(
 				router.WithoutDefaultSuccessResponse(),
@@ -495,6 +504,26 @@ func (e *AdminExtension) handleListPriceLines(c echo.Context) error {
 			return resp
 		},
 	)
+}
+
+// handleGetPriceLine retrieves a single price line by ID
+func (e *AdminExtension) handleGetPriceLine(c echo.Context) error {
+	ctx := httputil.Context(c)
+	reqCtx := ctx.Context.Request().Context()
+
+	idStr := c.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 64)
+	if err != nil {
+		return ctx.Error(NewError(ErrKeyInvalidPriceLineID, fmt.Errorf("invalid id: %w", err)), http.StatusBadRequest)
+	}
+
+	priceLine, err := e.pricingService.GetPriceLine(reqCtx, uint(id))
+	if err != nil {
+		return ctx.Error(NewError(ErrKeyPriceLineNotFound, fmt.Errorf("price line with ID %d not found", id)), http.StatusNotFound)
+	}
+
+	var resp dto.PriceLineResponse
+	return httputil.EncodeResponse(ctx, priceLine, &resp)
 }
 
 // handleCreatePriceLine creates a new price line

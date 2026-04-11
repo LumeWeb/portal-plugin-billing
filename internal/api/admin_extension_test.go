@@ -1004,6 +1004,76 @@ func TestAdminHandleListPriceLines_EmptyResults(t *testing.T) {
 	}, getAdminAPITestOptions())
 }
 
+// Get Price Line Tests
+
+func TestAdminHandleGetPriceLine_Success(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
+
+		// Mock price line
+		line := createMockPriceLine(1, "Test Price Line", "Test description", true, false)
+
+		// Mock pricing service to return price line
+		ts.pricingSvc.EXPECT().GetPriceLine(mock.Anything, uint(1)).
+			Return(line, nil).Once()
+
+		// Create request
+		req := ctx.NewAPIRequest("GET", "/api/billing/price-lines/1", nil)
+		w := httptest.NewRecorder()
+
+		// Execute
+		ts.router.ServeHTTP(w, req)
+
+		// Verify
+		assert.Equal(tb, http.StatusOK, w.Code)
+
+		// Parse response
+		var response dto.PriceLineResponse
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		assert.NoError(tb, err)
+		assert.Equal(tb, "Test Price Line", response.Name)
+		assert.Equal(tb, "Test description", response.Description)
+		assert.Equal(tb, true, response.IsActive)
+		assert.Equal(tb, false, response.IsDefault)
+	}, getAdminAPITestOptions())
+}
+
+func TestAdminHandleGetPriceLine_NotFound(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
+
+		// Mock pricing service to return not found error
+		ts.pricingSvc.EXPECT().GetPriceLine(mock.Anything, uint(999)).
+			Return(nil, fmt.Errorf("price line not found")).Once()
+
+		// Create request
+		req := ctx.NewAPIRequest("GET", "/api/billing/price-lines/999", nil)
+		w := httptest.NewRecorder()
+
+		// Execute
+		ts.router.ServeHTTP(w, req)
+
+		// Verify
+		assert.Equal(tb, http.StatusNotFound, w.Code)
+	}, getAdminAPITestOptions())
+}
+
+func TestAdminHandleGetPriceLine_InvalidID(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
+
+		// Create request with invalid ID
+		req := ctx.NewAPIRequest("GET", "/api/billing/price-lines/invalid", nil)
+		w := httptest.NewRecorder()
+
+		// Execute
+		ts.router.ServeHTTP(w, req)
+
+		// Verify - should return bad request
+		assert.Equal(tb, http.StatusBadRequest, w.Code)
+	}, getAdminAPITestOptions())
+}
+
 // Credit Endpoint Tests
 
 // createMockCredit creates a mock credit with the given parameters
