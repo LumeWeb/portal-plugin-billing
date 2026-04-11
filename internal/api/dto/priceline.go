@@ -201,6 +201,16 @@ type PricingPlansListResponse struct {
 	Total int64             `json:"total"`
 }
 
+// PriceLinesListResponse is a swagger-only DTO that represents the paginated response for price lines.
+// It provides a concrete type for swagger documentation since queryutil.Response generics
+// are not properly detected as array types.
+//
+// Note: This struct is only used for swagger documentation, not for actual encoding.
+type PriceLinesListResponse struct {
+	Data  []PriceLineResponse `json:"data"`
+	Total int64               `json:"total"`
+}
+
 // PriceLineFilterRequest represents filter options for listing price lines
 type PriceLineFilterRequest struct {
 	Name      string `json:"name" filter:"true"`
