@@ -852,6 +852,41 @@ func TestPricingService_GetPriceLines_WithPagination(t *testing.T) {
 }
 
 // ============================================================
+// GetPriceLine tests
+// ============================================================
+
+func TestPricingService_GetPriceLine(t *testing.T) {
+	coreTesting.RunTestCaseWithDB(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		service := setupPricingTestContext(tb, ctx, false)
+
+		// Create a test price line
+		line := createTestPriceLine()
+		line.Name = "Test Price Line"
+		line.Description = "Test Description"
+		err := service.CreatePriceLine(context.Background(), line)
+		assert.NoError(t, err)
+
+		// Get the price line by ID
+		retrieved, err := service.GetPriceLine(context.Background(), line.ID)
+		assert.NoError(t, err)
+		assert.NotNil(t, retrieved)
+		assert.Equal(t, line.Name, retrieved.Name)
+		assert.Equal(t, line.Description, retrieved.Description)
+	}, getPricingTestOptions())
+}
+
+func TestPricingService_GetPriceLine_NotFound(t *testing.T) {
+	coreTesting.RunTestCaseWithDB(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		service := setupPricingTestContext(tb, ctx, false)
+
+		// Try to get a non-existent price line
+		_, err := service.GetPriceLine(context.Background(), 99999)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "not found")
+	}, getPricingTestOptions())
+}
+
+// ============================================================
 // GetUpgradeDowngradePlans tests
 // ============================================================
 

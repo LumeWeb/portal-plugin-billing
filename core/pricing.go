@@ -40,6 +40,9 @@ type PricingService interface {
 	// GetPriceLines retrieves price lines with filters, sorting, and pagination
 	GetPriceLines(ctx context.Context, userID uint, filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination) ([]*models.PriceLine, int64, error)
 
+	// GetPriceLine retrieves a single price line by ID
+	GetPriceLine(ctx context.Context, id uint) (*models.PriceLine, error)
+
 	// DeletePriceLine deletes a price line (soft delete)
 	DeletePriceLine(ctx context.Context, id uint) error
 
