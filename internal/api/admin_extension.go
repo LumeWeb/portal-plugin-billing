@@ -13,15 +13,15 @@ import (
 	"go.lumeweb.com/httputil"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
 	"go.lumeweb.com/portal-plugin-billing/internal/api/dto"
+	_ "go.lumeweb.com/portal-plugin-billing/internal/api/dto"
 	"go.lumeweb.com/portal-plugin-billing/internal/db/models"
 	"go.lumeweb.com/portal-plugin-billing/pkg/ledger"
+	router "go.lumeweb.com/portal-router"
 	"go.lumeweb.com/portal/config"
 	"go.lumeweb.com/portal/core"
-	router "go.lumeweb.com/portal-router"
 	"go.lumeweb.com/queryutil"
 	queryutilHttp "go.lumeweb.com/queryutil/http"
 	"go.uber.org/zap"
-	_ "go.lumeweb.com/portal-plugin-billing/internal/api/dto"
 )
 
 // AdminExtension extends the Admin API with billing management functionality
@@ -87,11 +87,13 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 			router.WithSwagger(
 				router.WithSummary("Update Pricing Plan"),
 				router.WithTags("Billing Admin"),
+				router.WithPathParam("id", "Pricing Plan ID", "123"),
 			)),
 		router.NewRoute(http.MethodDelete, "/api/billing/pricing-plans/:id", e.handleDeletePricingPlan,
 			router.WithSwagger(
 				router.WithSummary("Delete Pricing Plan"),
 				router.WithTags("Billing Admin"),
+				router.WithPathParam("id", "Pricing Plan ID", "123"),
 			)),
 		router.NewRoute(http.MethodGet, "/api/billing/pricing-plans", e.handleListPricingPlans,
 			router.WithSwagger(
@@ -109,11 +111,13 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 			router.WithSwagger(
 				router.WithSummary("Update Price Line"),
 				router.WithTags("Billing Admin"),
+				router.WithPathParam("id", "Price Line ID", "123"),
 			)),
 		router.NewRoute(http.MethodDelete, "/api/billing/price-lines/:id", e.handleDeletePriceLine,
 			router.WithSwagger(
 				router.WithSummary("Delete Price Line"),
 				router.WithTags("Billing Admin"),
+				router.WithPathParam("id", "Price Line ID", "123"),
 			)),
 		router.NewRoute(http.MethodGet, "/api/billing/price-lines", e.handleListPriceLines,
 			router.WithSwagger(
@@ -132,12 +136,14 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 				router.WithSummary("Update Pricing Plan Period"),
 				router.WithDescription("Updates an existing pricing plan period"),
 				router.WithTags("Billing Admin"),
+				router.WithPathParam("id", "Pricing Plan Period ID", "123"),
 			)),
 		router.NewRoute(http.MethodDelete, "/api/billing/pricing-plan-periods/:id", e.handleDeletePricingPlanPeriod,
 			router.WithSwagger(
 				router.WithSummary("Delete Pricing Plan Period"),
 				router.WithDescription("Deletes a pricing plan period (soft delete)"),
 				router.WithTags("Billing Admin"),
+				router.WithPathParam("id", "Pricing Plan Period ID", "123"),
 			)),
 		router.NewRoute(http.MethodGet, "/api/billing/pricing-plan-periods", e.handleListPricingPlanPeriods,
 			router.WithSwagger(
@@ -150,6 +156,7 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 				router.WithSummary("Get Pricing Plan Period"),
 				router.WithDescription("Retrieves a specific pricing plan period by ID"),
 				router.WithTags("Billing Admin"),
+				router.WithPathParam("id", "Pricing Plan Period ID", "123"),
 			)),
 		router.NewRoute(http.MethodPost, "/api/billing/credits", e.handleCreateCredit,
 			router.WithSwagger(
@@ -947,4 +954,3 @@ func (e *AdminExtension) handleGetPricingPlanPeriod(c echo.Context) error {
 }
 
 // convertCreditToModel converts a ledger Credit to CreditModel for DTO conversion
-
