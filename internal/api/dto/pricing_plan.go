@@ -142,6 +142,16 @@ func (r *PublicPricingPlanResponse) SetPricingPeriods(periods []*models.PricingP
 	}
 }
 
+// PublicPricingPlansListResponse is a swagger-only DTO that represents the paginated response for public pricing plans.
+// It provides a concrete type for swagger documentation since queryutil.Response generics
+// are not properly detected as array types.
+//
+// Note: This struct is only used for swagger documentation, not for actual encoding.
+type PublicPricingPlansListResponse struct {
+	Data  []PublicPricingPlanResponse `json:"data"`
+	Total int64                       `json:"total"`
+}
+
 // PricingPlanCreateRequest represents a request to create a pricing plan
 type PricingPlanCreateRequest struct {
 	Name           string                 `json:"name"`
