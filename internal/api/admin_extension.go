@@ -100,6 +100,8 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 				router.WithSummary("List Pricing Plans"),
 				router.WithDescription("Retrieves all pricing plans with filtering, sorting, and pagination support"),
 				router.WithTags("Billing Admin"),
+				router.WithSuccessResponse(http.StatusOK, "",
+					router.WithJSONContent(dto.PricingPlansListResponse{})),
 			)),
 		router.NewRoute(http.MethodPost, "/api/billing/price-lines", e.handleCreatePriceLine,
 			router.WithSwagger(
@@ -124,6 +126,8 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 				router.WithSummary("List Price Lines"),
 				router.WithDescription("Retrieves all price lines with filtering, sorting, and pagination support"),
 				router.WithTags("Billing Admin"),
+				router.WithSuccessResponse(http.StatusOK, "",
+					router.WithJSONContent(dto.PriceLinesListResponse{})),
 			)),
 		router.NewRoute(http.MethodPost, "/api/billing/pricing-plan-periods", e.handleCreatePricingPlanPeriod,
 			router.WithSwagger(
@@ -150,6 +154,8 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 				router.WithSummary("List Pricing Plan Periods"),
 				router.WithDescription("Retrieves all pricing plan periods with filtering, sorting, and pagination support"),
 				router.WithTags("Billing Admin"),
+				router.WithSuccessResponse(http.StatusOK, "",
+					router.WithJSONContent(dto.PricingPlanPeriodsListResponse{})),
 			)),
 		router.NewRoute(http.MethodGet, "/api/billing/pricing-plan-periods/:id", e.handleGetPricingPlanPeriod,
 			router.WithSwagger(

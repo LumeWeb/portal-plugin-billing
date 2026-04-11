@@ -363,6 +363,16 @@ type PricingPlanFilterRequest struct {
 	Currency string  `json:"currency" filter:"true"`
 }
 
+// PricingPlanPeriodsListResponse is a swagger-only DTO that represents the paginated response for pricing plan periods.
+// It provides a concrete type for swagger documentation since queryutil.Response generics
+// are not properly detected as array types.
+//
+// Note: This struct is only used for swagger documentation, not for actual encoding.
+type PricingPlanPeriodsListResponse struct {
+	Data  []PricingPlanPeriodDTO `json:"data"`
+	Total int64                  `json:"total"`
+}
+
 // PricingPlanPeriodFilterRequest represents filter options for listing pricing plan periods
 type PricingPlanPeriodFilterRequest struct {
 	PricingPlanID *uint   `json:"pricing_plan_id" filter:"true"`
