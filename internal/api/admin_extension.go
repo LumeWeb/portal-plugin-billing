@@ -1182,7 +1182,7 @@ func (e *AdminExtension) handleGetSubscriber(c echo.Context) error {
 
 	subscriber, err := e.billingService.GetSubscriberByID(reqCtx, uint(id))
 	if err != nil {
-		e.Logger().Error("failed to get subscriber", zap.Error(err))
+		e.Logger().Error("failed to get subscriber", zap.Uint("id", uint(id)), zap.Error(err))
 		return ctx.Error(NewError(ErrKeySubscriptionCheckFailed, fmt.Errorf("failed to get subscriber: %w", err)), http.StatusInternalServerError)
 	}
 	if subscriber == nil {
@@ -1206,7 +1206,7 @@ func (e *AdminExtension) handleGetUserSubscribers(c echo.Context) error {
 
 	subscribers, err := e.billingService.GetSubscribersByUserID(reqCtx, uint(userID))
 	if err != nil {
-		e.Logger().Error("failed to get user subscribers", zap.Error(err))
+		e.Logger().Error("failed to get user subscribers", zap.Uint("user_id", uint(userID)), zap.Error(err))
 		return ctx.Error(NewError(ErrKeySubscriptionCheckFailed, fmt.Errorf("failed to get user subscribers: %w", err)), http.StatusInternalServerError)
 	}
 
@@ -1247,7 +1247,7 @@ func (e *AdminExtension) handleCancelUserSubscription(c echo.Context) error {
 		e.Logger().Error("failed to get active subscription",
 			zap.Uint("user_id", uint(userID)),
 			zap.Error(err))
-		return ctx.Error(NewError(ErrKeySubscriptionCheckFailed, fmt.Errorf("failed to get active subscription")), http.StatusInternalServerError)
+		return ctx.Error(NewError(ErrKeySubscriptionCheckFailed, fmt.Errorf("failed to get active subscription: %w", err)), http.StatusInternalServerError)
 	}
 
 	if sub == nil {
@@ -1367,7 +1367,7 @@ func (e *AdminExtension) handleChangeUserPlan(c echo.Context) error {
 		e.Logger().Error("failed to get active subscription",
 			zap.Uint("user_id", uint(userID)),
 			zap.Error(err))
-		return ctx.Error(NewError(ErrKeySubscriptionCheckFailed, fmt.Errorf("failed to get active subscription")), http.StatusInternalServerError)
+		return ctx.Error(NewError(ErrKeySubscriptionCheckFailed, fmt.Errorf("failed to get active subscription: %w", err)), http.StatusInternalServerError)
 	}
 
 	if sub == nil {
