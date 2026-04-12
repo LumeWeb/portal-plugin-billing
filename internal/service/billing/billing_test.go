@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"gorm.io/gorm"
+	queryutil "go.lumeweb.com/queryutil"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
 	"go.lumeweb.com/portal-plugin-billing/internal"
 	"go.lumeweb.com/portal-plugin-billing/internal/config"
@@ -769,6 +770,99 @@ func TestBillingService_GetActiveSubscription(t *testing.T) {
 		subscription, err = service.GetActiveSubscription(context.Background(), 1)
 		assert.NoError(t, err)
 		assert.Nil(t, subscription)
+	},
+		getBillingTestOptions())
+}
+
+func TestBillingService_GetSubscriberByID(t *testing.T) {
+	coreTesting.RunTestCaseWithDB(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		service := core.GetService[pluginCore.BillingService](ctx, pluginCore.BILLING_SERVICE)
+
+		subscriber, err := service.GetSubscriberByID(context.Background(), 999)
+		assert.NoError(t, err)
+		assert.Nil(t, subscriber)
+
+		err = service.CreateOrUpdateSubscriber(context.Background(), 1, "stripe", "sub_123", "", true, nil)
+		assert.NoError(t, err)
+
+		allSubs, err := service.GetActiveSubscribersByGateway(context.Background(), "stripe")
+		assert.NoError(t, err)
+		assert.Len(tb, allSubs, 1)
+		subscriberID := allSubs[0].ID
+
+		subscriber, err = service.GetSubscriberByID(context.Background(), subscriberID)
+		assert.NoError(t, err)
+		assert.NotNil(t, subscriber)
+		assert.Equal(t, uint(1), subscriber.UserID)
+		assert.Equal(t, "stripe", subscriber.GatewayType)
+		assert.True(t, subscriber.IsActive)
+	},
+		getBillingTestOptions())
+}
+
+func TestBillingService_GetSubscribersByUserID(t *testing.T) {
+	coreTesting.RunTestCaseWithDB(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		service := core.GetService[pluginCore.BillingService](ctx, pluginCore.BILLING_SERVICE)
+
+		subscribers, err := service.GetSubscribersByUserID(context.Background(), 999)
+		assert.NoError(t, err)
+		assert.Empty(t, subscribers)
+
+		err = service.CreateOrUpdateSubscriber(context.Background(), 1, "stripe", "ext_123", "", true, nil)
+		assert.NoError(t, err)
+		err = service.CreateOrUpdateSubscriber(context.Background(), 1, "paypal", "ext_456", "", true, nil)
+		assert.NoError(t, err)
+
+		err = service.CreateOrUpdateSubscriber(context.Background(), 2, "stripe", "ext_999", "", true, nil)
+		assert.NoError(t, err)
+
+		subscribers, err = service.GetSubscribersByUserID(context.Background(), 1)
+		assert.NoError(t, err)
+		assert.Len(tb, subscribers, 2)
+
+		for _, sub := range subscribers {
+			assert.Equal(t, uint(1), sub.UserID)
+		}
+	},
+		getBillingTestOptions())
+}
+
+func TestBillingService_ListSubscribers(t *testing.T) {
+	coreTesting.RunTestCaseWithDB(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		service := core.GetService[pluginCore.BillingService](ctx, pluginCore.BILLING_SERVICE)
+
+		pagination, _ := queryutil.NewPagination(0, 10)
+
+		subscribers, total, err := service.ListSubscribers(context.Background(), nil, nil, pagination)
+		assert.NoError(t, err)
+		assert.Empty(t, subscribers)
+		assert.Equal(t, int64(0), total)
+
+		err = service.CreateOrUpdateSubscriber(context.Background(), 1, "stripe", "sub_123", "", true, nil)
+		assert.NoError(t, err)
+		err = service.CreateOrUpdateSubscriber(context.Background(), 2, "stripe", "sub_456", "", true, nil)
+		assert.NoError(t, err)
+		err = service.CreateOrUpdateSubscriber(context.Background(), 3, "paypal", "sub_789", "", true, nil)
+		assert.NoError(t, err)
+
+		subscribers, total, err = service.ListSubscribers(context.Background(), nil, nil, pagination)
+		assert.NoError(t, err)
+		assert.Len(tb, subscribers, 3)
+		assert.Equal(t, int64(3), total)
+
+		filters := []queryutil.CrudFilter{
+			queryutil.Equal("gateway_type", "stripe"),
+		}
+		subscribers, total, err = service.ListSubscribers(context.Background(), filters, nil, pagination)
+		assert.NoError(t, err)
+		assert.Len(tb, subscribers, 2)
+		assert.Equal(t, int64(2), total)
+
+		limitedPagination, _ := queryutil.NewPagination(0, 1)
+		subscribers, total, err = service.ListSubscribers(context.Background(), nil, nil, limitedPagination)
+		assert.NoError(t, err)
+		assert.Len(tb, subscribers, 1)
+		assert.Equal(t, int64(3), total)
 	},
 		getBillingTestOptions())
 }

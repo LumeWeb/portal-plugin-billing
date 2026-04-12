@@ -11,6 +11,7 @@ import (
 	mock "github.com/stretchr/testify/mock"
 	"go.lumeweb.com/portal/config"
 	"go.lumeweb.com/portal/core"
+	"go.lumeweb.com/queryutil"
 	"gorm.io/gorm"
 )
 
@@ -1034,6 +1035,74 @@ func (_c *MockBillingService_GetSubscriberByExternalID_Call) RunAndReturn(run fu
 	return _c
 }
 
+// GetSubscriberByID provides a mock function for the type MockBillingService
+func (_mock *MockBillingService) GetSubscriberByID(ctx context.Context, id uint) (*Subscriber, error) {
+	ret := _mock.Called(ctx, id)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetSubscriberByID")
+	}
+
+	var r0 *Subscriber
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uint) (*Subscriber, error)); ok {
+		return returnFunc(ctx, id)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uint) *Subscriber); ok {
+		r0 = returnFunc(ctx, id)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*Subscriber)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, uint) error); ok {
+		r1 = returnFunc(ctx, id)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockBillingService_GetSubscriberByID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetSubscriberByID'
+type MockBillingService_GetSubscriberByID_Call struct {
+	*mock.Call
+}
+
+// GetSubscriberByID is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id uint
+func (_e *MockBillingService_Expecter) GetSubscriberByID(ctx interface{}, id interface{}) *MockBillingService_GetSubscriberByID_Call {
+	return &MockBillingService_GetSubscriberByID_Call{Call: _e.mock.On("GetSubscriberByID", ctx, id)}
+}
+
+func (_c *MockBillingService_GetSubscriberByID_Call) Run(run func(ctx context.Context, id uint)) *MockBillingService_GetSubscriberByID_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 uint
+		if args[1] != nil {
+			arg1 = args[1].(uint)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockBillingService_GetSubscriberByID_Call) Return(v *Subscriber, err error) *MockBillingService_GetSubscriberByID_Call {
+	_c.Call.Return(v, err)
+	return _c
+}
+
+func (_c *MockBillingService_GetSubscriberByID_Call) RunAndReturn(run func(ctx context.Context, id uint) (*Subscriber, error)) *MockBillingService_GetSubscriberByID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetSubscriberBySubscriptionID provides a mock function for the type MockBillingService
 func (_mock *MockBillingService) GetSubscriberBySubscriptionID(ctx context.Context, subscriptionID string, gatewayType string) (*Subscriber, error) {
 	ret := _mock.Called(ctx, subscriptionID, gatewayType)
@@ -1104,6 +1173,74 @@ func (_c *MockBillingService_GetSubscriberBySubscriptionID_Call) Return(v *Subsc
 }
 
 func (_c *MockBillingService_GetSubscriberBySubscriptionID_Call) RunAndReturn(run func(ctx context.Context, subscriptionID string, gatewayType string) (*Subscriber, error)) *MockBillingService_GetSubscriberBySubscriptionID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetSubscribersByUserID provides a mock function for the type MockBillingService
+func (_mock *MockBillingService) GetSubscribersByUserID(ctx context.Context, userID uint) ([]Subscriber, error) {
+	ret := _mock.Called(ctx, userID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetSubscribersByUserID")
+	}
+
+	var r0 []Subscriber
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uint) ([]Subscriber, error)); ok {
+		return returnFunc(ctx, userID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uint) []Subscriber); ok {
+		r0 = returnFunc(ctx, userID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]Subscriber)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, uint) error); ok {
+		r1 = returnFunc(ctx, userID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockBillingService_GetSubscribersByUserID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetSubscribersByUserID'
+type MockBillingService_GetSubscribersByUserID_Call struct {
+	*mock.Call
+}
+
+// GetSubscribersByUserID is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID uint
+func (_e *MockBillingService_Expecter) GetSubscribersByUserID(ctx interface{}, userID interface{}) *MockBillingService_GetSubscribersByUserID_Call {
+	return &MockBillingService_GetSubscribersByUserID_Call{Call: _e.mock.On("GetSubscribersByUserID", ctx, userID)}
+}
+
+func (_c *MockBillingService_GetSubscribersByUserID_Call) Run(run func(ctx context.Context, userID uint)) *MockBillingService_GetSubscribersByUserID_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 uint
+		if args[1] != nil {
+			arg1 = args[1].(uint)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockBillingService_GetSubscribersByUserID_Call) Return(vs []Subscriber, err error) *MockBillingService_GetSubscribersByUserID_Call {
+	_c.Call.Return(vs, err)
+	return _c
+}
+
+func (_c *MockBillingService_GetSubscribersByUserID_Call) RunAndReturn(run func(ctx context.Context, userID uint) ([]Subscriber, error)) *MockBillingService_GetSubscribersByUserID_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -1214,6 +1351,92 @@ func (_c *MockBillingService_IsUserActiveSubscriber_Call) Return(b bool, err err
 }
 
 func (_c *MockBillingService_IsUserActiveSubscriber_Call) RunAndReturn(run func(ctx context.Context, userID uint) (bool, error)) *MockBillingService_IsUserActiveSubscriber_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ListSubscribers provides a mock function for the type MockBillingService
+func (_mock *MockBillingService) ListSubscribers(ctx context.Context, filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination) ([]Subscriber, int64, error) {
+	ret := _mock.Called(ctx, filters, sorts, pagination)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListSubscribers")
+	}
+
+	var r0 []Subscriber
+	var r1 int64
+	var r2 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, []queryutil.CrudFilter, []queryutil.Sort, queryutil.Pagination) ([]Subscriber, int64, error)); ok {
+		return returnFunc(ctx, filters, sorts, pagination)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, []queryutil.CrudFilter, []queryutil.Sort, queryutil.Pagination) []Subscriber); ok {
+		r0 = returnFunc(ctx, filters, sorts, pagination)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]Subscriber)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, []queryutil.CrudFilter, []queryutil.Sort, queryutil.Pagination) int64); ok {
+		r1 = returnFunc(ctx, filters, sorts, pagination)
+	} else {
+		r1 = ret.Get(1).(int64)
+	}
+	if returnFunc, ok := ret.Get(2).(func(context.Context, []queryutil.CrudFilter, []queryutil.Sort, queryutil.Pagination) error); ok {
+		r2 = returnFunc(ctx, filters, sorts, pagination)
+	} else {
+		r2 = ret.Error(2)
+	}
+	return r0, r1, r2
+}
+
+// MockBillingService_ListSubscribers_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListSubscribers'
+type MockBillingService_ListSubscribers_Call struct {
+	*mock.Call
+}
+
+// ListSubscribers is a helper method to define mock.On call
+//   - ctx context.Context
+//   - filters []queryutil.CrudFilter
+//   - sorts []queryutil.Sort
+//   - pagination queryutil.Pagination
+func (_e *MockBillingService_Expecter) ListSubscribers(ctx interface{}, filters interface{}, sorts interface{}, pagination interface{}) *MockBillingService_ListSubscribers_Call {
+	return &MockBillingService_ListSubscribers_Call{Call: _e.mock.On("ListSubscribers", ctx, filters, sorts, pagination)}
+}
+
+func (_c *MockBillingService_ListSubscribers_Call) Run(run func(ctx context.Context, filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination)) *MockBillingService_ListSubscribers_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 []queryutil.CrudFilter
+		if args[1] != nil {
+			arg1 = args[1].([]queryutil.CrudFilter)
+		}
+		var arg2 []queryutil.Sort
+		if args[2] != nil {
+			arg2 = args[2].([]queryutil.Sort)
+		}
+		var arg3 queryutil.Pagination
+		if args[3] != nil {
+			arg3 = args[3].(queryutil.Pagination)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+			arg3,
+		)
+	})
+	return _c
+}
+
+func (_c *MockBillingService_ListSubscribers_Call) Return(vs []Subscriber, n int64, err error) *MockBillingService_ListSubscribers_Call {
+	_c.Call.Return(vs, n, err)
+	return _c
+}
+
+func (_c *MockBillingService_ListSubscribers_Call) RunAndReturn(run func(ctx context.Context, filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination) ([]Subscriber, int64, error)) *MockBillingService_ListSubscribers_Call {
 	_c.Call.Return(run)
 	return _c
 }
