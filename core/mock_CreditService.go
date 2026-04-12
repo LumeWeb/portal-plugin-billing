@@ -834,8 +834,16 @@ func (_c *MockCreditService_IssueUsageCredit_Call) RunAndReturn(run func(ctx con
 }
 
 // ListCredits provides a mock function for the type MockCreditService
-func (_mock *MockCreditService) ListCredits(ctx context.Context, filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination) ([]ledger.Credit, int64, error) {
-	ret := _mock.Called(ctx, filters, sorts, pagination)
+func (_mock *MockCreditService) ListCredits(ctx context.Context, filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination, opts ...ListCreditsOption) ([]ledger.Credit, int64, error) {
+	// ListCreditsOption
+	_va := make([]interface{}, len(opts))
+	for _i := range opts {
+		_va[_i] = opts[_i]
+	}
+	var _ca []interface{}
+	_ca = append(_ca, ctx, filters, sorts, pagination)
+	_ca = append(_ca, _va...)
+	ret := _mock.Called(_ca...)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ListCredits")
@@ -844,23 +852,23 @@ func (_mock *MockCreditService) ListCredits(ctx context.Context, filters []query
 	var r0 []ledger.Credit
 	var r1 int64
 	var r2 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, []queryutil.CrudFilter, []queryutil.Sort, queryutil.Pagination) ([]ledger.Credit, int64, error)); ok {
-		return returnFunc(ctx, filters, sorts, pagination)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, []queryutil.CrudFilter, []queryutil.Sort, queryutil.Pagination, ...ListCreditsOption) ([]ledger.Credit, int64, error)); ok {
+		return returnFunc(ctx, filters, sorts, pagination, opts...)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, []queryutil.CrudFilter, []queryutil.Sort, queryutil.Pagination) []ledger.Credit); ok {
-		r0 = returnFunc(ctx, filters, sorts, pagination)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, []queryutil.CrudFilter, []queryutil.Sort, queryutil.Pagination, ...ListCreditsOption) []ledger.Credit); ok {
+		r0 = returnFunc(ctx, filters, sorts, pagination, opts...)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]ledger.Credit)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, []queryutil.CrudFilter, []queryutil.Sort, queryutil.Pagination) int64); ok {
-		r1 = returnFunc(ctx, filters, sorts, pagination)
+	if returnFunc, ok := ret.Get(1).(func(context.Context, []queryutil.CrudFilter, []queryutil.Sort, queryutil.Pagination, ...ListCreditsOption) int64); ok {
+		r1 = returnFunc(ctx, filters, sorts, pagination, opts...)
 	} else {
 		r1 = ret.Get(1).(int64)
 	}
-	if returnFunc, ok := ret.Get(2).(func(context.Context, []queryutil.CrudFilter, []queryutil.Sort, queryutil.Pagination) error); ok {
-		r2 = returnFunc(ctx, filters, sorts, pagination)
+	if returnFunc, ok := ret.Get(2).(func(context.Context, []queryutil.CrudFilter, []queryutil.Sort, queryutil.Pagination, ...ListCreditsOption) error); ok {
+		r2 = returnFunc(ctx, filters, sorts, pagination, opts...)
 	} else {
 		r2 = ret.Error(2)
 	}
@@ -877,11 +885,13 @@ type MockCreditService_ListCredits_Call struct {
 //   - filters []queryutil.CrudFilter
 //   - sorts []queryutil.Sort
 //   - pagination queryutil.Pagination
-func (_e *MockCreditService_Expecter) ListCredits(ctx interface{}, filters interface{}, sorts interface{}, pagination interface{}) *MockCreditService_ListCredits_Call {
-	return &MockCreditService_ListCredits_Call{Call: _e.mock.On("ListCredits", ctx, filters, sorts, pagination)}
+//   - opts ...ListCreditsOption
+func (_e *MockCreditService_Expecter) ListCredits(ctx interface{}, filters interface{}, sorts interface{}, pagination interface{}, opts ...interface{}) *MockCreditService_ListCredits_Call {
+	return &MockCreditService_ListCredits_Call{Call: _e.mock.On("ListCredits",
+		append([]interface{}{ctx, filters, sorts, pagination}, opts...)...)}
 }
 
-func (_c *MockCreditService_ListCredits_Call) Run(run func(ctx context.Context, filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination)) *MockCreditService_ListCredits_Call {
+func (_c *MockCreditService_ListCredits_Call) Run(run func(ctx context.Context, filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination, opts ...ListCreditsOption)) *MockCreditService_ListCredits_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -899,11 +909,20 @@ func (_c *MockCreditService_ListCredits_Call) Run(run func(ctx context.Context, 
 		if args[3] != nil {
 			arg3 = args[3].(queryutil.Pagination)
 		}
+		var arg4 []ListCreditsOption
+		variadicArgs := make([]ListCreditsOption, len(args)-4)
+		for i, a := range args[4:] {
+			if a != nil {
+				variadicArgs[i] = a.(ListCreditsOption)
+			}
+		}
+		arg4 = variadicArgs
 		run(
 			arg0,
 			arg1,
 			arg2,
 			arg3,
+			arg4...,
 		)
 	})
 	return _c
@@ -914,7 +933,7 @@ func (_c *MockCreditService_ListCredits_Call) Return(credits []ledger.Credit, n 
 	return _c
 }
 
-func (_c *MockCreditService_ListCredits_Call) RunAndReturn(run func(ctx context.Context, filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination) ([]ledger.Credit, int64, error)) *MockCreditService_ListCredits_Call {
+func (_c *MockCreditService_ListCredits_Call) RunAndReturn(run func(ctx context.Context, filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination, opts ...ListCreditsOption) ([]ledger.Credit, int64, error)) *MockCreditService_ListCredits_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -9,6 +9,30 @@ import (
 	"go.lumeweb.com/queryutil"
 )
 
+// ListCreditsOption is a function that configures list options
+type ListCreditsOption func(*ListCreditsOptions)
+
+// ListCreditsOptions holds optional list configuration
+type ListCreditsOptions struct {
+	IncludeDeleted bool
+}
+
+// WithIncludeDeleted sets whether to include soft-deleted records
+func WithIncludeDeleted(include bool) ListCreditsOption {
+	return func(opts *ListCreditsOptions) {
+		opts.IncludeDeleted = include
+	}
+}
+
+// ApplyListCreditsOptions applies all options and returns the configured options struct
+func ApplyListCreditsOptions(opts ...ListCreditsOption) ListCreditsOptions {
+	var options ListCreditsOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
+	return options
+}
+
 // CREDIT_SERVICE is the service ID for CreditService
 const CREDIT_SERVICE = "billing.credit"
 
@@ -57,7 +81,8 @@ type CreditService interface {
 
 	// ListCredits retrieves credits with filtering, sorting, and pagination
 	// Service-level method that wraps repository GetCredits with logging
-	ListCredits(ctx context.Context, filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination) ([]ledger.Credit, int64, error)
+	// Use WithIncludeDeleted option to include soft-deleted records
+	ListCredits(ctx context.Context, filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination, opts ...ListCreditsOption) ([]ledger.Credit, int64, error)
 
 	// ValidateSubscriptionChange validates that a subscription change is acceptable
 	// based on the user's current ledger balance and credit history

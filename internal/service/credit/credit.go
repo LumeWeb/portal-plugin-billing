@@ -444,13 +444,17 @@ func (s *CreditServiceDefault) GetCreditsByReference(ctx context.Context, refere
 }
 
 // ListCredits retrieves credits with filtering, sorting, and pagination
-func (s *CreditServiceDefault) ListCredits(ctx context.Context, filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination) ([]ledger.Credit, int64, error) {
+// Use WithIncludeDeleted option to include soft-deleted records
+func (s *CreditServiceDefault) ListCredits(ctx context.Context, filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination, opts ...pluginCore.ListCreditsOption) ([]ledger.Credit, int64, error) {
+	options := pluginCore.ApplyListCreditsOptions(opts...)
+
 	s.Logger().Debug("ListCredits",
 		zap.Int("filter_count", len(filters)),
 		zap.Int("sort_count", len(sorts)),
+		zap.Bool("include_deleted", options.IncludeDeleted),
 	)
 
-	credits, total, err := s.repo.ListCredits(ctx, filters, sorts, pagination)
+	credits, total, err := s.repo.ListCredits(ctx, filters, sorts, pagination, opts...)
 	if err != nil {
 		s.Logger().Error("Failed to list credits",
 			zap.Error(err))
@@ -482,6 +486,8 @@ func (s *CreditServiceDefault) GetDeletedCredits(ctx context.Context, userID uin
 		zap.Int("count", len(credits)))
 	return credits, nil
 }
+
+
 
 // PurgeDeletedCredits permanently removes soft-deleted credits older than a duration.
 // Useful for cleanup and retention policies.

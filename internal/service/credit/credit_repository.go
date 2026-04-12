@@ -12,6 +12,7 @@ import (
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
 
+	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
 	"go.lumeweb.com/portal-plugin-billing/internal/db/models"
 	ledger "go.lumeweb.com/portal-plugin-billing/pkg/ledger"
 	"go.lumeweb.com/queryutil"
@@ -23,7 +24,8 @@ type CreditRepositoryWithQuery interface {
 	ledger.CreditRepository
 
 	// ListCredits retrieves credits with filtering, sorting, and pagination.
-	ListCredits(ctx context.Context, filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination) ([]ledger.Credit, int64, error)
+	// Use WithIncludeDeleted option to include soft-deleted records.
+	ListCredits(ctx context.Context, filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination, opts ...pluginCore.ListCreditsOption) ([]ledger.Credit, int64, error)
 }
 
 // CreditRepository implements CreditRepository using GORM ORM.
@@ -166,6 +168,8 @@ func (r *CreditRepository) PurgeDeletedCredits(ctx context.Context, olderThan ti
 	return int(result.RowsAffected), nil
 }
 
+
+
 // GetCreditsByReference finds credits by reference ID and type.
 func (r *CreditRepository) GetCreditsByReference(ctx context.Context, referenceID string, referenceType string) ([]ledger.Credit, error) {
 	var views []models.CreditActiveView
@@ -189,36 +193,35 @@ func (r *CreditRepository) GetCreditsByReference(ctx context.Context, referenceI
 }
 
 // ListCredits retrieves credits with filtering, sorting, and pagination.
-func (r *CreditRepository) ListCredits(ctx context.Context, filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination) ([]ledger.Credit, int64, error) {
-	var views []models.CreditActiveView
+// Use WithIncludeDeleted option to include soft-deleted records.
+func (r *CreditRepository) ListCredits(ctx context.Context, filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination, opts ...pluginCore.ListCreditsOption) ([]ledger.Credit, int64, error) {
+	options := pluginCore.ApplyListCreditsOptions(opts...)
+
+	var creditModels []models.CreditModel
 	var total int64
 
-	q := r.db.WithContext(ctx).Model(&models.CreditActiveView{})
+	q := r.db.WithContext(ctx).Model(&models.CreditModel{})
 
-	// Apply filters
+	if options.IncludeDeleted {
+		q = q.Unscoped()
+	}
+
 	q = queryutil.ApplyFilters(q, filters, nil)
-
-	// Apply sorting
 	q = queryutil.ApplySort(q, sorts)
 
-	// Count total
 	if err := q.Count(&total).Error; err != nil {
 		return nil, 0, &gormRepositoryError{op: "count", err: err}
 	}
 
-	// Apply pagination
 	q = queryutil.ApplyPagination(q, pagination)
 
-	// Find credits
-	if err := q.Find(&views).Error; err != nil {
+	if err := q.Find(&creditModels).Error; err != nil {
 		return nil, 0, &gormRepositoryError{op: "list", err: err}
 	}
 
-	// Convert views to credits
-	credits := make([]ledger.Credit, len(views))
-	for i, view := range views {
-		credits[i] = *r.ViewToCredit(&view)
-	}
+	credits := lo.Map(creditModels, func(model models.CreditModel, _ int) ledger.Credit {
+		return *r.ModelToCredit(&model)
+	})
 
 	return credits, total, nil
 }

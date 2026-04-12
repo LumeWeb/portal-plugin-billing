@@ -1416,6 +1416,10 @@ func TestAdminHandleRestoreCredit_Success(t *testing.T) {
 
 		creditID := uuid.New()
 
+		// Mock credit service to get credit (called twice - before and after restore)
+		credit := createMockCredit(creditID, uint64(12345), decimal.NewFromInt(1000), "charge", "credit", "Test credit")
+		creditSvc.EXPECT().GetCredit(mock.Anything, creditID).Return(credit, nil).Times(2)
+
 		// Mock credit service to restore credit
 		creditSvc.EXPECT().RestoreCredit(mock.Anything, creditID).Return(nil).Once()
 
@@ -1439,8 +1443,8 @@ func TestAdminHandleRestoreCredit_NotFound(t *testing.T) {
 
 		creditID := uuid.New()
 
-		// Mock credit service to return error on restore
-		creditSvc.EXPECT().RestoreCredit(mock.Anything, creditID).Return(errors.New("credit not found")).Once()
+		// Mock credit service to return error on get
+		creditSvc.EXPECT().GetCredit(mock.Anything, creditID).Return(nil, errors.New("credit not found")).Once()
 
 		// Create request
 		req := ctx.NewAPIRequest("POST", fmt.Sprintf("/api/billing/credits/%s/restore", creditID.String()), nil)
@@ -1449,8 +1453,8 @@ func TestAdminHandleRestoreCredit_NotFound(t *testing.T) {
 		// Execute
 		router.ServeHTTP(w, req)
 
-		// Verify - should return internal server error
-		assert.Equal(tb, http.StatusInternalServerError, w.Code)
+		// Verify - should return not found
+		assert.Equal(tb, http.StatusNotFound, w.Code)
 	}, getAdminAPITestOptions())
 }
 
@@ -1468,7 +1472,7 @@ func TestAdminHandleListDeletedCredits_Success(t *testing.T) {
 		}
 
 		// Mock credit service to return deleted credits
-		creditSvc.EXPECT().GetDeletedCredits(mock.Anything, userID).Return(credits, nil).Once()
+		creditSvc.EXPECT().ListCredits(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(credits, int64(len(credits)), nil).Once()
 
 		// Create request
 		req := ctx.NewAPIRequest("GET", "/api/billing/users/"+fmt.Sprintf("%d", userID)+"/deleted-credits", nil)
@@ -1481,10 +1485,10 @@ func TestAdminHandleListDeletedCredits_Success(t *testing.T) {
 		assert.Equal(tb, http.StatusOK, w.Code)
 
 		// Parse response
-		var response []dto.CreditResponse
+		var response queryutil.Response[*[]dto.CreditResponse]
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		assert.NoError(tb, err)
-		assert.Len(tb, response, 1)
+		assert.Len(tb, *response.Data, 1)
 	}, getAdminAPITestOptions())
 }
 
@@ -1500,7 +1504,7 @@ func TestAdminHandleListDeletedCredits_EmptyList(t *testing.T) {
 		var credits []ledger.Credit
 
 		// Mock credit service to return empty list
-		creditSvc.EXPECT().GetDeletedCredits(mock.Anything, userID).Return(credits, nil).Once()
+		creditSvc.EXPECT().ListCredits(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(credits, int64(len(credits)), nil).Once()
 
 		// Create request
 		req := ctx.NewAPIRequest("GET", "/api/billing/users/"+fmt.Sprintf("%d", userID)+"/deleted-credits", nil)
@@ -1513,10 +1517,10 @@ func TestAdminHandleListDeletedCredits_EmptyList(t *testing.T) {
 		assert.Equal(tb, http.StatusOK, w.Code)
 
 		// Parse response
-		var response []dto.CreditResponse
+		var response queryutil.Response[*[]dto.CreditResponse]
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		assert.NoError(tb, err)
-		assert.Len(tb, response, 0)
+		assert.Len(tb, *response.Data, 0)
 	}, getAdminAPITestOptions())
 }
 

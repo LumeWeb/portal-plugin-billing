@@ -914,12 +914,27 @@ func (e *AdminExtension) handleRestoreCredit(c echo.Context) error {
 		return ctx.Error(NewError(ErrKeyInvalidIdentifier, fmt.Errorf("invalid credit id: %w", err)), http.StatusBadRequest)
 	}
 
+	credit, err := e.creditService.GetCredit(reqCtx, id)
+	if err != nil {
+		e.Logger().Error("failed to get credit before restore", zap.Error(err))
+		return ctx.Error(NewError(ErrKeyCreditNotFound, fmt.Errorf("credit not found: %w", err)), http.StatusNotFound)
+	}
+
 	if err := e.creditService.RestoreCredit(reqCtx, id); err != nil {
 		e.Logger().Error("failed to restore credit", zap.Error(err))
 		return ctx.Error(NewError(ErrKeyCreditRestoreFailed, fmt.Errorf("failed to restore credit: %w", err)), http.StatusInternalServerError)
 	}
 
-	return ctx.NoContent(http.StatusOK)
+	// Refresh credit to get updated state
+	credit, err = e.creditService.GetCredit(reqCtx, id)
+	if err != nil {
+		e.Logger().Error("failed to get credit after restore", zap.Error(err))
+		return ctx.Error(NewError(ErrKeyCreditNotFound, fmt.Errorf("failed to retrieve restored credit: %w", err)), http.StatusInternalServerError)
+	}
+
+	creditModel := convertCreditToModel(credit)
+	var resp dto.CreditResponse
+	return httputil.EncodeResponse(ctx, creditModel, &resp)
 }
 
 // handleListDeletedCredits lists soft-deleted credits for a user
@@ -927,26 +942,38 @@ func (e *AdminExtension) handleListDeletedCredits(c echo.Context) error {
 	ctx := httputil.Context(c)
 	reqCtx := ctx.Context.Request().Context()
 
-	userIDStr := c.Param("userId")
-	userID, err := strconv.ParseUint(userIDStr, 10, 64)
-	if err != nil {
-		return ctx.Error(NewError(ErrKeyInvalidIdentifier, fmt.Errorf("invalid user id: %w", err)), http.StatusBadRequest)
-	}
+	return queryutilHttp.ProcessListRequest(
+		c.Response(),
+		c.Request(),
+		"deleted_credits",
+		func(filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination) ([]*models.CreditModel, int64, error) {
+			credits, total, err := e.creditService.ListCredits(reqCtx, filters, sorts, pagination, pluginCore.WithIncludeDeleted(true))
+			if err != nil {
+				return nil, 0, err
+			}
 
-	credits, err := e.creditService.GetDeletedCredits(reqCtx, userID)
-	if err != nil {
-		e.Logger().Error("failed to get deleted credits", zap.Error(err))
-		return ctx.Error(NewError(ErrKeyCreditNotFound, fmt.Errorf("failed to get deleted credits: %w", err)), http.StatusInternalServerError)
-	}
-
-	// Convert credits to response format
-	responses := lo.Map(credits, func(credit ledger.Credit, _ int) dto.CreditResponse {
-		var resp dto.CreditResponse
-		_ = resp.FromModel(convertCreditToModel(&credit))
-		return resp
-	})
-
-	return ctx.JSON(http.StatusOK, responses)
+			result := make([]*models.CreditModel, len(credits))
+			for i, credit := range credits {
+				model := convertCreditToModel(&credit)
+				result[i] = model
+			}
+			return result, total, nil
+		},
+		func(credit *models.CreditModel) dto.CreditItem {
+			return dto.CreditItem{
+				ID:              credit.ID,
+				UserID:          credit.UserID,
+				Amount:          credit.Amount,
+				TransactionType: credit.Type,
+				Direction:       credit.Direction,
+				Description:     credit.Description,
+				CreatedBy:       credit.CreatedBy,
+				CreatedAt:       credit.CreatedAt,
+				UpdatedAt:       credit.UpdatedAt,
+				DeletedAt:       credit.DeletedAt,
+			}
+		},
+	)
 }
 
 // handleGetUserBalance retrieves a user's current balance
