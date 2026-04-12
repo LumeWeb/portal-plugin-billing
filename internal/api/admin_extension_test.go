@@ -1416,12 +1416,12 @@ func TestAdminHandleRestoreCredit_Success(t *testing.T) {
 
 		creditID := uuid.New()
 
-		// Mock credit service to get credit (called twice - before and after restore)
-		credit := createMockCredit(creditID, uint64(12345), decimal.NewFromInt(1000), "charge", "credit", "Test credit")
-		creditSvc.EXPECT().GetCredit(mock.Anything, creditID).Return(credit, nil).Times(2)
-
 		// Mock credit service to restore credit
 		creditSvc.EXPECT().RestoreCredit(mock.Anything, creditID).Return(nil).Once()
+
+		// Mock credit service to get credit after restore
+		credit := createMockCredit(creditID, uint64(12345), decimal.NewFromInt(1000), "charge", "credit", "Test credit")
+		creditSvc.EXPECT().GetCredit(mock.Anything, creditID).Return(credit, nil).Once()
 
 		// Create request
 		req := ctx.NewAPIRequest("POST", fmt.Sprintf("/api/billing/credits/%s/restore", creditID.String()), nil)
@@ -1443,8 +1443,8 @@ func TestAdminHandleRestoreCredit_NotFound(t *testing.T) {
 
 		creditID := uuid.New()
 
-		// Mock credit service to return error on get
-		creditSvc.EXPECT().GetCredit(mock.Anything, creditID).Return(nil, errors.New("credit not found")).Once()
+		// Mock credit service to return error on restore
+		creditSvc.EXPECT().RestoreCredit(mock.Anything, creditID).Return(gorm.ErrRecordNotFound).Once()
 
 		// Create request
 		req := ctx.NewAPIRequest("POST", fmt.Sprintf("/api/billing/credits/%s/restore", creditID.String()), nil)

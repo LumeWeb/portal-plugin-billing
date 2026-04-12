@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -22,6 +23,7 @@ import (
 	"go.lumeweb.com/queryutil"
 	queryutilHttp "go.lumeweb.com/queryutil/http"
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 )
 
 // AdminExtension extends the Admin API with billing management functionality
@@ -914,19 +916,15 @@ func (e *AdminExtension) handleRestoreCredit(c echo.Context) error {
 		return ctx.Error(NewError(ErrKeyInvalidIdentifier, fmt.Errorf("invalid credit id: %w", err)), http.StatusBadRequest)
 	}
 
-	credit, err := e.creditService.GetCredit(reqCtx, id)
-	if err != nil {
-		e.Logger().Error("failed to get credit before restore", zap.Error(err))
-		return ctx.Error(NewError(ErrKeyCreditNotFound, fmt.Errorf("credit not found: %w", err)), http.StatusNotFound)
-	}
-
 	if err := e.creditService.RestoreCredit(reqCtx, id); err != nil {
 		e.Logger().Error("failed to restore credit", zap.Error(err))
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ctx.Error(NewError(ErrKeyCreditNotFound, fmt.Errorf("credit not found: %w", err)), http.StatusNotFound)
+		}
 		return ctx.Error(NewError(ErrKeyCreditRestoreFailed, fmt.Errorf("failed to restore credit: %w", err)), http.StatusInternalServerError)
 	}
 
-	// Refresh credit to get updated state
-	credit, err = e.creditService.GetCredit(reqCtx, id)
+	credit, err := e.creditService.GetCredit(reqCtx, id)
 	if err != nil {
 		e.Logger().Error("failed to get credit after restore", zap.Error(err))
 		return ctx.Error(NewError(ErrKeyCreditNotFound, fmt.Errorf("failed to retrieve restored credit: %w", err)), http.StatusInternalServerError)
@@ -942,11 +940,20 @@ func (e *AdminExtension) handleListDeletedCredits(c echo.Context) error {
 	ctx := httputil.Context(c)
 	reqCtx := ctx.Context.Request().Context()
 
+	userIDStr := c.Param("userId")
+	userID, err := strconv.ParseUint(userIDStr, 10, 64)
+	if err != nil {
+		return ctx.Error(NewError(ErrKeyInvalidIdentifier, fmt.Errorf("invalid user id: %w", err)), http.StatusBadRequest)
+	}
+
 	return queryutilHttp.ProcessListRequest(
 		c.Response(),
 		c.Request(),
 		"deleted_credits",
 		func(filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination) ([]*models.CreditModel, int64, error) {
+			userFilter := queryutil.FieldEqual("user_id", userID)
+			filters = append([]queryutil.CrudFilter{userFilter}, filters...)
+
 			credits, total, err := e.creditService.ListCredits(reqCtx, filters, sorts, pagination, pluginCore.WithIncludeDeleted(true))
 			if err != nil {
 				return nil, 0, err

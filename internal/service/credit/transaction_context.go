@@ -159,7 +159,7 @@ func (r *transactionalCreditRepository) SoftDeleteCredit(ctx context.Context, id
 	}
 
 	if result.RowsAffected == 0 {
-		return errors.New("credit not found")
+		return gorm.ErrRecordNotFound
 	}
 
 	return nil
@@ -179,7 +179,7 @@ func (r *transactionalCreditRepository) RestoreCredit(ctx context.Context, id uu
 	}
 
 	if result.RowsAffected == 0 {
-		return errors.New("credit not found")
+		return gorm.ErrRecordNotFound
 	}
 
 	return nil
