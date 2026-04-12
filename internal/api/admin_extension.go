@@ -1204,23 +1204,32 @@ func (e *AdminExtension) handleGetUserSubscribers(c echo.Context) error {
 		return ctx.Error(NewError(ErrKeyInvalidIdentifier, fmt.Errorf("invalid user id: %w", err)), http.StatusBadRequest)
 	}
 
-	subscribers, err := e.billingService.GetSubscribersByUserID(reqCtx, uint(userID))
-	if err != nil {
-		e.Logger().Error("failed to get user subscribers", zap.Uint("user_id", uint(userID)), zap.Error(err))
-		return ctx.Error(NewError(ErrKeySubscriptionCheckFailed, fmt.Errorf("failed to get user subscribers: %w", err)), http.StatusInternalServerError)
-	}
+	return queryutilHttp.ProcessListRequest(
+		c.Response(),
+		c.Request(),
+		"billing_subscribers",
+		func(filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination) ([]*models.Subscriber, int64, error) {
+			// Get subscribers from service
+			subscribers, err := e.billingService.GetSubscribersByUserID(reqCtx, uint(userID))
+			if err != nil {
+				e.Logger().Error("failed to get user subscribers", zap.Uint("user_id", uint(userID)), zap.Error(err))
+				return nil, 0, err
+			}
 
-	// Convert to response format
-	responses := lo.Map(subscribers, func(subscriber pluginCore.Subscriber, _ int) dto.SubscriberItem {
-		var resp dto.SubscriberItem
-		_ = resp.FromModel(&subscriber)
-		return resp
-	})
+			// Convert to models for response
+			result := lo.Map(subscribers, func(sub pluginCore.Subscriber, _ int) *models.Subscriber {
+				s := models.Subscriber(sub)
+				return &s
+			})
 
-	return ctx.JSON(http.StatusOK, dto.SubscribersListResponse{
-		Results: responses,
-		Total:   int64(len(responses)),
-	})
+			return result, int64(len(result)), nil
+		},
+		func(subscriber *models.Subscriber) dto.SubscriberItem {
+			var resp dto.SubscriberItem
+			_ = resp.FromModel((*pluginCore.Subscriber)(subscriber))
+			return resp
+		},
+	)
 }
 
 // handleCancelUserSubscription cancels a user's active subscription
@@ -1465,23 +1474,32 @@ func (e *AdminExtension) handleListGatewaySubscribers(c echo.Context) error {
 		return ctx.Error(NewError(ErrKeyInvalidRequest, fmt.Errorf("gateway ID is required")), http.StatusBadRequest)
 	}
 
-	subscribers, err := e.billingService.GetActiveSubscribersByGateway(reqCtx, gatewayId)
-	if err != nil {
-		e.Logger().Error("failed to get gateway subscribers",
-			zap.String("gateway_id", gatewayId),
-			zap.Error(err))
-		return ctx.Error(NewError(ErrKeySubscriptionCheckFailed, fmt.Errorf("failed to get gateway subscribers: %w", err)), http.StatusInternalServerError)
-	}
+	return queryutilHttp.ProcessListRequest(
+		c.Response(),
+		c.Request(),
+		"billing_subscribers",
+		func(filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination) ([]*models.Subscriber, int64, error) {
+			// Get subscribers from service
+			subscribers, err := e.billingService.GetActiveSubscribersByGateway(reqCtx, gatewayId)
+			if err != nil {
+				e.Logger().Error("failed to get gateway subscribers",
+					zap.String("gateway_id", gatewayId),
+					zap.Error(err))
+				return nil, 0, err
+			}
 
-	// Convert to response format
-	responses := lo.Map(subscribers, func(subscriber pluginCore.Subscriber, _ int) dto.SubscriberItem {
-		var resp dto.SubscriberItem
-		_ = resp.FromModel(&subscriber)
-		return resp
-	})
+			// Convert to models for response
+			result := lo.Map(subscribers, func(sub pluginCore.Subscriber, _ int) *models.Subscriber {
+				s := models.Subscriber(sub)
+				return &s
+			})
 
-	return ctx.JSON(http.StatusOK, dto.SubscribersListResponse{
-		Results: responses,
-		Total:   int64(len(responses)),
-	})
+			return result, int64(len(result)), nil
+		},
+		func(subscriber *models.Subscriber) dto.SubscriberItem {
+			var resp dto.SubscriberItem
+			_ = resp.FromModel((*pluginCore.Subscriber)(subscriber))
+			return resp
+		},
+	)
 }

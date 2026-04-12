@@ -62,10 +62,14 @@ type SubscriberItem struct {
 	UpdatedAt           time.Time   `json:"updated_at"`
 }
 
-// SubscribersListResponse represents a paginated list of subscribers
+// SubscribersListResponse is a swagger-only DTO that represents the paginated response for subscribers.
+// It provides a concrete type for swagger documentation since queryutil.Response generics
+// are not properly detected as array types.
+//
+// Note: This struct is only used for swagger documentation, not for actual encoding.
 type SubscribersListResponse struct {
-	Results []SubscriberItem `json:"results"`
-	Total   int64            `json:"total"`
+	Data  []SubscriberItem `json:"data"`
+	Total int64             `json:"total"`
 }
 
 // FromModel converts a Subscriber model to SubscriberItem

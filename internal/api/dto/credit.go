@@ -190,7 +190,8 @@ func (r *UserCreditItem) FromModel(credit *models.CreditModel) error {
 //
 // Note: This struct is only used for swagger documentation, not for actual encoding.
 type CreditsListResponse struct {
-	Data []CreditItem `json:"data"`
+	Data  []CreditItem `json:"data"`
+	Total int64        `json:"total"`
 }
 
 // UserCreditsListResponse is a swagger-only DTO that represents the paginated response for user credits.
@@ -199,7 +200,8 @@ type CreditsListResponse struct {
 //
 // Note: This struct is only used for swagger documentation, not for actual encoding.
 type UserCreditsListResponse struct {
-	Data []UserCreditItem `json:"data"`
+	Data  []UserCreditItem `json:"data"`
+	Total int64            `json:"total"`
 }
 
 // DeletedCreditsListResponse is a swagger-only DTO that represents the paginated response for deleted credits.
@@ -208,7 +210,8 @@ type UserCreditsListResponse struct {
 //
 // Note: This struct is only used for swagger documentation, not for actual encoding.
 type DeletedCreditsListResponse struct {
-	Data []CreditItem `json:"data"`
+	Data  []CreditItem `json:"data"`
+	Total int64        `json:"total"`
 }
 
 // BalanceResponse represents a user's credit balance
