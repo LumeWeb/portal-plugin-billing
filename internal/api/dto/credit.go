@@ -19,13 +19,13 @@ var _ httputil.DTOResponse[*PurgeResult] = (*CreditPurgeResponse)(nil)
 
 // CreditCreateRequest represents a request to create a credit entry
 type CreditCreateRequest struct {
-	UserID           uint64          `json:"user_id"`
-	Amount           *string         `json:"amount"` // Amount as string to support JSON unmarshaling
-	TransactionType  string          `json:"transaction_type"`
-	Direction        string          `json:"direction"`
-	Description      string          `json:"description,omitempty"`
-	ReferenceID      string          `json:"reference_id,omitempty"`
-	ReferenceType    string          `json:"reference_type,omitempty"`
+	UserID          uint64  `json:"user_id"`
+	Amount          *string `json:"amount"` // Amount as string to support JSON unmarshaling
+	TransactionType string  `json:"type"`
+	Direction       string  `json:"direction"`
+	Description     string  `json:"description,omitempty"`
+	ReferenceID     string  `json:"reference_id,omitempty"`
+	ReferenceType   string  `json:"reference_type,omitempty"`
 }
 
 // Schema defines the validation schema for CreditCreateRequest
@@ -65,19 +65,19 @@ func (r *CreditCreateRequest) ToModel() (*models.CreditModel, error) {
 
 // CreditResponse represents a credit entry response
 type CreditResponse struct {
-	ID             uuid.UUID              `json:"id"`
-	UserID         uint64                 `json:"user_id"`
-	Amount         decimal.Decimal        `json:"amount"`
-	TransactionType string                `json:"transaction_type"`
-	Direction      string                 `json:"direction"`
-	ReferenceID    string                 `json:"reference_id,omitempty"`
-	ReferenceType  string                 `json:"reference_type,omitempty"`
-	Description    string                 `json:"description,omitempty"`
-	Metadata       map[string]interface{} `json:"metadata,omitempty"`
-	CreatedBy      uint64                 `json:"created_by"`
-	CreatedAt      time.Time              `json:"created_at"`
-	UpdatedAt      time.Time              `json:"updated_at"`
-	DeletedAt      *time.Time             `json:"deleted_at,omitempty"`
+	ID              uuid.UUID              `json:"id"`
+	UserID          uint64                 `json:"user_id"`
+	Amount          decimal.Decimal        `json:"amount"`
+	TransactionType string                 `json:"type"`
+	Direction       string                 `json:"direction"`
+	ReferenceID     string                 `json:"reference_id,omitempty"`
+	ReferenceType   string                 `json:"reference_type,omitempty"`
+	Description     string                 `json:"description,omitempty"`
+	Metadata        map[string]interface{} `json:"metadata,omitempty"`
+	CreatedBy       uint64                 `json:"created_by"`
+	CreatedAt       time.Time              `json:"created_at"`
+	UpdatedAt       time.Time              `json:"updated_at"`
+	DeletedAt       *time.Time             `json:"deleted_at,omitempty"`
 }
 
 // FromModel converts CreditModel to CreditResponse
@@ -117,9 +117,9 @@ type CreditListResponse []CreditResponse
 
 // CreditFilterRequest represents filter options for listing credits
 type CreditFilterRequest struct {
-	UserID           *uint64 `json:"user_id" filter:"true"`
-	TransactionType  *string `json:"transaction_type" filter:"true"`
-	Direction        *string `json:"direction" filter:"true"`
+	UserID          *uint64 `json:"user_id" filter:"true"`
+	TransactionType *string `json:"type" filter:"true"`
+	Direction       *string `json:"direction" filter:"true"`
 }
 
 // Schema defines the validation schema for CreditFilterRequest
@@ -145,26 +145,26 @@ func (r CreditFilterRequest) Schema() *z.StructSchema {
 
 // CreditItem represents a lightweight credit item for list responses
 type CreditItem struct {
-	ID             uuid.UUID       `json:"id"`
-	UserID         uint64          `json:"user_id" filter:"true" sort:"true"`
-	Amount         decimal.Decimal `json:"amount" filter:"true" sort:"true"`
-	TransactionType string         `json:"transaction_type" filter:"true" sort:"true"`
-	Direction      string          `json:"direction" filter:"true" sort:"true"`
-	Description    string          `json:"description,omitempty"`
-	CreatedBy      uint64          `json:"created_by" sort:"true"`
-	CreatedAt      time.Time       `json:"created_at" sort:"true"`
-	UpdatedAt      time.Time       `json:"updated_at" sort:"true"`
-	DeletedAt      *time.Time      `json:"deleted_at,omitempty" sort:"true"`
+	ID              uuid.UUID       `json:"id"`
+	UserID          uint64          `json:"user_id" filter:"true" sort:"true"`
+	Amount          decimal.Decimal `json:"amount" filter:"true" sort:"true"`
+	TransactionType string          `json:"type" filter:"true" sort:"true"`
+	Direction       string          `json:"direction" filter:"true" sort:"true"`
+	Description     string          `json:"description,omitempty"`
+	CreatedBy       uint64          `json:"created_by" sort:"true"`
+	CreatedAt       time.Time       `json:"created_at" sort:"true"`
+	UpdatedAt       time.Time       `json:"updated_at" sort:"true"`
+	DeletedAt       *time.Time      `json:"deleted_at,omitempty" sort:"true"`
 }
 
 // UserCreditItem represents a user-facing credit item without internal fields
 type UserCreditItem struct {
-	ID               uuid.UUID       `json:"id"`
-	Amount           decimal.Decimal `json:"amount"`
-	TransactionType  string          `json:"transaction_type"`
-	Direction        string          `json:"direction"`
-	Description      string          `json:"description,omitempty"`
-	CreatedAt        time.Time       `json:"created_at"`
+	ID              uuid.UUID       `json:"id"`
+	Amount          decimal.Decimal `json:"amount"`
+	TransactionType string          `json:"type"`
+	Direction       string          `json:"direction"`
+	Description     string          `json:"description,omitempty"`
+	CreatedAt       time.Time       `json:"created_at"`
 }
 
 // FromModel converts CreditModel to UserCreditItem (user-facing)
@@ -216,7 +216,7 @@ type DeletedCreditsListResponse struct {
 
 // BalanceResponse represents a user's credit balance
 type BalanceResponse struct {
-	UserID  uint64         `json:"user_id"`
+	UserID  uint64          `json:"user_id"`
 	Balance decimal.Decimal `json:"balance"`
 }
 
@@ -272,5 +272,3 @@ func (r *CreditPurgeResponse) FromModel(result *PurgeResult) error {
 	}
 	return nil
 }
-
-
