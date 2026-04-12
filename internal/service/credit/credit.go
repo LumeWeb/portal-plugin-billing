@@ -519,8 +519,12 @@ func (s *CreditServiceDefault) isValidTransactionType(transactionType string) bo
 // isValidReferenceType checks if a reference type is valid
 func (s *CreditServiceDefault) isValidReferenceType(referenceType string) bool {
 	validTypes := map[string]bool{
+		// Gateway-specific reference types
 		pluginCore.ReferenceTypeStripeInvoice: true,
 		pluginCore.ReferenceTypeAtlosPayment:  true,
+		// System-generated reference types
+		pluginCore.ReferenceTypeManual: true,
+		pluginCore.ReferenceTypeUsage:  true,
 	}
 	return validTypes[referenceType]
 }
