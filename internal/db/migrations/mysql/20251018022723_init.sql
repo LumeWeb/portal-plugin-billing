@@ -178,7 +178,38 @@ CREATE TABLE IF NOT EXISTS billing_credits (
     INDEX idx_deleted_at (deleted_at)
 );
 
+-- Credits Views
+
+-- Active credits (non-deleted) view
+CREATE VIEW billing_credits_active AS
+SELECT
+    id,
+    user_id,
+    amount,
+    type,
+    direction,
+    reference_id,
+    reference_type,
+    description,
+    metadata,
+    created_by,
+    created_at,
+    updated_at
+FROM billing_credits
+WHERE deleted_at IS NULL;
+
+-- User balance view (pre-computed balances)
+CREATE VIEW billing_credits_balance AS
+SELECT
+    user_id,
+    SUM(CASE WHEN direction = 'credit' THEN amount ELSE -amount END) as balance
+FROM billing_credits
+WHERE deleted_at IS NULL
+GROUP BY user_id;
+
 -- +goose Down
+DROP VIEW IF EXISTS billing_credits_balance;
+DROP VIEW IF EXISTS billing_credits_active;
 DROP TABLE IF EXISTS billing_credits;
 DROP TABLE IF EXISTS billing_subscribers;
 DROP TABLE IF EXISTS billing_gateway_product_mappings;
