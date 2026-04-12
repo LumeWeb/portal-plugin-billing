@@ -18,6 +18,7 @@ import (
 	"go.lumeweb.com/portal/core"
 	"go.lumeweb.com/portal/db"
 	"go.lumeweb.com/portal/event"
+	"go.lumeweb.com/queryutil"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -498,4 +499,77 @@ func (s *BillingServiceDefault) GetPendingCancellations(ctx context.Context, gat
 		return sub
 	})
 	return result, nil
+}
+
+func (s *BillingServiceDefault) GetSubscriberByID(ctx context.Context, id uint) (*pluginCore.Subscriber, error) {
+	ctx, span := core.TraceMethod(ctx, "BillingServiceDefault.GetSubscriberByID")
+	defer span.End()
+
+	var subscriber models.Subscriber
+	err := db.RetryableComponentTransaction(s, ctx, func(tx *gorm.DB) *gorm.DB {
+		return tx.Preload("PricingPlanPeriod").First(&subscriber, id)
+	})
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	result := subscriber
+	return &result, nil
+}
+
+func (s *BillingServiceDefault) GetSubscribersByUserID(ctx context.Context, userID uint) ([]pluginCore.Subscriber, error) {
+	ctx, span := core.TraceMethod(ctx, "BillingServiceDefault.GetSubscribersByUserID")
+	defer span.End()
+
+	var subscribers []models.Subscriber
+	err := db.RetryableComponentTransaction(s, ctx, func(tx *gorm.DB) *gorm.DB {
+		return tx.Preload("PricingPlanPeriod").Where("user_id = ?", userID).Find(&subscribers)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	result := lo.Map(subscribers, func(sub models.Subscriber, _ int) pluginCore.Subscriber {
+		return sub
+	})
+	return result, nil
+}
+
+func (s *BillingServiceDefault) ListSubscribers(ctx context.Context, filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination) ([]pluginCore.Subscriber, int64, error) {
+	ctx, span := core.TraceMethod(ctx, "BillingServiceDefault.ListSubscribers")
+	defer span.End()
+
+	var subscribers []models.Subscriber
+	var total int64
+
+	err := db.RetryableComponentTransaction(s, ctx, func(tx *gorm.DB) *gorm.DB {
+		query := tx.Model(&models.Subscriber{})
+
+		// Apply filters using queryutil helper
+		query = queryutil.ApplyFilters(query, filters, nil)
+
+		// Get total count
+		if err := query.Count(&total).Error; err != nil {
+			return tx
+		}
+
+		// Apply sorts using queryutil helper
+		query = queryutil.ApplySort(query, sorts)
+
+		// Apply pagination using queryutil helper
+		query = queryutil.ApplyPagination(query, pagination)
+
+		return query.Preload("PricingPlanPeriod").Find(&subscribers)
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+
+	result := lo.Map(subscribers, func(sub models.Subscriber, _ int) pluginCore.Subscriber {
+		return sub
+	})
+	return result, total, nil
 }

@@ -6,6 +6,7 @@ import (
 
 	"go.lumeweb.com/portal-plugin-billing/internal/db/models"
 	"go.lumeweb.com/portal/core"
+	"go.lumeweb.com/queryutil"
 )
 
 // Re-export the Subscriber type from internal models for external access
@@ -48,6 +49,12 @@ type BillingService interface {
 	GetPendingCancellations(ctx context.Context, gatewayType string, now time.Time) ([]Subscriber, error)
 	// GetActiveSubscription returns the first active subscription for a user across all gateways
 	GetActiveSubscription(ctx context.Context, userID uint) (*Subscriber, error)
+	// GetSubscriberByID returns a subscriber by database ID
+	GetSubscriberByID(ctx context.Context, id uint) (*Subscriber, error)
+	// GetSubscribersByUserID returns all subscribers for a specific user
+	GetSubscribersByUserID(ctx context.Context, userID uint) ([]Subscriber, error)
+	// ListSubscribers returns a paginated list of subscribers with optional filtering
+	ListSubscribers(ctx context.Context, filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination) ([]Subscriber, int64, error)
 	// GetRegistry returns the gateway registry for querying available gateways
 	GetRegistry(ctx context.Context) GatewayRegistry
 	// GetCheckoutUI returns checkout UI fragments for a plan

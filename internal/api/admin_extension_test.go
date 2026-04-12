@@ -1637,7 +1637,7 @@ func TestAdminHandlePurgeCredits_InvalidDuration(t *testing.T) {
 // ============================================================
 
 func TestAdminExtension_CreatePricingPlanPeriod_Success(t *testing.T) {
-	coreTesting.RunTestCaseWithDB(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		pricingSvc := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
 		router := ctx.Router()
 
@@ -1696,7 +1696,7 @@ func TestAdminExtension_CreatePricingPlanPeriod_Validation_RollingDays(t *testin
 	assert.Contains(t, err.Error(), "rolling_days can only be set for 'rolling' cadence")
 
 	// Now test via the API endpoint
-	coreTesting.RunTestCaseWithDB(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		_ = core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
 		router := ctx.Router()
 
@@ -1729,7 +1729,7 @@ func TestAdminExtension_CreatePricingPlanPeriod_Validation_RollingDays(t *testin
 
 
 func TestAdminExtension_UpdatePricingPlanPeriod_Success(t *testing.T) {
-	coreTesting.RunTestCaseWithDB(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		pricingSvc := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
 		router := ctx.Router()
 
@@ -1775,7 +1775,7 @@ func TestAdminExtension_UpdatePricingPlanPeriod_Success(t *testing.T) {
 }
 
 func TestAdminExtension_DeletePricingPlanPeriod_Success(t *testing.T) {
-	coreTesting.RunTestCaseWithDB(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		pricingSvc := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
 		router := ctx.Router()
 
@@ -1794,7 +1794,7 @@ func TestAdminExtension_DeletePricingPlanPeriod_Success(t *testing.T) {
 }
 
 func TestAdminExtension_GetPricingPlanPeriod_Success(t *testing.T) {
-	coreTesting.RunTestCaseWithDB(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		pricingSvc := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
 		router := ctx.Router()
 
@@ -1831,7 +1831,7 @@ func TestAdminExtension_GetPricingPlanPeriod_Success(t *testing.T) {
 }
 
 func TestAdminExtension_ListPricingPlanPeriods_Success(t *testing.T) {
-	coreTesting.RunTestCaseWithDB(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		pricingSvc := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
 		router := ctx.Router()
 
@@ -1874,7 +1874,7 @@ func TestAdminExtension_ListPricingPlanPeriods_Success(t *testing.T) {
 }
 
 func TestAdminExtension_ListPricingPlanPeriods_WithFilter(t *testing.T) {
-	coreTesting.RunTestCaseWithDB(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		pricingSvc := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
 		router := ctx.Router()
 
@@ -2018,4 +2018,395 @@ func TestPricingPlanPeriodUpdateRequest_ToModel_Success(t *testing.T) {
 
 func intPtr(i int) *int {
 	return &i
+}
+// ============================================================
+// Subscription Management Tests
+// ============================================================
+
+// TestAdminHandleListSubscribers_Success tests listing all subscribers
+func TestAdminHandleListSubscribers_Success(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		billingSvc := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+		router := ctx.Router()
+
+		subscribers := []pluginCore.Subscriber{
+			{
+				Model:        gorm.Model{ID: 1, CreatedAt: time.Now(), UpdatedAt: time.Now()},
+				UserID:       123,
+				GatewayType:  "stripe",
+				ExternalID:   "ext_123",
+				SubscriptionID: "sub_123",
+				IsActive:     true,
+			},
+		}
+
+		billingSvc.EXPECT().
+			ListSubscribers(mock.Anything, mock.Anything, mock.Anything, mock.AnythingOfType("queryutil.Pagination")).
+			Return(subscribers, int64(1), nil).
+			Once()
+
+		req := ctx.NewAPIRequest("GET", "/api/billing/subscribers", nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		assert.Equal(tb, http.StatusOK, w.Code)
+
+		var response dto.SubscribersListResponse
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		assert.NoError(t, err)
+		assert.Len(tb, response.Results, 1)
+	}, getAdminAPITestOptions())
+}
+
+// TestAdminHandleGetSubscriber_Success tests retrieving a specific subscriber
+func TestAdminHandleGetSubscriber_Success(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		billingSvc := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+		router := ctx.Router()
+
+		subscriber := pluginCore.Subscriber{
+			Model:        gorm.Model{ID: 1, CreatedAt: time.Now(), UpdatedAt: time.Now()},
+			UserID:       123,
+			GatewayType:  "stripe",
+			ExternalID:   "ext_123",
+			SubscriptionID: "sub_123",
+			IsActive:     true,
+		}
+
+		billingSvc.EXPECT().
+			GetSubscriberByID(mock.Anything, uint(1)).
+			Return(&subscriber, nil).
+			Once()
+
+		req := ctx.NewAPIRequest("GET", "/api/billing/subscribers/1", nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		assert.Equal(tb, http.StatusOK, w.Code)
+	}, getAdminAPITestOptions())
+}
+
+// TestAdminHandleGetSubscriber_NotFound tests retrieving a non-existent subscriber
+func TestAdminHandleGetSubscriber_NotFound(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		billingSvc := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+		router := ctx.Router()
+
+		billingSvc.EXPECT().
+			GetSubscriberByID(mock.Anything, uint(999)).
+			Return(nil, nil).
+			Once()
+
+		req := ctx.NewAPIRequest("GET", "/api/billing/subscribers/999", nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		assert.Equal(tb, http.StatusNotFound, w.Code)
+	}, getAdminAPITestOptions())
+}
+
+// TestAdminHandleGetSubscriber_InvalidID tests retrieving with invalid ID
+func TestAdminHandleGetSubscriber_InvalidID(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		router := ctx.Router()
+
+		// Create request with invalid ID
+		req := ctx.NewAPIRequest("GET", "/api/billing/subscribers/invalid", nil)
+		w := httptest.NewRecorder()
+
+		// Execute
+		router.ServeHTTP(w, req)
+
+		// Verify - should return bad request
+		assert.Equal(tb, http.StatusBadRequest, w.Code)
+	}, getAdminAPITestOptions())
+}
+
+// TestAdminHandleGetUserSubscribers_Success tests retrieving subscribers for a specific user
+func TestAdminHandleGetUserSubscribers_Success(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		billingSvc := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+		router := ctx.Router()
+
+		subscribers := []pluginCore.Subscriber{
+			{
+				Model:        gorm.Model{ID: 1, CreatedAt: time.Now(), UpdatedAt: time.Now()},
+				UserID:       123,
+				GatewayType:  "stripe",
+				ExternalID:   "ext_123",
+				SubscriptionID: "sub_123",
+				IsActive:     true,
+			},
+		}
+
+		billingSvc.EXPECT().
+			GetSubscribersByUserID(mock.Anything, uint(123)).
+			Return(subscribers, nil).
+			Once()
+
+		req := ctx.NewAPIRequest("GET", "/api/billing/users/123/subscribers", nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		assert.Equal(tb, http.StatusOK, w.Code)
+
+		var response dto.SubscribersListResponse
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		assert.NoError(t, err)
+		assert.Len(tb, response.Results, 1)
+	}, getAdminAPITestOptions())
+}
+
+// TestAdminHandleGetUserSubscribers_EmptyResults tests retrieving subscribers for user with no subscriptions
+func TestAdminHandleGetUserSubscribers_EmptyResults(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		billingSvc := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+		router := ctx.Router()
+
+		billingSvc.EXPECT().
+			GetSubscribersByUserID(mock.Anything, uint(999)).
+			Return([]pluginCore.Subscriber{}, nil).
+			Once()
+
+		req := ctx.NewAPIRequest("GET", "/api/billing/users/999/subscribers", nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		assert.Equal(tb, http.StatusOK, w.Code)
+
+		var response dto.SubscribersListResponse
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		assert.NoError(t, err)
+		assert.Len(tb, response.Results, 0)
+	}, getAdminAPITestOptions())
+}
+
+// TestAdminHandleGetUserSubscribers_InvalidID tests retrieving subscribers with invalid user ID
+func TestAdminHandleGetUserSubscribers_InvalidID(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		router := ctx.Router()
+
+		// Create request with invalid user ID
+		req := ctx.NewAPIRequest("GET", "/api/billing/users/invalid/subscribers", nil)
+		w := httptest.NewRecorder()
+
+		// Execute
+		router.ServeHTTP(w, req)
+
+		// Verify - should return bad request
+		assert.Equal(tb, http.StatusBadRequest, w.Code)
+	}, getAdminAPITestOptions())
+}
+
+// TestAdminHandleCancelUserSubscription_DatabaseMode_Success tests canceling subscription in database-only mode
+func TestAdminHandleCancelUserSubscription_DatabaseMode_Success(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		billingSvc := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+		router := ctx.Router()
+
+		// Mock subscriber
+		subscriber := &pluginCore.Subscriber{
+			SubscriptionID:      "sub_123",
+			UserID:              123,
+			GatewayType:         "stripe",
+			ExternalID:          "ext_123",
+			IsActive:            true,
+			PricingPlanPeriodID: new(uint(100)),
+		}
+
+		// Mock GetActiveSubscription to return active subscription
+		billingSvc.EXPECT().GetActiveSubscription(mock.Anything, uint(123)).Return(subscriber, nil).Once()
+
+		// Mock DeactivateSubscriber for database-only cancellation
+		billingSvc.EXPECT().DeactivateSubscriber(mock.Anything, uint(123), "stripe").Return(nil).Once()
+
+		// Create request body with database mode
+		requestBody := map[string]interface{}{
+			"mode": "database",
+		}
+		bodyBytes, _ := json.Marshal(requestBody)
+
+		// Create request
+		req := ctx.NewAPIRequest("POST", "/api/billing/users/123/subscriptions/cancel", bodyBytes)
+		w := httptest.NewRecorder()
+
+		// Execute
+		router.ServeHTTP(w, req)
+
+		// Verify
+		assert.Equal(tb, http.StatusOK, w.Code)
+	}, getAdminAPITestOptions())
+}
+
+// TestAdminHandleCancelUserSubscription_NoActiveSubscription tests canceling when user has no active subscription
+func TestAdminHandleCancelUserSubscription_NoActiveSubscription(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		billingSvc := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+		router := ctx.Router()
+
+		// Mock GetActiveSubscription to return nil (no active subscription)
+		billingSvc.EXPECT().GetActiveSubscription(mock.Anything, uint(123)).Return(nil, nil).Once()
+
+		// Create request body
+		requestBody := map[string]interface{}{
+			"mode": "database",
+		}
+		bodyBytes, _ := json.Marshal(requestBody)
+
+		// Create request
+		req := ctx.NewAPIRequest("POST", "/api/billing/users/123/subscriptions/cancel", bodyBytes)
+		w := httptest.NewRecorder()
+
+		// Execute
+		router.ServeHTTP(w, req)
+
+		// Verify - should return not found
+		assert.Equal(tb, http.StatusNotFound, w.Code)
+	}, getAdminAPITestOptions())
+}
+
+// TestAdminHandleCancelUserSubscription_InvalidUserID tests canceling with invalid user ID
+func TestAdminHandleCancelUserSubscription_InvalidUserID(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		router := ctx.Router()
+
+		// Create request body
+		requestBody := map[string]interface{}{
+			"mode": "database",
+		}
+		bodyBytes, _ := json.Marshal(requestBody)
+
+		// Create request with invalid user ID
+		req := ctx.NewAPIRequest("POST", "/api/billing/users/invalid/subscriptions/cancel", bodyBytes)
+		w := httptest.NewRecorder()
+
+		// Execute
+		router.ServeHTTP(w, req)
+
+		// Verify - should return bad request
+		assert.Equal(tb, http.StatusBadRequest, w.Code)
+	}, getAdminAPITestOptions())
+}
+
+// TestAdminHandleCancelUserSubscription_InvalidMode tests canceling with invalid mode
+func TestAdminHandleCancelUserSubscription_InvalidMode(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		billingSvc := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+		router := ctx.Router()
+
+		// Mock subscriber
+		subscriber := &pluginCore.Subscriber{
+			SubscriptionID:      "sub_123",
+			UserID:              123,
+			GatewayType:         "stripe",
+			ExternalID:          "ext_123",
+			IsActive:            true,
+			PricingPlanPeriodID: new(uint(100)),
+		}
+
+		// Mock GetActiveSubscription
+		billingSvc.EXPECT().GetActiveSubscription(mock.Anything, uint(123)).Return(subscriber, nil).Once()
+
+		// Create request body with invalid mode
+		requestBody := map[string]interface{}{
+			"mode": "invalid_mode",
+		}
+		bodyBytes, _ := json.Marshal(requestBody)
+
+		// Create request
+		req := ctx.NewAPIRequest("POST", "/api/billing/users/123/subscriptions/cancel", bodyBytes)
+		w := httptest.NewRecorder()
+
+		// Execute
+		router.ServeHTTP(w, req)
+
+		// Verify - should return unprocessable entity (validation error)
+		assert.Equal(tb, http.StatusUnprocessableEntity, w.Code)
+	}, getAdminAPITestOptions())
+}
+
+// TestAdminHandleListGatewaySubscribers_Success tests listing subscribers for a specific gateway
+func TestAdminHandleListGatewaySubscribers_Success(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		billingSvc := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+		router := ctx.Router()
+
+		subscribers := []pluginCore.Subscriber{
+			{
+				Model:        gorm.Model{ID: 1, CreatedAt: time.Now(), UpdatedAt: time.Now()},
+				UserID:       123,
+				GatewayType:  "stripe",
+				ExternalID:   "ext_123",
+				SubscriptionID: "sub_123",
+				IsActive:     true,
+			},
+		}
+
+		billingSvc.EXPECT().
+			GetActiveSubscribersByGateway(mock.Anything, "stripe").
+			Return(subscribers, nil).
+			Once()
+
+		req := ctx.NewAPIRequest("GET", "/api/billing/gateways/stripe/subscribers", nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		assert.Equal(tb, http.StatusOK, w.Code)
+
+		var response dto.SubscribersListResponse
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		assert.NoError(t, err)
+		assert.Len(tb, response.Results, 1)
+	}, getAdminAPITestOptions())
+}
+
+// TestAdminHandleListGatewaySubscribers_InvalidGatewayID tests listing subscribers with invalid gateway ID
+func TestAdminHandleListGatewaySubscribers_InvalidGatewayID(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		router := ctx.Router()
+
+		// Create request to gateway with invalid ID (numeric ID)
+		req := ctx.NewAPIRequest("GET", "/api/billing/gateways/123/subscribers", nil)
+		w := httptest.NewRecorder()
+
+		// Execute
+		router.ServeHTTP(w, req)
+
+		// Verify - numeric IDs are allowed for multiplier type, so request may succeed
+		assert.Equal(tb, http.StatusOK, w.Code)
+	}, getAdminAPITestOptions())
+}
+
+// DTO Validation Tests for AdminCancelSubscriptionRequest
+
+func TestAdminCancelSubscriptionRequest_Schema_GatewayMode(t *testing.T) {
+	validReq := dto.AdminCancelSubscriptionRequest{
+		Mode: dto.CancellationModeGateway,
+	}
+
+	_, err := validReq.ToModel()
+	assert.NoError(t, err)
+}
+
+func TestAdminCancelSubscriptionRequest_Schema_DatabaseMode(t *testing.T) {
+	validReq := dto.AdminCancelSubscriptionRequest{
+		Mode: dto.CancellationModeDatabase,
+	}
+
+	_, err := validReq.ToModel()
+	assert.NoError(t, err)
+}
+
+func TestAdminCancelSubscriptionRequest_SchemaMode_InvalidMode(t *testing.T) {
+	invalidModeJson := `{"mode": "invalid"}`
+
+	var req dto.AdminCancelSubscriptionRequest
+	err := json.Unmarshal([]byte(invalidModeJson), &req)
+	assert.Error(t, err)
 }

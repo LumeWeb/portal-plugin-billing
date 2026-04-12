@@ -43,6 +43,57 @@ func (r *SubscriptionStatusResponse) FromModel(subscriber *pluginCore.Subscriber
 	return nil
 }
 
+// SubscriberItem represents a subscriber item for list responses with minimal fields
+type SubscriberItem struct {
+	ID                  uint        `json:"id"`
+	UserID              uint        `json:"user_id"`
+	GatewayType         string      `json:"gateway_type"`
+	ExternalID          string      `json:"external_id"`
+	SubscriptionID      string      `json:"subscription_id"`
+	IsActive            bool        `json:"is_active"`
+	PricingPlanPeriodID *uint       `json:"pricing_plan_period_id,omitempty"`
+	BillingPeriodStart  *time.Time  `json:"billing_period_start,omitempty"`
+	BillingPeriodEnd    *time.Time  `json:"billing_period_end,omitempty"`
+	PaymentStatus       string      `json:"payment_status,omitempty"`
+	WillCancelAt        *time.Time  `json:"will_cancel_at,omitempty"`
+	CancelledAt         *time.Time  `json:"cancelled_at,omitempty"`
+	PreviousPlanID      *uint       `json:"previous_plan_id,omitempty"`
+	CreatedAt           time.Time   `json:"created_at"`
+	UpdatedAt           time.Time   `json:"updated_at"`
+}
+
+// SubscribersListResponse represents a paginated list of subscribers
+type SubscribersListResponse struct {
+	Results []SubscriberItem `json:"results"`
+	Total   int64            `json:"total"`
+}
+
+// FromModel converts a Subscriber model to SubscriberItem
+func (r *SubscriberItem) FromModel(subscriber *pluginCore.Subscriber) error {
+	if subscriber == nil {
+		return nil
+	}
+
+	r.ID = subscriber.ID
+	r.UserID = subscriber.UserID
+	r.GatewayType = subscriber.GatewayType
+	r.ExternalID = subscriber.ExternalID
+	r.SubscriptionID = subscriber.SubscriptionID
+	r.IsActive = subscriber.IsActive
+	r.PricingPlanPeriodID = subscriber.PricingPlanPeriodID
+	r.BillingPeriodStart = subscriber.BillingPeriodStart
+	r.BillingPeriodEnd = subscriber.BillingPeriodEnd
+	r.PaymentStatus = subscriber.PaymentStatus
+	r.WillCancelAt = subscriber.WillCancelAt
+	r.CancelledAt = subscriber.CancelledAt
+	r.PreviousPlanID = subscriber.PreviousPlanID
+	r.CreatedAt = subscriber.CreatedAt
+	r.UpdatedAt = subscriber.UpdatedAt
+
+	return nil
+}
+
+
 // SubscriberCreateRequest represents a request to create a subscriber
 type SubscriberCreateRequest struct {
 	UserID              uint       `json:"user_id"`

@@ -39,6 +39,53 @@ func (r *ManagementCapabilitiesResponse) FromModel(capabilities *pluginCore.Mana
 	return nil
 }
 
+// AdminChangePlanRequest represents an admin request to change a user's plan
+type AdminChangePlanRequest struct {
+	PeriodID uint `json:"period_id"`
+}
+
+// Schema returns the validation schema for AdminChangePlanRequest
+func (r *AdminChangePlanRequest) Schema() *z.StructSchema {
+	return z.Struct(z.Shape{
+		"PeriodID": z.UintLike[uint]().Required(),
+	})
+}
+
+// ToModel returns the request as-is (no transformation needed)
+func (r *AdminChangePlanRequest) ToModel() (*AdminChangePlanRequest, error) {
+	return r, nil
+}
+
+// CancellationMode represents the mode for subscription cancellation
+type CancellationMode string
+
+const (
+	// CancellationModeGateway delegates cancellation to the payment gateway
+	CancellationModeGateway CancellationMode = "gateway"
+	// CancellationModeDatabase performs cancellation in the database only
+	CancellationModeDatabase CancellationMode = "database"
+)
+
+// AdminCancelSubscriptionRequest represents an admin request to cancel a subscription
+type AdminCancelSubscriptionRequest struct {
+	Mode CancellationMode `json:"mode" validate:"required,oneof=gateway database"`
+}
+
+// Schema returns the validation schema for AdminCancelSubscriptionRequest
+func (r *AdminCancelSubscriptionRequest) Schema() *z.StructSchema {
+	return z.Struct(z.Shape{
+		"Mode": z.StringLike[CancellationMode]().Required().OneOf([]CancellationMode{CancellationModeGateway, CancellationModeDatabase}),
+	})
+}
+
+// ToModel returns the request as-is (no transformation needed)
+func (r *AdminCancelSubscriptionRequest) ToModel() (*AdminCancelSubscriptionRequest, error) {
+	return r, nil
+}
+
+
+
+
 // ManagementResultResponse represents the result of a subscription management operation
 type ManagementResultResponse struct {
 	Action               pluginCore.ManagementAction `json:"action"`
@@ -85,14 +132,10 @@ type ManagementRequest struct {
 	Operation string `json:"operation"`
 }
 
-func (r *ManagementRequest) Schema() interface{} {
-	return map[string]any{
-		"operation": map[string]any{
-			"type":        "string",
-			"enum":        []string{"cancel", "change_plan"},
-			"description": "The management operation to perform",
-		},
-	}
+func (r *ManagementRequest) Schema() *z.StructSchema {
+	return z.Struct(z.Shape{
+		"Operation": z.String().Required().OneOf([]string{"cancel", "change_plan"}),
+	})
 }
 
 func (r *ManagementRequest) ToModel() (*ManagementRequest, error) {
