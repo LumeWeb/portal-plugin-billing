@@ -76,8 +76,13 @@ const DefaultSoftDeleteRetention = "720h"
 // ReferenceType constants identify different event sources
 // These are used for idempotency tracking and credit reference identification
 const (
+	// Gateway-specific event sources
 	ReferenceTypeStripeInvoice = "stripe.invoice"
 	ReferenceTypeAtlosPayment  = "atlos.payment"
+
+	// System-generated reference types
+	ReferenceTypeManual = "manual" // For admin-created manual adjustments
+	ReferenceTypeUsage  = "usage"  // For usage-based consumption entries
 )
 
 // TransactionType constants identify different transaction categories
