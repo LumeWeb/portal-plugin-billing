@@ -1108,7 +1108,7 @@ func TestAdminHandleCreateCredit_Success(t *testing.T) {
 		requestBody := map[string]interface{}{
 			"user_id":           userID,
 			"amount":            amount.String(),  // Amount must be string due to Zog validation schema
-			"transaction_type":  pluginCore.TransactionTypeCharge,
+			"type":  pluginCore.TransactionTypeCharge,
 			"direction":         pluginCore.DirectionCredit,
 			"description":       "Test credit",
 		}
@@ -1156,7 +1156,7 @@ func TestAdminHandleCreateCredit_InvalidUserID(t *testing.T) {
 		requestBody := map[string]interface{}{
 			"user_id":           -1,
 			"amount":            1000,
-			"transaction_type":  pluginCore.TransactionTypeCharge,
+			 "type":  pluginCore.TransactionTypeCharge,
 			"direction":         pluginCore.DirectionCredit,
 			"description":       "Test credit",
 		}
@@ -1174,7 +1174,7 @@ func TestAdminHandleCreateCredit_InvalidUserID(t *testing.T) {
 	}, getAdminAPITestOptions())
 }
 
-// TestAdminHandleCreateCredit_InvalidCreditType tests creating a credit with invalid transaction_type
+// TestAdminHandleCreateCredit_InvalidCreditType tests creating a credit with invalid type
 func TestAdminHandleCreateCredit_InvalidCreditType(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		router := ctx.Router()
@@ -1183,7 +1183,7 @@ func TestAdminHandleCreateCredit_InvalidCreditType(t *testing.T) {
 		requestBody := map[string]interface{}{
 			"user_id":           12345,
 			"amount":            "1000",
-			"transaction_type":  "",
+			"type":  "",
 			"direction":         pluginCore.DirectionCredit,
 			"description":       "Test credit",
 		}
@@ -1210,7 +1210,7 @@ func TestAdminHandleCreateCredit_InvalidDirection(t *testing.T) {
 		requestBody := map[string]interface{}{
 			"user_id":           12345,
 			"amount":            "1000",
-			"transaction_type":  pluginCore.TransactionTypeCharge,
+			 "type":  pluginCore.TransactionTypeCharge,
 			"direction":         "",
 			"description":       "Test credit",
 		}
@@ -1237,7 +1237,7 @@ func TestAdminHandleCreateCredit_InvalidAmount(t *testing.T) {
 		requestBody := map[string]interface{}{
 			"user_id":           12345,
 			"amount":            "",
-			"transaction_type":  pluginCore.TransactionTypeCharge,
+			 "type":  pluginCore.TransactionTypeCharge,
 			"direction":         pluginCore.DirectionCredit,
 			"description":       "Test credit",
 		}
