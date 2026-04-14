@@ -1402,7 +1402,7 @@ func (g *StripeGateway) deactivateSubscription(ctx context.Context, userID uint,
 			var creditErr error
 
 			if g.credit != nil {
-				creditAmount, creditErr = g.calculateCancellationCredit(ctx, userID, subscription)
+				creditAmount, creditErr = g.calculateCancellationCredit(ctx, userID, subscription, event)
 				if creditErr != nil {
 					g.logger.Error("failed to calculate cancellation credit",
 						zap.Error(creditErr),
@@ -2386,11 +2386,23 @@ func (g *StripeGateway) logProrationMismatch(
 }
 
 // calculateCancellationCredit computes the credit amount for a subscription cancellation
-// using local proration logic (subscription.UnusedPeriodValue), with Stripe as fallback.
+// using local proration logic (subscription.UnusedPeriodValue).
+//
+// Timestamp Priority (for deterministic, testable behavior):
+//  1. subscription.EndedAt - When Stripe actually terminated the subscription
+//  2. subscription.CanceledAt - When cancellation was requested
+//  3. event.Created - When Stripe created the webhook event
+//  4. time.Now() - Fallback only when no Stripe timestamp available
+//
+// Using Stripe-provided timestamps ensures:
+//   - Deterministic results for e2e testing (set timestamps in mock data)
+//   - Accurate credit calculation aligned with Stripe's view of cancellation time
+//   - No need for fake time packages in tests
 func (g *StripeGateway) calculateCancellationCredit(
 	ctx context.Context,
 	userID uint,
 	stripeSubscription *stripe.Subscription,
+	event stripe.Event,
 ) (decimal.Decimal, error) {
 
 	// Get current subscriber state
@@ -2436,8 +2448,26 @@ func (g *StripeGateway) calculateCancellationCredit(
 		return decimal.Zero, nil
 	}
 
+	// Determine cancellation time using Stripe-provided timestamps
+	// Priority: EndedAt > CanceledAt > event.Created > time.Now()
+	var cancellationTime time.Time
+	switch {
+	case stripeSubscription.EndedAt > 0:
+		// Subscription was actually terminated - use this as most accurate
+		cancellationTime = time.Unix(stripeSubscription.EndedAt, 0)
+	case stripeSubscription.CanceledAt > 0:
+		// Cancellation was requested but may not have taken effect yet
+		cancellationTime = time.Unix(stripeSubscription.CanceledAt, 0)
+	case event.Created > 0:
+		// Webhook event creation time
+		cancellationTime = time.Unix(event.Created, 0)
+	default:
+		// Last resort fallback - should not happen with real Stripe webhooks
+		cancellationTime = time.Now()
+	}
+
 	// Calculate local proration using existing subscription package
-	localCredit := subscription.UnusedPeriodValue(oldPrice, billingCycle, time.Now())
+	localCredit := subscription.UnusedPeriodValue(oldPrice, billingCycle, cancellationTime)
 
 	// Stripe typically doesn't automatically issue credits on cancellation
 	// The customer just isn't billed again. We issue a credit to the ledger.
