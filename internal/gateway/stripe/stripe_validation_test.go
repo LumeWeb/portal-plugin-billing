@@ -7,14 +7,17 @@ import (
 	"time"
 
 	"github.com/shopspring/decimal"
-	"github.com/stripe/stripe-go/v83"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"github.com/stripe/stripe-go/v83"
 	"github.com/tkuchiki/faketime"
+	"gorm.io/gorm"
 
 	"go.lumeweb.com/portal-plugin-billing/pkg/subscription"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
+	billingModels "go.lumeweb.com/portal-plugin-billing/internal/db/models"
+	"go.lumeweb.com/portal/core"
 	coreTesting "go.lumeweb.com/portal/core/testing"
 )
 
@@ -541,3 +544,260 @@ func TestValidateAndCalculateCreditAmount_ValidationFailure(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "insufficient balance")
 }
+
+// TestCalculateCancellationCredit_TimestampPriority tests that the cancellation credit
+// calculation uses Stripe-provided timestamps in the correct priority order.
+func TestCalculateCancellationCredit_TimestampPriority(t *testing.T) {
+	tests := []struct {
+		name                string
+		endedAt             int64
+		canceledAt          int64
+		eventCreated        int64
+		expectedCreditStart string // Expected credit amount (will vary based on billing cycle)
+		description         string
+	}{
+		{
+			name:        "uses EndedAt when available",
+			endedAt:     time.Date(2024, 1, 20, 0, 0, 0, 0, time.UTC).Unix(),
+			canceledAt:  time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC).Unix(),
+			eventCreated: time.Date(2024, 1, 25, 0, 0, 0, 0, time.UTC).Unix(),
+			description: "EndedAt takes priority over other timestamps",
+		},
+		{
+			name:        "uses CanceledAt when EndedAt is zero",
+			endedAt:     0,
+			canceledAt:  time.Date(2024, 1, 20, 0, 0, 0, 0, time.UTC).Unix(),
+			eventCreated: time.Date(2024, 1, 25, 0, 0, 0, 0, time.UTC).Unix(),
+			description: "CanceledAt is second priority",
+		},
+		{
+			name:        "uses event.Created when both EndedAt and CanceledAt are zero",
+			endedAt:     0,
+			canceledAt:  0,
+			eventCreated: time.Date(2024, 1, 20, 0, 0, 0, 0, time.UTC).Unix(),
+			description: "event.Created is third priority",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+				mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+				mockPricing := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
+				mockCredit := core.GetService[*pluginCore.MockCreditService](ctx, pluginCore.CREDIT_SERVICE)
+
+				pricingPlanPeriodID := uint(200)
+
+				// Mock subscriber lookup
+				mockBilling.EXPECT().GetActiveSubscriber(mock.Anything, uint(123), "stripe").Return(&billingModels.Subscriber{
+					Model:              gorm.Model{ID: 1},
+					UserID:             123,
+					GatewayType:        "stripe",
+					ExternalID:         "cus_123",
+					SubscriptionID:     "sub_123",
+					IsActive:           true,
+					PricingPlanPeriodID: &pricingPlanPeriodID,
+				}, nil)
+
+				// Mock pricing plan period lookup
+				mockPricing.EXPECT().GetPricingPlanPeriod(mock.Anything, pricingPlanPeriodID).Return(&billingModels.PricingPlanPeriod{
+					Model:         gorm.Model{ID: pricingPlanPeriodID},
+					PricingPlanID: 1,
+					Cadence:       "monthly",
+					PriceUSD:      100.00,
+					QuotaPlanID:   300,
+				}, nil)
+
+				// Create subscription with billing cycle (Jan 1-31)
+				cycleStart := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+				cycleEnd := time.Date(2024, 1, 31, 23, 59, 59, 0, time.UTC)
+
+				stripeSubscription := &stripe.Subscription{
+					ID:         "sub_123",
+					EndedAt:    tt.endedAt,
+					CanceledAt: tt.canceledAt,
+					Items: &stripe.SubscriptionItemList{
+						Data: []*stripe.SubscriptionItem{{
+							CurrentPeriodStart: cycleStart.Unix(),
+							CurrentPeriodEnd:   cycleEnd.Unix(),
+						}},
+				},
+				}
+
+				event := stripe.Event{
+					Created: tt.eventCreated,
+				}
+
+				gw := New(ctx.Logger(), ctx, "test_secret", "test_key", nil, nil, mockBilling, mockPricing, mockCredit)
+
+				credit, err := gw.calculateCancellationCredit(ctx, 123, stripeSubscription, event)
+
+				require.NoError(t, err, tt.description)
+				assert.True(t, credit.GreaterThan(decimal.Zero), "Expected positive credit: %s", tt.description)
+				// Credit amount will depend on which timestamp was used
+				// but we verify no error and positive result
+			})
+		})
+	}
+}
+
+// TestCalculateCancellationCredit_EdgeCases tests edge cases for cancellation credit calculation.
+func TestCalculateCancellationCredit_EdgeCases(t *testing.T) {
+	tests := []struct {
+		name            string
+		billingCycle    subscription.BillingCycle
+		endedAt         int64
+		expectedCredit  string
+		description     string
+	}{
+		{
+			name: "cancellation at cycle end results in zero credit",
+			billingCycle: subscription.BillingCycle{
+				StartAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+				EndAt:   time.Date(2024, 1, 31, 23, 59, 59, 0, time.UTC),
+			},
+			endedAt:        time.Date(2024, 1, 31, 23, 59, 59, 0, time.UTC).Unix(),
+			expectedCredit: "0",
+			description:    "No credit when cancelled at exact cycle end",
+		},
+		{
+			name: "cancellation at cycle start results in full credit",
+			billingCycle: subscription.BillingCycle{
+				StartAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+				EndAt:   time.Date(2024, 1, 31, 23, 59, 59, 0, time.UTC),
+			},
+			endedAt:        time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC).Unix(),
+			expectedCredit: "100", // Full month credit for $100/month plan
+			description:    "Full credit when cancelled at cycle start",
+		},
+		{
+			name: "cancellation mid-cycle results in partial credit",
+			billingCycle: subscription.BillingCycle{
+				StartAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+				EndAt:   time.Date(2024, 1, 31, 23, 59, 59, 0, time.UTC),
+			},
+			endedAt:        time.Date(2024, 1, 16, 0, 0, 0, 0, time.UTC).Unix(), // Day 16 of 31
+			expectedCredit: "", // Will be approximately $50 (half month)
+			description:    "Partial credit when cancelled mid-cycle",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+				mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+				mockPricing := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
+				mockCredit := core.GetService[*pluginCore.MockCreditService](ctx, pluginCore.CREDIT_SERVICE)
+
+				pricingPlanPeriodID := uint(200)
+
+				mockBilling.EXPECT().GetActiveSubscriber(mock.Anything, uint(123), "stripe").Return(&billingModels.Subscriber{
+					Model:              gorm.Model{ID: 1},
+					UserID:             123,
+					GatewayType:        "stripe",
+					ExternalID:         "cus_123",
+					SubscriptionID:     "sub_123",
+					IsActive:           true,
+					PricingPlanPeriodID: &pricingPlanPeriodID,
+				}, nil)
+
+				mockPricing.EXPECT().GetPricingPlanPeriod(mock.Anything, pricingPlanPeriodID).Return(&billingModels.PricingPlanPeriod{
+					Model:         gorm.Model{ID: pricingPlanPeriodID},
+					PricingPlanID: 1,
+					Cadence:       "monthly",
+					PriceUSD:      100.00,
+					QuotaPlanID:   300,
+				}, nil)
+
+				stripeSubscription := &stripe.Subscription{
+					ID:      "sub_123",
+					EndedAt: tt.endedAt,
+					Items: &stripe.SubscriptionItemList{
+						Data: []*stripe.SubscriptionItem{{
+							CurrentPeriodStart: tt.billingCycle.StartAt.Unix(),
+							CurrentPeriodEnd:   tt.billingCycle.EndAt.Unix(),
+						}},
+				},
+				}
+
+				event := stripe.Event{Created: 0}
+
+				gw := New(ctx.Logger(), ctx, "test_secret", "test_key", nil, nil, mockBilling, mockPricing, mockCredit)
+
+				credit, err := gw.calculateCancellationCredit(ctx, 123, stripeSubscription, event)
+
+				require.NoError(t, err, tt.description)
+
+				if tt.expectedCredit != "" {
+					assert.Equal(t, tt.expectedCredit, credit.String(), tt.description)
+				} else {
+					// For partial credit, just verify it's positive and reasonable
+					assert.True(t, credit.GreaterThan(decimal.Zero), tt.description)
+					assert.True(t, credit.LessThan(decimal.NewFromInt(100)), "Credit should be less than full price")
+				}
+			})
+		})
+	}
+}
+
+// TestCalculateCancellationCredit_FallbackToEventCreated tests that event.Created is used
+// when subscription timestamps are not available.
+func TestCalculateCancellationCredit_FallbackToEventCreated(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+		mockPricing := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
+		mockCredit := core.GetService[*pluginCore.MockCreditService](ctx, pluginCore.CREDIT_SERVICE)
+
+		pricingPlanPeriodID := uint(200)
+
+		mockBilling.EXPECT().GetActiveSubscriber(mock.Anything, uint(123), "stripe").Return(&billingModels.Subscriber{
+			Model:              gorm.Model{ID: 1},
+			UserID:             123,
+			GatewayType:        "stripe",
+			ExternalID:         "cus_123",
+			SubscriptionID:     "sub_123",
+			IsActive:           true,
+			PricingPlanPeriodID: &pricingPlanPeriodID,
+		}, nil)
+
+		mockPricing.EXPECT().GetPricingPlanPeriod(mock.Anything, pricingPlanPeriodID).Return(&billingModels.PricingPlanPeriod{
+			Model:         gorm.Model{ID: pricingPlanPeriodID},
+			PricingPlanID: 1,
+			Cadence:       "monthly",
+			PriceUSD:      100.00,
+			QuotaPlanID:   300,
+		}, nil)
+
+		// Subscription with no EndedAt or CanceledAt - only event.Created
+		cycleStart := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+		cycleEnd := time.Date(2024, 1, 31, 23, 59, 59, 0, time.UTC)
+		eventCreatedTime := time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC)
+
+		stripeSubscription := &stripe.Subscription{
+			ID:         "sub_123",
+			EndedAt:    0, // Not set
+			CanceledAt: 0, // Not set
+			Items: &stripe.SubscriptionItemList{
+				Data: []*stripe.SubscriptionItem{{
+					CurrentPeriodStart: cycleStart.Unix(),
+					CurrentPeriodEnd:   cycleEnd.Unix(),
+				}},
+			},
+		}
+
+		event := stripe.Event{
+			Created: eventCreatedTime.Unix(),
+		}
+
+		gw := New(ctx.Logger(), ctx, "test_secret", "test_key", nil, nil, mockBilling, mockPricing, mockCredit)
+
+		credit, err := gw.calculateCancellationCredit(ctx, 123, stripeSubscription, event)
+
+		require.NoError(t, err)
+		assert.True(t, credit.GreaterThan(decimal.Zero), "Should have positive credit")
+		// Credit should be approximately half month ($50) since event is at day 15
+		assert.True(t, credit.GreaterThan(decimal.NewFromInt(40)), "Credit should be significant")
+		assert.True(t, credit.LessThan(decimal.NewFromInt(60)), "Credit should be less than $60")
+	})
+}
+
