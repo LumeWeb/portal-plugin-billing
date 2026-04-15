@@ -241,6 +241,91 @@ func (s *PricingServiceDefault) RemovePlanFromPriceLine(ctx context.Context, pri
 	})
 }
 
+// UpdatePlanPosition updates the position of a plan within a price line and reorders other plans
+func (s *PricingServiceDefault) UpdatePlanPosition(ctx context.Context, priceLineID, planID uint, newPosition int) error {
+	return s.withTracedTransaction(ctx, "UpdatePlanPosition", func(tx *gorm.DB) error {
+		// Get the current plan's position
+		var currentPlan models.PriceLinePlan
+		if err := tx.Where("price_line_id = ? AND plan_id = ?", priceLineID, planID).First(&currentPlan).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return fmt.Errorf("plan %d not found in price line %d", planID, priceLineID)
+			}
+			return err
+		}
+
+		oldPosition := currentPlan.Position
+
+		// If position hasn't changed, nothing to do
+		if oldPosition == newPosition {
+			return nil
+		}
+
+		// Get all plans in the price line
+		var plans []models.PriceLinePlan
+		if err := tx.Where("price_line_id = ?", priceLineID).Order("position ASC").Find(&plans).Error; err != nil {
+			return err
+		}
+
+		// Reorder plans
+		if newPosition < 0 {
+			newPosition = 0
+		}
+		if newPosition >= len(plans) {
+			newPosition = len(plans) - 1
+		}
+
+		// Update positions based on whether moving up or down
+		for i := range plans {
+			if plans[i].PlanID == planID {
+				continue // Skip the target plan
+			}
+
+			var newPos int
+			if oldPosition < newPosition {
+				// Moving down: shift plans up between old and new position
+				if plans[i].Position > oldPosition && plans[i].Position <= newPosition {
+					newPos = plans[i].Position - 1
+				} else {
+					newPos = plans[i].Position
+				}
+			} else {
+				// Moving up: shift plans down between new and old position
+				if plans[i].Position >= newPosition && plans[i].Position < oldPosition {
+					newPos = plans[i].Position + 1
+				} else {
+					newPos = plans[i].Position
+				}
+			}
+
+			if err := tx.Model(&models.PriceLinePlan{}).
+				Where("price_line_id = ? AND plan_id = ?", priceLineID, plans[i].PlanID).
+				Update("position", newPos).Error; err != nil {
+				return err
+			}
+		}
+
+		// Update the target plan's position
+		return tx.Model(&models.PriceLinePlan{}).
+			Where("price_line_id = ? AND plan_id = ?", priceLineID, planID).
+			Update("position", newPosition).Error
+	})
+}
+
+// GetPriceLinePlans returns all PriceLinePlan associations for a price line with plan details
+func (s *PricingServiceDefault) GetPriceLinePlans(ctx context.Context, priceLineID uint) ([]*models.PriceLinePlan, error) {
+	var priceLinePlans []*models.PriceLinePlan
+	err := s.withTracedTransaction(ctx, "GetPriceLinePlans", func(tx *gorm.DB) error {
+		return tx.Preload("PricingPlan.Periods").
+			Where("price_line_id = ?", priceLineID).
+			Order("position ASC").
+			Find(&priceLinePlans).Error
+	})
+	if err != nil {
+		return nil, err
+	}
+	return priceLinePlans, nil
+}
+
 // AssignPriceLineToUser assigns a price line to a user using upsert
 func (s *PricingServiceDefault) AssignPriceLineToUser(ctx context.Context, userID, priceLineID uint) error {
 	return s.withTracedTransaction(ctx, "AssignPriceLineToUser", func(tx *gorm.DB) error {

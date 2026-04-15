@@ -76,6 +76,36 @@ func (r *PriceLineDetailResponse) FromModel(priceline *models.PriceLine) error {
 	return nil
 }
 
+// SetPlans populates the plans field from PriceLinePlan associations
+func (r *PriceLineDetailResponse) SetPlans(priceLinePlans []*models.PriceLinePlan) {
+	r.Plans = make([]PricingPlanItem, 0, len(priceLinePlans))
+	for _, plp := range priceLinePlans {
+		if plp.PricingPlan == nil {
+			continue
+		}
+		item := PricingPlanItem{
+			ID:          plp.PricingPlan.ID,
+			Name:        plp.PricingPlan.Name,
+			Description: plp.PricingPlan.Description,
+			Currency:    plp.PricingPlan.Currency,
+			IsActive:    plp.PricingPlan.IsActive,
+			Position:    plp.Position,
+		}
+		// Extract monthly/yearly prices from periods if available
+		for _, period := range plp.PricingPlan.Periods {
+			if period.DeletedAt.Time.IsZero() {
+				switch period.Cadence {
+				case "monthly":
+					item.MonthlyPrice = &period.PriceUSD
+				case "yearly":
+					item.YearlyPrice = &period.PriceUSD
+				}
+			}
+		}
+		r.Plans = append(r.Plans, item)
+	}
+}
+
 // PriceLineCreateRequest represents a request to create a price line
 type PriceLineCreateRequest struct {
 	Name        string `json:"name"`
@@ -141,18 +171,33 @@ func (r *PriceLineUpdateRequest) ToModel() (*models.PriceLine, error) {
 
 // AddPlanToPriceLineRequest represents a request to add a plan to a price line
 type AddPlanToPriceLineRequest struct {
-	PlanID   uint `json:"plan_id"`
-	Position int  `json:"position"`
+	PlanID   uint  `json:"plan_id"`
+	Position *int  `json:"position"`
 }
 
 func (r AddPlanToPriceLineRequest) Schema() *z.StructSchema {
 	return z.Struct(z.Shape{
-		"PlanID":   z.UintLike[uint]().Required(),
-		"Position": z.Int().Required(),
+		"PlanID":   z.Uint().Required(),
+		"Position": z.Ptr(z.Int()).NotNil(),
 	})
 }
 
 func (r *AddPlanToPriceLineRequest) ToModel() (*AddPlanToPriceLineRequest, error) {
+	return r, nil
+}
+
+// UpdatePlanPositionRequest represents a request to update a plan's position in a price line
+type UpdatePlanPositionRequest struct {
+	Position *int `json:"position"`
+}
+
+func (r UpdatePlanPositionRequest) Schema() *z.StructSchema {
+	return z.Struct(z.Shape{
+		"Position": z.Ptr(z.Int()).NotNil(),
+	})
+}
+
+func (r *UpdatePlanPositionRequest) ToModel() (*UpdatePlanPositionRequest, error) {
 	return r, nil
 }
 

@@ -52,6 +52,12 @@ type PricingService interface {
 	// RemovePlanFromPriceLine removes a pricing plan from a price line
 	RemovePlanFromPriceLine(ctx context.Context, priceLineID, planID uint) error
 
+	// UpdatePlanPosition updates the position of a plan within a price line
+	UpdatePlanPosition(ctx context.Context, priceLineID, planID uint, newPosition int) error
+
+	// GetPriceLinePlans returns all PriceLinePlan associations for a price line with plan details
+	GetPriceLinePlans(ctx context.Context, priceLineID uint) ([]*models.PriceLinePlan, error)
+
 	// AssignPriceLineToUser assigns a price line to a user
 	AssignPriceLineToUser(ctx context.Context, userID, priceLineID uint) error
 
