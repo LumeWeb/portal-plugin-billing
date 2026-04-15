@@ -122,7 +122,7 @@ func Setup(opts pluginCore.GatewaySetupOptions, webhookSecret string, secretKey 
 		return "", nil, fmt.Errorf("secret key is required when webhook secret is configured")
 	}
 
-	gw := NewWithTestMode(opts.Logger, opts.Ctx, webhookSecret, secretKey, testMode, nil, nil, opts.BillingSvc, opts.PricingSvc, opts.CreditSvc)
+	gw := NewWithTestMode(opts.Logger, opts.Ctx, webhookSecret, secretKey, testMode, opts.Quota, opts.User, opts.BillingSvc, opts.PricingSvc, opts.CreditSvc)
 	return "Stripe gateway registered successfully", gw, nil
 }
 
@@ -2665,3 +2665,4 @@ var (
 	// Note: StripeGateway does NOT implement SubscriptionExecutor
 	// It uses portal-based management via SubscriptionManager instead
 )
+
