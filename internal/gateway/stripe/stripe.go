@@ -114,7 +114,7 @@ const (
 
 // Setup creates and configures a Stripe gateway if webhook secret is configured.
 // Returns a log message (empty if not configured), the gateway instance (nil if not configured), and an error.
-func Setup(opts pluginCore.GatewaySetupOptions, webhookSecret string, secretKey string) (string, pluginCore.GatewayIdentity, error) {
+func Setup(opts pluginCore.GatewaySetupOptions, webhookSecret string, secretKey string, testMode bool) (string, pluginCore.GatewayIdentity, error) {
 	if webhookSecret == "" {
 		return "", nil, nil
 	}
@@ -122,7 +122,7 @@ func Setup(opts pluginCore.GatewaySetupOptions, webhookSecret string, secretKey 
 		return "", nil, fmt.Errorf("secret key is required when webhook secret is configured")
 	}
 
-	gw := New(opts.Logger, opts.Ctx, webhookSecret, secretKey, nil, nil, opts.BillingSvc, opts.PricingSvc, opts.CreditSvc)
+	gw := NewWithTestMode(opts.Logger, opts.Ctx, webhookSecret, secretKey, testMode, nil, nil, opts.BillingSvc, opts.PricingSvc, opts.CreditSvc)
 	return "Stripe gateway registered successfully", gw, nil
 }
 
@@ -289,7 +289,28 @@ type ProrationComparison struct {
 
 // newGateway is the internal constructor that creates a StripeGateway instance
 // with a custom filesystem
-func newGateway(coreCtx core.Context, logger *core.Logger, endpointSecret string, secretKey string, quota quotaCore.QuotaService, users core.UserService, billing pluginCore.BillingService, pricing pluginCore.PricingService, credit pluginCore.CreditService, fs fs.FS) *StripeGateway {
+func newGateway(coreCtx core.Context, logger *core.Logger, endpointSecret string, secretKey string, quota quotaCore.QuotaService, users core.UserService, billing pluginCore.BillingService, pricing pluginCore.PricingService, credit pluginCore.CreditService, fs fs.FS, testMode bool) *StripeGateway {
+	// Configure backend to use HTTP only when testMode is enabled
+	// Note: TestMode config flag is the sole determinant, we ignore the secret key completely
+	if testMode {
+		// Get the existing API backend
+		existingBackend := stripe.GetBackend(stripe.APIBackend)
+		existingImpl, ok := existingBackend.(*stripe.BackendImplementation)
+		if ok {
+			if existingImpl.URL == stripe.APIURL {
+				// Replace the existing API backend with one configured to use HTTP
+				httpBackend := &stripe.BackendImplementation{
+					Type:              stripe.APIBackend,
+					URL:               "http://api.stripe.com",
+					HTTPClient:        existingImpl.HTTPClient,
+					LeveledLogger:     existingImpl.LeveledLogger,
+					MaxNetworkRetries: existingImpl.MaxNetworkRetries,
+				}
+				stripe.SetBackend(stripe.APIBackend, httpBackend)
+			}
+		}
+	}
+
 	stripeClient := &client{client: stripe.NewClient(secretKey)}
 
 	gateway := &StripeGateway{
@@ -314,12 +335,22 @@ func newGateway(coreCtx core.Context, logger *core.Logger, endpointSecret string
 
 // New creates a StripeGateway instance with the default embedded filesystem
 func New(logger *core.Logger, coreCtx core.Context, endpointSecret string, secretKey string, quota quotaCore.QuotaService, users core.UserService, billing pluginCore.BillingService, pricing pluginCore.PricingService, credit pluginCore.CreditService) *StripeGateway {
-	return newGateway(coreCtx, logger, endpointSecret, secretKey, quota, users, billing, pricing, credit, gatewayLogoFiles)
+	return newGateway(coreCtx, logger, endpointSecret, secretKey, quota, users, billing, pricing, credit, gatewayLogoFiles, false)
 }
 
 // NewWithFS creates a StripeGateway instance with a custom filesystem for testing
 func NewWithFS(logger *core.Logger, coreCtx core.Context, endpointSecret string, secretKey string, quota quotaCore.QuotaService, users core.UserService, billing pluginCore.BillingService, pricing pluginCore.PricingService, credit pluginCore.CreditService, fs fs.FS) *StripeGateway {
-	return newGateway(coreCtx, logger, endpointSecret, secretKey, quota, users, billing, pricing, credit, fs)
+	return newGateway(coreCtx, logger, endpointSecret, secretKey, quota, users, billing, pricing, credit, fs, false)
+}
+
+// NewWithTestMode creates a StripeGateway instance with a custom filesystem and test mode enabled/disabled
+func NewWithTestMode(logger *core.Logger, coreCtx core.Context, endpointSecret string, secretKey string, testMode bool, quota quotaCore.QuotaService, users core.UserService, billing pluginCore.BillingService, pricing pluginCore.PricingService, credit pluginCore.CreditService) *StripeGateway {
+	return newGateway(coreCtx, logger, endpointSecret, secretKey, quota, users, billing, pricing, credit, gatewayLogoFiles, testMode)
+}
+
+// NewWithTestModeAndFS creates a StripeGateway instance with a custom filesystem and test mode enabled/disabled
+func NewWithTestModeAndFS(logger *core.Logger, coreCtx core.Context, endpointSecret string, secretKey string, testMode bool, quota quotaCore.QuotaService, users core.UserService, billing pluginCore.BillingService, pricing pluginCore.PricingService, credit pluginCore.CreditService, fs fs.FS) *StripeGateway {
+	return newGateway(coreCtx, logger, endpointSecret, secretKey, quota, users, billing, pricing, credit, fs, testMode)
 }
 
 // customerRetriever returns a customer retriever instance
