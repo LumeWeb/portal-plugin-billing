@@ -14,6 +14,7 @@ import (
 	"github.com/stripe/stripe-go/v83"
 	"github.com/stripe/stripe-go/v83/webhook"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
+	"go.lumeweb.com/portal-plugin-billing/internal/config"
 	billingEvent "go.lumeweb.com/portal-plugin-billing/internal/event"
 	billingModels "go.lumeweb.com/portal-plugin-billing/internal/db/models"
 	"go.lumeweb.com/portal-plugin-billing/internal/gateway"
@@ -114,15 +115,15 @@ const (
 
 // Setup creates and configures a Stripe gateway if webhook secret is configured.
 // Returns a log message (empty if not configured), the gateway instance (nil if not configured), and an error.
-func Setup(opts pluginCore.GatewaySetupOptions, webhookSecret string, secretKey string, testMode bool) (string, pluginCore.GatewayIdentity, error) {
-	if webhookSecret == "" {
+func Setup(opts pluginCore.GatewaySetupOptions, cfg *config.ServiceConfig) (string, pluginCore.GatewayIdentity, error) {
+	if cfg.Stripe.WebhookSecret == "" {
 		return "", nil, nil
 	}
-	if secretKey == "" {
+	if cfg.Stripe.SecretKey == "" {
 		return "", nil, fmt.Errorf("secret key is required when webhook secret is configured")
 	}
 
-	gw := NewWithTestMode(opts.Logger, opts.Ctx, webhookSecret, secretKey, testMode, opts.Quota, opts.User, opts.BillingSvc, opts.PricingSvc, opts.CreditSvc)
+	gw := NewWithConfig(opts.Logger, opts.Ctx, cfg, opts.Quota, opts.User, opts.BillingSvc, opts.PricingSvc, opts.CreditSvc)
 	return "Stripe gateway registered successfully", gw, nil
 }
 
@@ -200,6 +201,7 @@ type Subscriptions interface {
 type Products interface {
 	Create(ctx context.Context, params *stripe.ProductCreateParams) (*stripe.Product, error)
 	Retrieve(ctx context.Context, id string, params *stripe.ProductRetrieveParams) (*stripe.Product, error)
+	Update(ctx context.Context, id string, params *stripe.ProductUpdateParams) (*stripe.Product, error)
 }
 
 // Prices defines the interface for price operations
@@ -248,19 +250,20 @@ func (w *client) V1Subscriptions() Subscriptions {
 
 // StripeGateway implements the PaymentGateway interface for Stripe
 type StripeGateway struct {
-	logger          *core.Logger
-	coreCtx         core.Context
-	endpointSecret  string
-	secretKey       string
-	stripeClient    Client
-	quota           quotaCore.QuotaService
-	users           core.UserService
-	billing         pluginCore.BillingService
-	pricing         pluginCore.PricingService
-	subService      SubscriptionRetriever
-	customerService CustomerRetriever
-	fs              fs.FS // filesystem for logo files, nil uses embedded files
-	credit          pluginCore.CreditService
+	logger              *core.Logger
+	coreCtx             core.Context
+	endpointSecret      string
+	secretKey           string
+	stripeClient        Client
+	quota               quotaCore.QuotaService
+	users               core.UserService
+	billing             pluginCore.BillingService
+	pricing             pluginCore.PricingService
+	subService          SubscriptionRetriever
+	customerService     CustomerRetriever
+	fs                  fs.FS // filesystem for logo files, nil uses embedded files
+	credit              pluginCore.CreditService
+	defaultPriceCadence string
 }
 
 // InvoiceProrationAnalysis extracts proration details from Stripe invoice line items
@@ -286,13 +289,11 @@ type ProrationComparison struct {
 }
 
 // newGateway is the internal constructor that creates a StripeGateway instance
-
-// newGateway is the internal constructor that creates a StripeGateway instance
 // with a custom filesystem
-func newGateway(coreCtx core.Context, logger *core.Logger, endpointSecret string, secretKey string, quota quotaCore.QuotaService, users core.UserService, billing pluginCore.BillingService, pricing pluginCore.PricingService, credit pluginCore.CreditService, fs fs.FS, testMode bool) *StripeGateway {
+func newGateway(coreCtx core.Context, logger *core.Logger, cfg *config.ServiceConfig, quota quotaCore.QuotaService, users core.UserService, billing pluginCore.BillingService, pricing pluginCore.PricingService, credit pluginCore.CreditService, fs fs.FS) *StripeGateway {
 	// Configure backend to use HTTP only when testMode is enabled
 	// Note: TestMode config flag is the sole determinant, we ignore the secret key completely
-	if testMode {
+	if cfg.Stripe.TestMode {
 		// Get the existing API backend
 		existingBackend := stripe.GetBackend(stripe.APIBackend)
 		existingImpl, ok := existingBackend.(*stripe.BackendImplementation)
@@ -311,20 +312,21 @@ func newGateway(coreCtx core.Context, logger *core.Logger, endpointSecret string
 		}
 	}
 
-	stripeClient := &client{client: stripe.NewClient(secretKey)}
+	stripeClient := &client{client: stripe.NewClient(cfg.Stripe.SecretKey)}
 
 	gateway := &StripeGateway{
-		logger:         logger,
-		coreCtx:        coreCtx,
-		endpointSecret: endpointSecret,
-		secretKey:      secretKey,
-		stripeClient:   stripeClient,
-		quota:          quota,
-		users:          users,
-		billing:        billing,
-		pricing:        pricing,
-		fs:             fs,
-		credit:         credit,
+		logger:              logger,
+		coreCtx:             coreCtx,
+		endpointSecret:      cfg.Stripe.WebhookSecret,
+		secretKey:           cfg.Stripe.SecretKey,
+		stripeClient:        stripeClient,
+		quota:               quota,
+		users:               users,
+		billing:             billing,
+		pricing:             pricing,
+		fs:                  fs,
+		credit:              credit,
+		defaultPriceCadence: cfg.DefaultPriceCadence,
 	}
 
 	gateway.subService = gateway.subscriptionRetriever()
@@ -333,24 +335,14 @@ func newGateway(coreCtx core.Context, logger *core.Logger, endpointSecret string
 	return gateway
 }
 
-// New creates a StripeGateway instance with the default embedded filesystem
-func New(logger *core.Logger, coreCtx core.Context, endpointSecret string, secretKey string, quota quotaCore.QuotaService, users core.UserService, billing pluginCore.BillingService, pricing pluginCore.PricingService, credit pluginCore.CreditService) *StripeGateway {
-	return newGateway(coreCtx, logger, endpointSecret, secretKey, quota, users, billing, pricing, credit, gatewayLogoFiles, false)
+// NewWithConfig creates a StripeGateway instance with the full config
+func NewWithConfig(logger *core.Logger, coreCtx core.Context, cfg *config.ServiceConfig, quota quotaCore.QuotaService, users core.UserService, billing pluginCore.BillingService, pricing pluginCore.PricingService, credit pluginCore.CreditService) *StripeGateway {
+	return newGateway(coreCtx, logger, cfg, quota, users, billing, pricing, credit, gatewayLogoFiles)
 }
 
-// NewWithFS creates a StripeGateway instance with a custom filesystem for testing
-func NewWithFS(logger *core.Logger, coreCtx core.Context, endpointSecret string, secretKey string, quota quotaCore.QuotaService, users core.UserService, billing pluginCore.BillingService, pricing pluginCore.PricingService, credit pluginCore.CreditService, fs fs.FS) *StripeGateway {
-	return newGateway(coreCtx, logger, endpointSecret, secretKey, quota, users, billing, pricing, credit, fs, false)
-}
-
-// NewWithTestMode creates a StripeGateway instance with a custom filesystem and test mode enabled/disabled
-func NewWithTestMode(logger *core.Logger, coreCtx core.Context, endpointSecret string, secretKey string, testMode bool, quota quotaCore.QuotaService, users core.UserService, billing pluginCore.BillingService, pricing pluginCore.PricingService, credit pluginCore.CreditService) *StripeGateway {
-	return newGateway(coreCtx, logger, endpointSecret, secretKey, quota, users, billing, pricing, credit, gatewayLogoFiles, testMode)
-}
-
-// NewWithTestModeAndFS creates a StripeGateway instance with a custom filesystem and test mode enabled/disabled
-func NewWithTestModeAndFS(logger *core.Logger, coreCtx core.Context, endpointSecret string, secretKey string, testMode bool, quota quotaCore.QuotaService, users core.UserService, billing pluginCore.BillingService, pricing pluginCore.PricingService, credit pluginCore.CreditService, fs fs.FS) *StripeGateway {
-	return newGateway(coreCtx, logger, endpointSecret, secretKey, quota, users, billing, pricing, credit, fs, testMode)
+// NewWithConfigAndFS creates a StripeGateway instance with config and custom filesystem for testing
+func NewWithConfigAndFS(logger *core.Logger, coreCtx core.Context, cfg *config.ServiceConfig, quota quotaCore.QuotaService, users core.UserService, billing pluginCore.BillingService, pricing pluginCore.PricingService, credit pluginCore.CreditService, fs fs.FS) *StripeGateway {
+	return newGateway(coreCtx, logger, cfg, quota, users, billing, pricing, credit, fs)
 }
 
 // customerRetriever returns a customer retriever instance
@@ -1872,6 +1864,26 @@ func (g *StripeGateway) SyncPlan(ctx context.Context, plan *pluginCore.PricingPl
 		zap.String("stripe_product_id", stripeProduct.ID),
 		zap.Int("num_prices", len(remotePriceIDs)))
 
+	// Set the default price on the product
+	if len(remotePriceIDs) > 0 {
+		defaultPriceID := g.pickDefaultPrice(periods, remotePriceIDs)
+		_, err = g.stripeClient.V1Products().Update(ctx, stripeProduct.ID, &stripe.ProductUpdateParams{
+			DefaultPrice: stripe.String(defaultPriceID),
+		})
+		if err != nil {
+			g.logger.Warn("failed to set default price on product",
+				zap.Uint("plan_id", plan.ID),
+				zap.String("product_id", stripeProduct.ID),
+				zap.String("price_id", defaultPriceID),
+				zap.Error(err))
+		} else {
+			g.logger.Debug("set default price on product",
+				zap.Uint("plan_id", plan.ID),
+				zap.String("product_id", stripeProduct.ID),
+				zap.String("price_id", defaultPriceID))
+		}
+	}
+
 	// Create or update portal configuration if plan has upgrade/downgrade paths
 	var portalConfigID string
 	if priceLineID > 0 && (len(upgradePlanIDs) > 0 || len(downgradePlanIDs) > 0) {
@@ -1903,6 +1915,29 @@ func (g *StripeGateway) SyncPlan(ctx context.Context, plan *pluginCore.PricingPl
 		PortalConfigurationID: portalConfigID,
 		RemotePriceIDs:        remotePriceIDs,
 	}, nil
+}
+
+// pickDefaultPrice selects the default price ID based on configured cadence preference
+func (g *StripeGateway) pickDefaultPrice(periods []*billingModels.PricingPlanPeriod, priceIDs []pluginCore.RemotePriceMapping) string {
+	// Get the configured default cadence, fallback to monthly
+	preferredCadence := g.defaultPriceCadence
+	if preferredCadence == "" {
+		preferredCadence = string(subscription.CadenceMonthly)
+	}
+
+	// Find the price matching the preferred cadence
+	for i, period := range periods {
+		if period.Cadence == preferredCadence && i < len(priceIDs) {
+			return priceIDs[i].PriceID
+		}
+	}
+
+	// Fallback to first price if preferred cadence not found
+	if len(priceIDs) > 0 {
+		return priceIDs[0].PriceID
+	}
+
+	return ""
 }
 
 // SupportsPriceUpdates returns true - Stripe supports updating existing prices

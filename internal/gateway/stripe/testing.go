@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stripe/stripe-go/v83"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
+	pluginConfig "go.lumeweb.com/portal-plugin-billing/internal/config"
 	quotaCore "go.lumeweb.com/portal-plugin-quota/core"
 	"go.lumeweb.com/portal/core"
 	coreTesting "go.lumeweb.com/portal/core/testing"
@@ -333,7 +334,13 @@ func CreateMockStripeGateway(
 	mockCustomerRetriever := &MockCustomerRetriever{}
 
 	// Create the gateway
-	gateway := New(ctx.Logger(), ctx, webhookSecret, secretKey, mockQuota, mockUsers, mockBilling, nil, nil)
+	cfg := &pluginConfig.ServiceConfig{
+		Stripe: pluginConfig.StripeConfig{
+			WebhookSecret: webhookSecret,
+			SecretKey:     secretKey,
+		},
+	}
+	gateway := NewWithConfig(ctx.Logger(), ctx, cfg, mockQuota, mockUsers, mockBilling, nil, nil)
 
 	// Replace the real client and retrievers with mocks
 	gateway.stripeClient = mockStripeClient
@@ -360,6 +367,16 @@ func (m *MockProducts) Create(ctx context.Context, params *stripe.ProductCreateP
 
 // Retrieve mocks the Stripe product retrieval
 func (m *MockProducts) Retrieve(ctx context.Context, id string, params *stripe.ProductRetrieveParams) (*stripe.Product, error) {
+	args := m.Called(ctx, id, params)
+	product, ok := args.Get(0).(*stripe.Product)
+	if !ok && args.Get(0) != nil {
+		return nil, fmt.Errorf("mock setup error: expected *stripe.Product, got %T", args.Get(0))
+	}
+	return product, args.Error(1)
+}
+
+// Update mocks the Stripe product update
+func (m *MockProducts) Update(ctx context.Context, id string, params *stripe.ProductUpdateParams) (*stripe.Product, error) {
 	args := m.Called(ctx, id, params)
 	product, ok := args.Get(0).(*stripe.Product)
 	if !ok && args.Get(0) != nil {

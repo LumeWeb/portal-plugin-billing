@@ -23,7 +23,7 @@ import (
 
 func setupTestGateway(t *testing.T) *StripeGateway {
 	ctx, _ := coreTesting.NewTestContext(t)
-	return New(ctx.Logger(), ctx, "test_secret", "test_key", nil, nil, nil, nil, nil)
+	return NewWithConfig(ctx.Logger(), ctx, testConfigWithSecrets("test_secret", "test_key"), nil, nil, nil, nil, nil)
 }
 
 func TestExtractProrationFromInvoice(t *testing.T) {
@@ -350,7 +350,7 @@ func TestDetermineUpgradeOrDowngrade(t *testing.T) {
 
 	// Create mock pricing service
 	mockPricing := pluginCore.NewMockPricingService(t)
-	gw := New(ctx.Logger(), ctx, "test_secret", "test_key", nil, nil, nil, mockPricing, nil)
+	gw := NewWithConfig(ctx.Logger(), ctx, testConfigWithSecrets("test_secret", "test_key"), nil, nil, nil, mockPricing, nil)
 
 	// Mock pricing service to return error (simulating fetch failure)
 	mockPricing.EXPECT().GetPricingPlanPeriod(mock.Anything, uint(100)).Return(nil, fmt.Errorf("pricing service unavailable"))
@@ -443,7 +443,7 @@ func TestValidateAndCalculateCreditAmount_NewSubscription(t *testing.T) {
 
 	// Create mock credit service
 	mockCredit := pluginCore.NewMockCreditService(t)
-	gw := New(ctx.Logger(), ctx, "test_secret", "test_key", nil, nil, nil, nil, mockCredit)
+	gw := NewWithConfig(ctx.Logger(), ctx, testConfigWithSecrets("test_secret", "test_key"), nil, nil, nil, nil, mockCredit)
 
 	// Mock credit validation to pass
 	mockCredit.EXPECT().ValidateSubscriptionChange(mock.Anything, uint64(123), pluginCore.ChangeTypeNewSubscription, mock.MatchedBy(func(d decimal.Decimal) bool { return d.Equal(decimal.NewFromInt(100)) })).Return(nil)
@@ -479,7 +479,7 @@ func TestValidateAndCalculateCreditAmount_Renewal(t *testing.T) {
 
 	// Create mock credit service
 	mockCredit := pluginCore.NewMockCreditService(t)
-	gw := New(ctx.Logger(), ctx, "test_secret", "test_key", nil, nil, nil, nil, mockCredit)
+	gw := NewWithConfig(ctx.Logger(), ctx, testConfigWithSecrets("test_secret", "test_key"), nil, nil, nil, nil, mockCredit)
 
 	// Mock credit validation to pass
 	mockCredit.EXPECT().ValidateSubscriptionChange(mock.Anything, uint64(123), pluginCore.ChangeTypeRenewal, mock.MatchedBy(func(d decimal.Decimal) bool { return d.Equal(decimal.NewFromInt(50)) })).Return(nil)
@@ -515,7 +515,7 @@ func TestValidateAndCalculateCreditAmount_ValidationFailure(t *testing.T) {
 
 	// Create mock credit service
 	mockCredit := pluginCore.NewMockCreditService(t)
-	gw := New(ctx.Logger(), ctx, "test_secret", "test_key", nil, nil, nil, nil, mockCredit)
+	gw := NewWithConfig(ctx.Logger(), ctx, testConfigWithSecrets("test_secret", "test_key"), nil, nil, nil, nil, mockCredit)
 
 	validationErr := fmt.Errorf("insufficient balance for new subscription")
 
@@ -628,7 +628,7 @@ func TestCalculateCancellationCredit_TimestampPriority(t *testing.T) {
 					Created: tt.eventCreated,
 				}
 
-				gw := New(ctx.Logger(), ctx, "test_secret", "test_key", nil, nil, mockBilling, mockPricing, mockCredit)
+				gw := NewWithConfig(ctx.Logger(), ctx, testConfigWithSecrets("test_secret", "test_key"), nil, nil, mockBilling, mockPricing, mockCredit)
 
 				credit, err := gw.calculateCancellationCredit(ctx, 123, stripeSubscription, event)
 
@@ -722,7 +722,7 @@ func TestCalculateCancellationCredit_EdgeCases(t *testing.T) {
 
 				event := stripe.Event{Created: 0}
 
-				gw := New(ctx.Logger(), ctx, "test_secret", "test_key", nil, nil, mockBilling, mockPricing, mockCredit)
+				gw := NewWithConfig(ctx.Logger(), ctx, testConfigWithSecrets("test_secret", "test_key"), nil, nil, mockBilling, mockPricing, mockCredit)
 
 				credit, err := gw.calculateCancellationCredit(ctx, 123, stripeSubscription, event)
 
@@ -789,7 +789,7 @@ func TestCalculateCancellationCredit_FallbackToEventCreated(t *testing.T) {
 			Created: eventCreatedTime.Unix(),
 		}
 
-		gw := New(ctx.Logger(), ctx, "test_secret", "test_key", nil, nil, mockBilling, mockPricing, mockCredit)
+		gw := NewWithConfig(ctx.Logger(), ctx, testConfigWithSecrets("test_secret", "test_key"), nil, nil, mockBilling, mockPricing, mockCredit)
 
 		credit, err := gw.calculateCancellationCredit(ctx, 123, stripeSubscription, event)
 
