@@ -44,7 +44,8 @@ func createGateway(
 	mockPricing *pluginCore.MockPricingService,
 	mockCredit *pluginCore.MockCreditService,
 ) *StripeGateway {
-	gw := New(ctx.Logger(), ctx, TestWebhookSecret, apiKey, mockQuota, mockUsers, mockBilling, mockPricing, mockCredit)
+	cfg := testConfigWithSecrets(TestWebhookSecret, apiKey)
+	gw := NewWithConfig(ctx.Logger(), ctx, cfg, mockQuota, mockUsers, mockBilling, mockPricing, mockCredit)
 	if stripeClient != nil {
 		gw.stripeClient = stripeClient
 	}

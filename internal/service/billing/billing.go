@@ -122,7 +122,7 @@ func (s *BillingServiceDefault) getGatewaySetups(opts pluginCore.GatewaySetupOpt
 		{
 			name: "stripe",
 			fn: func() (string, pluginCore.GatewayIdentity, error) {
-				return stripe.Setup(opts, s.config.Stripe.WebhookSecret, s.config.Stripe.SecretKey, s.config.Stripe.TestMode)
+				return stripe.Setup(opts, s.config)
 			},
 		},
 		{

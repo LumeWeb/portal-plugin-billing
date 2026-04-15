@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stripe/stripe-go/v83"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
+	"go.lumeweb.com/portal-plugin-billing/internal/config"
 	billingModels "go.lumeweb.com/portal-plugin-billing/internal/db/models"
 	quotaCore "go.lumeweb.com/portal-plugin-quota/core"
 	coreTesting "go.lumeweb.com/portal/core/testing"
@@ -25,10 +26,10 @@ func TestStripeGateway_SyncPlan_Success(t *testing.T) {
 		monthlyPrice := 19.99
 		yearlyPrice := 199.99
 		planInfo := &pluginCore.PricingPlanInfo{
-			ID:           1,
-			Name:         "Test Plan",
-			Description:  "Test Description",
-			Currency:     "usd",
+			ID:          1,
+			Name:        "Test Plan",
+			Description: "Test Description",
+			Currency:    "usd",
 			PricingVariants: []pluginCore.PricingVariant{
 				{
 					BillingPeriodID: 1,
@@ -52,6 +53,10 @@ func TestStripeGateway_SyncPlan_Success(t *testing.T) {
 		mockStripeClient.V1ProductsService.
 			On("Create", mock.Anything, mock.AnythingOfType("*stripe.ProductCreateParams")).
 			Return(&stripe.Product{ID: "prod_123", Name: "Test Plan"}, nil)
+
+		mockStripeClient.V1ProductsService.
+			On("Update", mock.Anything, "prod_123", mock.AnythingOfType("*stripe.ProductUpdateParams")).
+			Return(&stripe.Product{ID: "prod_123"}, nil)
 
 		mockStripeClient.V1PricesService.
 			On("Create", mock.Anything, mock.AnythingOfType("*stripe.PriceCreateParams")).
@@ -82,7 +87,13 @@ func TestStripeGateway_SyncPlan_Success(t *testing.T) {
 		mockBilling := &pluginCore.MockBillingService{}
 		mockCredit := &pluginCore.MockCreditService{}
 
-		gateway := New(ctx.Logger(), ctx, TestWebhookSecret, "test_key", mockQuota, mockUsers, mockBilling, mockPricingService, mockCredit)
+		cfg := &config.ServiceConfig{
+			Stripe: config.StripeConfig{
+				WebhookSecret: TestWebhookSecret,
+				SecretKey:     "test_key",
+			},
+		}
+		gateway := NewWithConfig(ctx.Logger(), ctx, cfg, mockQuota, mockUsers, mockBilling, mockPricingService, mockCredit)
 		gateway.stripeClient = mockStripeClient
 
 		result, err := gateway.SyncPlan(context.Background(), planInfo)
@@ -98,7 +109,13 @@ func TestStripeGateway_SyncPlan_Success(t *testing.T) {
 
 func TestStripeGateway_SyncPlan_NilPricingService(t *testing.T) {
 	ctx, _ := coreTesting.NewTestContext(t)
-	gateway := New(ctx.Logger(), ctx, TestWebhookSecret, "test_key", nil, nil, nil, nil, nil)
+	cfg := &config.ServiceConfig{
+		Stripe: config.StripeConfig{
+			WebhookSecret: TestWebhookSecret,
+			SecretKey:     "test_key",
+		},
+	}
+	gateway := NewWithConfig(ctx.Logger(), ctx, cfg, nil, nil, nil, nil, nil)
 
 	planInfo := &pluginCore.PricingPlanInfo{
 		ID:       1,
@@ -115,28 +132,32 @@ func TestStripeGateway_SyncPlan_NilPricingService(t *testing.T) {
 
 func TestStripeGateway_SupportsProductSync(t *testing.T) {
 	ctx, _ := coreTesting.NewTestContext(t)
-	gateway := New(ctx.Logger(), ctx, TestWebhookSecret, "", nil, nil, nil, nil, nil)
+	cfg := &config.ServiceConfig{Stripe: config.StripeConfig{WebhookSecret: TestWebhookSecret}}
+	gateway := NewWithConfig(ctx.Logger(), ctx, cfg, nil, nil, nil, nil, nil)
 
 	assert.True(t, gateway.SupportsProductSync())
 }
 
 func TestStripeGateway_SupportsPriceUpdates(t *testing.T) {
 	ctx, _ := coreTesting.NewTestContext(t)
-	gateway := New(ctx.Logger(), ctx, TestWebhookSecret, "", nil, nil, nil, nil, nil)
+	cfg := &config.ServiceConfig{Stripe: config.StripeConfig{WebhookSecret: TestWebhookSecret}}
+	gateway := NewWithConfig(ctx.Logger(), ctx, cfg, nil, nil, nil, nil, nil)
 
 	assert.True(t, gateway.SupportsPriceUpdates())
 }
 
 func TestStripeGateway_SupportsPlanDeletion(t *testing.T) {
 	ctx, _ := coreTesting.NewTestContext(t)
-	gateway := New(ctx.Logger(), ctx, TestWebhookSecret, "", nil, nil, nil, nil, nil)
+	cfg := &config.ServiceConfig{Stripe: config.StripeConfig{WebhookSecret: TestWebhookSecret}}
+	gateway := NewWithConfig(ctx.Logger(), ctx, cfg, nil, nil, nil, nil, nil)
 
 	assert.False(t, gateway.SupportsPlanDeletion())
 }
 
 func TestStripeGateway_RequiredPricingFields(t *testing.T) {
 	ctx, _ := coreTesting.NewTestContext(t)
-	gateway := New(ctx.Logger(), ctx, TestWebhookSecret, "", nil, nil, nil, nil, nil)
+	cfg := &config.ServiceConfig{Stripe: config.StripeConfig{WebhookSecret: TestWebhookSecret}}
+	gateway := NewWithConfig(ctx.Logger(), ctx, cfg, nil, nil, nil, nil, nil)
 
 	fields := gateway.RequiredPricingFields()
 	assert.Equal(t, []string{"name", "amount", "currency"}, fields)
@@ -144,7 +165,8 @@ func TestStripeGateway_RequiredPricingFields(t *testing.T) {
 
 func TestStripeGateway_GetName(t *testing.T) {
 	ctx, _ := coreTesting.NewTestContext(t)
-	gateway := New(ctx.Logger(), ctx, TestWebhookSecret, "", nil, nil, nil, nil, nil)
+	cfg := &config.ServiceConfig{Stripe: config.StripeConfig{WebhookSecret: TestWebhookSecret}}
+	gateway := NewWithConfig(ctx.Logger(), ctx, cfg, nil, nil, nil, nil, nil)
 
 	name := gateway.GetName(context.Background())
 	assert.Equal(t, "Stripe", name)
@@ -152,7 +174,8 @@ func TestStripeGateway_GetName(t *testing.T) {
 
 func TestStripeGateway_GetDescription(t *testing.T) {
 	ctx, _ := coreTesting.NewTestContext(t)
-	gateway := New(ctx.Logger(), ctx, TestWebhookSecret, "", nil, nil, nil, nil, nil)
+	cfg := &config.ServiceConfig{Stripe: config.StripeConfig{WebhookSecret: TestWebhookSecret}}
+	gateway := NewWithConfig(ctx.Logger(), ctx, cfg, nil, nil, nil, nil, nil)
 
 	description := gateway.GetDescription(context.Background())
 	assert.Equal(t, "Industry-leading payment processor", description)
@@ -160,7 +183,8 @@ func TestStripeGateway_GetDescription(t *testing.T) {
 
 func TestStripeGateway_GetCheckoutUI(t *testing.T) {
 	ctx, _ := coreTesting.NewTestContext(t)
-	gateway := New(ctx.Logger(), ctx, TestWebhookSecret, "", nil, nil, nil, nil, nil)
+	cfg := &config.ServiceConfig{Stripe: config.StripeConfig{WebhookSecret: TestWebhookSecret}}
+	gateway := NewWithConfig(ctx.Logger(), ctx, cfg, nil, nil, nil, nil, nil)
 
 	ui, err := gateway.GetCheckoutUI(context.Background(), 123, 456, 1)
 
@@ -172,7 +196,8 @@ func TestStripeGateway_GetCheckoutUI(t *testing.T) {
 
 func TestStripeGateway_GetCustomerPortalMetadata(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
-		gateway := New(ctx.Logger(), ctx, TestWebhookSecret, "", nil, nil, nil, nil, nil)
+		cfg := &config.ServiceConfig{Stripe: config.StripeConfig{WebhookSecret: TestWebhookSecret}}
+		gateway := NewWithConfig(ctx.Logger(), ctx, cfg, nil, nil, nil, nil, nil)
 
 		metadata, err := gateway.GetCustomerPortalMetadata(context.Background(), 123)
 
