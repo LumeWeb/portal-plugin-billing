@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
+	sseServer "github.com/apt304/sse-go/server"
 	"github.com/gabriel-vasile/mimetype"
 	"github.com/labstack/echo/v4"
-	sseServer "github.com/apt304/sse-go/server"
 	"go.lumeweb.com/httputil"
 	"go.lumeweb.com/portal-middleware/auth/jwt"
 	mcontext "go.lumeweb.com/portal-middleware/context"
@@ -73,11 +73,11 @@ func NewAPIExtension() core.APIExtensionFactory {
 
 			// Initialize SSE server with apt304/sse-go
 			subscriber := sseServer.NewDropOldestSubscriber(sseServer.Options{
-				Buffer:            100,               // Store up to 100 events per subscriber
-				HeartbeatInterval: 15 * time.Second,  // Send heartbeat every 15s to keep connections alive
+				Buffer:            100,              // Store up to 100 events per subscriber
+				HeartbeatInterval: 15 * time.Second, // Send heartbeat every 15s to keep connections alive
 			})
 			ext.sseServer = sseServer.NewServer(sseServer.Config{}, subscriber)
-			
+
 			// Register event listeners for billing events
 			ext.registerBillingEventListeners(ctx)
 
@@ -251,12 +251,14 @@ func (e *APIExtension) Configure(gRouter router.Router, accessSvc core.AccessSer
 			router.WithSwagger(
 				router.WithSummary("Get Checkout UI Fragments"),
 				router.WithDescription(
-					"Returns platform-agnostic UI fragments for checkout. " +
-						"Response format varies by gateway but always contains fragments " +
+					"Returns platform-agnostic UI fragments for checkout. "+
+						"Response format varies by gateway but always contains fragments "+
 						"of type link, html, script, iframe, modal, button, or form",
 				),
 				router.WithTags("Billing"),
 				router.WithPathParam("planId", "Plan ID", "123"),
+				router.WithQueryParam("period_id", "Period ID for the selected pricing period", "1"),
+				router.WithQueryParam("gateway", "Payment gateway type (defaults to Stripe if not specified)", "stripe"),
 				router.WithSuccessResponse(http.StatusOK, "Checkout UI fragments retrieved",
 					router.WithJSONContent(pluginCore.CheckoutUIResponse{})),
 				router.WithErrorResponses(
@@ -810,7 +812,6 @@ func (e *APIExtension) handleManagementOperation(c echo.Context) error {
 	return httputil.EncodeResponse(ctx, result, &response)
 }
 
-
 // getUser extracts the user ID from the request context
 func (e *APIExtension) getUser(ctx httputil.RequestContext) (uint, bool) {
 	user, err := mcontext.GetUserID(ctx.Context)
@@ -1157,4 +1158,3 @@ func min(b []byte, maxLen int) []byte {
 	}
 	return b
 }
-
