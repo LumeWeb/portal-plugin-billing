@@ -21,8 +21,8 @@ import (
 	"go.lumeweb.com/queryutil"
 	"gorm.io/gorm"
 
-	"go.lumeweb.com/portal-plugin-billing/pkg/ledger"
 	internalModels "go.lumeweb.com/portal-plugin-billing/internal/db/models"
+	"go.lumeweb.com/portal-plugin-billing/pkg/ledger"
 )
 
 // adminTestSetup holds common test dependencies
@@ -42,12 +42,12 @@ func setupAdminTest(ctx coreTesting.TestContext) *adminTestSetup {
 // createMockPricingPlan creates a mock pricing plan with the given parameters
 func createMockPricingPlan(id uint, name, description, currency string, isActive, isPublic bool) *internalModels.PricingPlan {
 	return &internalModels.PricingPlan{
-		Model:        gorm.Model{ID: id},
-		Name:         name,
-		Description:  description,
-		Currency:     currency,
-		IsActive:     isActive,
-		IsPublic:     isPublic,
+		Model:       gorm.Model{ID: id},
+		Name:        name,
+		Description: description,
+		Currency:    currency,
+		IsActive:    isActive,
+		IsPublic:    isPublic,
 	}
 }
 
@@ -121,16 +121,16 @@ func TestAdminHandleCreatePricingPlan_Success(t *testing.T) {
 			"description": "Test description",
 			"pricing_periods": []map[string]interface{}{
 				{
-					"cadence":     "monthly",
-					"price_usd":   9.99,
+					"cadence":       "monthly",
+					"price_usd":     9.99,
 					"quota_plan_id": uint(1),
-					"is_active":   monthlyActive,
+					"is_active":     monthlyActive,
 				},
 				{
-					"cadence":     "yearly",
-					"price_usd":   99.99,
+					"cadence":       "yearly",
+					"price_usd":     99.99,
 					"quota_plan_id": uint(2),
-					"is_active":   yearlyActive,
+					"is_active":     yearlyActive,
 				},
 			},
 			"currency":  "USD",
@@ -206,11 +206,11 @@ func TestAdminHandleUpdatePricingPlan_Success(t *testing.T) {
 			"description": "Updated description",
 			"pricing_periods": []map[string]interface{}{
 				{
-					"id":           uint(10),
-					"cadence":      "monthly",
-					"price_usd":    19.99,
+					"id":            uint(10),
+					"cadence":       "monthly",
+					"price_usd":     19.99,
 					"quota_plan_id": uint(1),
-					"is_active":    monthlyActive,
+					"is_active":     monthlyActive,
 				},
 			},
 			"currency":  "USD",
@@ -274,10 +274,10 @@ func TestAdminHandleUpdatePricingPlan_ValidationError(t *testing.T) {
 
 		// Create request body with empty name (should fail validation, but service may still be called)
 		requestBody := map[string]interface{}{
-			"name":             "",
-			"description":      "Updated description",
-			"currency":         "USD",
-			"pricing_periods":  []map[string]interface{}{},
+			"name":            "",
+			"description":     "Updated description",
+			"currency":        "USD",
+			"pricing_periods": []map[string]interface{}{},
 		}
 		bodyBytes, _ := json.Marshal(requestBody)
 
@@ -348,21 +348,21 @@ func TestAdminHandleCreatePricingPlan_WithMultipleCadences(t *testing.T) {
 			"description": "Plan with multiple billing periods",
 			"pricing_periods": []map[string]interface{}{
 				{
-					"cadence":      "monthly",
-					"price_usd":    9.99,
+					"cadence":       "monthly",
+					"price_usd":     9.99,
 					"quota_plan_id": uint(1),
-					"is_active":    true,
+					"is_active":     true,
 				},
 				{
-					"cadence":      "yearly",
-					"price_usd":    99.99,
+					"cadence":       "yearly",
+					"price_usd":     99.99,
 					"quota_plan_id": uint(2),
-					"is_active":    true,
+					"is_active":     true,
 				},
 				{
 					"cadence":       "quarterly",
 					"price_usd":     29.99,
-					"quota_plan_id":  uint(3),
+					"quota_plan_id": uint(3),
 					"rolling_days":  &rollingDays,
 					"is_active":     true,
 				},
@@ -409,10 +409,10 @@ func TestAdminHandleCreatePricingPlan_WithWeeklyCadence(t *testing.T) {
 			"description": "Plan with weekly billing",
 			"pricing_periods": []map[string]interface{}{
 				{
-					"cadence":      "weekly",
-					"price_usd":    4.99,
+					"cadence":       "weekly",
+					"price_usd":     4.99,
 					"quota_plan_id": uint(1),
-					"is_active":    true,
+					"is_active":     true,
 				},
 			},
 			"currency":  "USD",
@@ -458,7 +458,7 @@ func TestAdminHandleCreatePricingPlan_WithRollingDays(t *testing.T) {
 				{
 					"cadence":       "rolling",
 					"price_usd":     19.99,
-					"quota_plan_id":  uint(1),
+					"quota_plan_id": uint(1),
 					"rolling_days":  &rollingDays,
 					"is_active":     true,
 				},
@@ -535,12 +535,12 @@ func TestAdminHandleCreatePricingPlan_NoPeriods(t *testing.T) {
 
 		// Create request body with empty pricing_periods
 		requestBody := map[string]interface{}{
-			"name":             "Test Plan",
-			"description":      "Test description",
-			"pricing_periods":  []map[string]interface{}{},
-			"currency":         "USD",
-			"is_active":        true,
-			"is_public":        true,
+			"name":            "Test Plan",
+			"description":     "Test description",
+			"pricing_periods": []map[string]interface{}{},
+			"currency":        "USD",
+			"is_active":       true,
+			"is_public":       true,
 		}
 		bodyBytes, _ := json.Marshal(requestBody)
 
@@ -573,10 +573,10 @@ func TestAdminHandleCreatePricingPlan_InvalidCadence(t *testing.T) {
 			"description": "Test description",
 			"pricing_periods": []map[string]interface{}{
 				{
-					"cadence":      "invalid_cadence",
-					"price_usd":    9.99,
+					"cadence":       "invalid_cadence",
+					"price_usd":     9.99,
 					"quota_plan_id": uint(1),
-					"is_active":    true,
+					"is_active":     true,
 				},
 			},
 			"currency":  "USD",
@@ -615,16 +615,16 @@ func TestAdminHandleCreatePricingPlan_DuplicateCadence(t *testing.T) {
 			"description": "Test description",
 			"pricing_periods": []map[string]interface{}{
 				{
-					"cadence":      "monthly",
-					"price_usd":    9.99,
+					"cadence":       "monthly",
+					"price_usd":     9.99,
 					"quota_plan_id": uint(1),
-					"is_active":    true,
+					"is_active":     true,
 				},
 				{
-					"cadence":      "monthly",
-					"price_usd":    19.99,
+					"cadence":       "monthly",
+					"price_usd":     19.99,
 					"quota_plan_id": uint(2),
-					"is_active":    true,
+					"is_active":     true,
 				},
 			},
 			"currency":  "USD",
@@ -652,7 +652,106 @@ func TestAdminHandleCreatePricingPlan_DuplicateCadence(t *testing.T) {
 	}, getAdminAPITestOptions())
 }
 
+// Create Pricing Plan with PriceLine Auto-Link Tests
 
+func TestAdminHandleCreatePricingPlan_WithPriceLineID(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
+
+		// Create request body with price_line_id and explicit position
+		position := 0
+		priceLineID := uint(1)
+		requestBody := map[string]interface{}{
+			"name":         "Test Plan",
+			"description":  "Test description",
+			"priceline_id": priceLineID,
+			"position":     position,
+			"pricing_periods": []map[string]interface{}{
+				{
+					"cadence":       "monthly",
+					"price_usd":     9.99,
+					"quota_plan_id": uint(1),
+					"is_active":     true,
+				},
+			},
+			"currency":  "USD",
+			"is_active": true,
+			"is_public": true,
+		}
+		bodyBytes, _ := json.Marshal(requestBody)
+
+		// Mock pricing service to create plan
+		ts.pricingSvc.EXPECT().CreatePricingPlan(mock.Anything, mock.AnythingOfType("*models.PricingPlan")).RunAndReturn(func(ctx context.Context, plan *internalModels.PricingPlan) error {
+			plan.ID = 1
+			return nil
+		}).Once()
+
+		// Mock adding plan to price line (no GetPriceLinePlans call since position is explicit)
+		ts.pricingSvc.EXPECT().AddPlanToPriceLine(mock.Anything, uint(1), uint(1), 0).Return(nil).Once()
+
+		// Create request
+		req := ctx.NewAPIRequest("POST", "/api/billing/pricing-plans", bodyBytes)
+		w := httptest.NewRecorder()
+
+		// Execute
+		ts.router.ServeHTTP(w, req)
+
+		// Verify
+		assert.Equal(tb, http.StatusCreated, w.Code)
+	}, getAdminAPITestOptions())
+}
+
+func TestAdminHandleCreatePricingPlan_WithPriceLineID_AutoPosition(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
+
+		// Create request body with price_line_id but no position (should auto-calculate)
+		requestBody := map[string]interface{}{
+			"name":         "Test Plan",
+			"description":  "Test description",
+			"priceline_id": 1,
+			// No position - should append to end
+			"pricing_periods": []map[string]interface{}{
+				{
+					"cadence":       "monthly",
+					"price_usd":     9.99,
+					"quota_plan_id": uint(1),
+					"is_active":     true,
+				},
+			},
+			"currency":  "USD",
+			"is_active": true,
+			"is_public": true,
+		}
+		bodyBytes, _ := json.Marshal(requestBody)
+
+		// Mock pricing service to create plan
+		ts.pricingSvc.EXPECT().CreatePricingPlan(mock.Anything, mock.AnythingOfType("*models.PricingPlan")).RunAndReturn(func(ctx context.Context, plan *internalModels.PricingPlan) error {
+			plan.ID = 1
+			return nil
+		}).Once()
+
+		// Mock getting existing plans (2 plans exist, so new plan should be at position 2)
+		existingPlans := []*internalModels.PriceLinePlan{
+			{PriceLineID: 1, PlanID: 1, Position: 0},
+			{PriceLineID: 1, PlanID: 2, Position: 1},
+		}
+		ts.pricingSvc.EXPECT().GetPriceLinePlans(mock.Anything, uint(1)).Return(existingPlans, nil).Once()
+
+		// Mock adding plan to price line at position 2 (len(existingPlans))
+		ts.pricingSvc.EXPECT().AddPlanToPriceLine(mock.Anything, uint(1), uint(1), 2).Return(nil).Once()
+
+		// Create request
+		req := ctx.NewAPIRequest("POST", "/api/billing/pricing-plans", bodyBytes)
+		w := httptest.NewRecorder()
+
+		// Execute
+		ts.router.ServeHTTP(w, req)
+
+		// Verify
+		assert.Equal(tb, http.StatusCreated, w.Code)
+	}, getAdminAPITestOptions())
+}
 
 // List Pricing Plans Tests
 
@@ -1017,6 +1116,10 @@ func TestAdminHandleGetPriceLine_Success(t *testing.T) {
 		ts.pricingSvc.EXPECT().GetPriceLine(mock.Anything, uint(1)).
 			Return(line, nil).Once()
 
+		// Mock pricing service to return empty plans list
+		ts.pricingSvc.EXPECT().GetPriceLinePlans(mock.Anything, uint(1)).
+			Return([]*internalModels.PriceLinePlan{}, nil).Once()
+
 		// Create request
 		req := ctx.NewAPIRequest("GET", "/api/billing/price-lines/1", nil)
 		w := httptest.NewRecorder()
@@ -1028,7 +1131,7 @@ func TestAdminHandleGetPriceLine_Success(t *testing.T) {
 		assert.Equal(tb, http.StatusOK, w.Code)
 
 		// Parse response
-		var response dto.PriceLineResponse
+		var response dto.PriceLineDetailResponse
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		assert.NoError(tb, err)
 		assert.Equal(tb, "Test Price Line", response.Name)
@@ -1074,6 +1177,256 @@ func TestAdminHandleGetPriceLine_InvalidID(t *testing.T) {
 	}, getAdminAPITestOptions())
 }
 
+// Add Plan to Price Line Tests
+
+func TestAdminHandleAddPlanToPriceLine_Success(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
+
+		// Mock price line
+		line := createMockPriceLine(1, "Test Price Line", "Test description", true, false)
+		plan := createMockPricingPlan(1, "Test Plan", "Test plan description", "USD", true, true)
+
+		// Mock pricing service
+		ts.pricingSvc.EXPECT().GetPriceLine(mock.Anything, uint(1)).Return(line, nil).Once()
+		ts.pricingSvc.EXPECT().GetPricingPlan(mock.Anything, uint(1)).Return(plan, nil).Once()
+		ts.pricingSvc.EXPECT().AddPlanToPriceLine(mock.Anything, uint(1), uint(1), 0).Return(nil).Once()
+		ts.pricingSvc.EXPECT().GetPriceLinePlans(mock.Anything, uint(1)).Return([]*internalModels.PriceLinePlan{}, nil).Once()
+
+		// Create request
+		requestBody := map[string]any{
+			"plan_id":  1,
+			"position": 0,
+		}
+		bodyBytes, _ := json.Marshal(requestBody)
+		req := ctx.NewAPIRequest("POST", "/api/billing/price-lines/1/plan", bodyBytes)
+		w := httptest.NewRecorder()
+
+		// Execute
+		ts.router.ServeHTTP(w, req)
+
+		// Verify
+		assert.Equal(tb, http.StatusOK, w.Code)
+	}, getAdminAPITestOptions())
+}
+
+func TestAdminHandleAddPlanToPriceLine_PriceLineNotFound(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
+
+		// Mock pricing service to return not found
+		ts.pricingSvc.EXPECT().GetPriceLine(mock.Anything, uint(999)).Return(nil, fmt.Errorf("not found")).Once()
+
+		// Create request
+		requestBody := map[string]interface{}{
+			"plan_id":  1,
+			"position": 0,
+		}
+		bodyBytes, _ := json.Marshal(requestBody)
+		req := ctx.NewAPIRequest("POST", "/api/billing/price-lines/999/plan", bodyBytes)
+		w := httptest.NewRecorder()
+
+		// Execute
+		ts.router.ServeHTTP(w, req)
+
+		// Verify
+		assert.Equal(tb, http.StatusNotFound, w.Code)
+	}, getAdminAPITestOptions())
+}
+
+func TestAdminHandleAddPlanToPriceLine_PlanNotFound(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
+
+		// Mock price line exists but plan doesn't
+		line := createMockPriceLine(1, "Test Price Line", "Test description", true, false)
+		ts.pricingSvc.EXPECT().GetPriceLine(mock.Anything, uint(1)).Return(line, nil).Once()
+		ts.pricingSvc.EXPECT().GetPricingPlan(mock.Anything, uint(999)).Return(nil, fmt.Errorf("not found")).Once()
+
+		// Create request
+		requestBody := map[string]interface{}{
+			"plan_id":  999,
+			"position": 0,
+		}
+		bodyBytes, _ := json.Marshal(requestBody)
+		req := ctx.NewAPIRequest("POST", "/api/billing/price-lines/1/plan", bodyBytes)
+		w := httptest.NewRecorder()
+
+		// Execute
+		ts.router.ServeHTTP(w, req)
+
+		// Verify
+		assert.Equal(tb, http.StatusNotFound, w.Code)
+	}, getAdminAPITestOptions())
+}
+
+func TestAdminHandleAddPlanToPriceLine_InvalidID(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
+
+		// Create request with invalid ID
+		requestBody := map[string]interface{}{
+			"plan_id":  1,
+			"position": 0,
+		}
+		bodyBytes, _ := json.Marshal(requestBody)
+		req := ctx.NewAPIRequest("POST", "/api/billing/price-lines/invalid/plan", bodyBytes)
+		w := httptest.NewRecorder()
+
+		// Execute
+		ts.router.ServeHTTP(w, req)
+
+		// Verify
+		assert.Equal(tb, http.StatusBadRequest, w.Code)
+	}, getAdminAPITestOptions())
+}
+
+// Update Plan Position Tests
+
+func TestAdminHandleUpdatePlanPosition_Success(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
+
+		// Mock price line
+		line := createMockPriceLine(1, "Test Price Line", "Test description", true, false)
+
+		// Mock pricing service
+		ts.pricingSvc.EXPECT().GetPriceLine(mock.Anything, uint(1)).Return(line, nil).Once()
+		ts.pricingSvc.EXPECT().UpdatePlanPosition(mock.Anything, uint(1), uint(1), 2).Return(nil).Once()
+		ts.pricingSvc.EXPECT().GetPriceLinePlans(mock.Anything, uint(1)).Return([]*internalModels.PriceLinePlan{}, nil).Once()
+
+		// Create request
+		requestBody := map[string]interface{}{
+			"position": 2,
+		}
+		bodyBytes, _ := json.Marshal(requestBody)
+		req := ctx.NewAPIRequest("PUT", "/api/billing/price-lines/1/plans/1", bodyBytes)
+		w := httptest.NewRecorder()
+
+		// Execute
+		ts.router.ServeHTTP(w, req)
+
+		// Verify
+		assert.Equal(tb, http.StatusOK, w.Code)
+	}, getAdminAPITestOptions())
+}
+
+func TestAdminHandleUpdatePlanPosition_PriceLineNotFound(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
+
+		// Mock pricing service to return not found
+		ts.pricingSvc.EXPECT().GetPriceLine(mock.Anything, uint(999)).Return(nil, fmt.Errorf("not found")).Once()
+
+		// Create request
+		requestBody := map[string]interface{}{
+			"position": 2,
+		}
+		bodyBytes, _ := json.Marshal(requestBody)
+		req := ctx.NewAPIRequest("PUT", "/api/billing/price-lines/999/plans/1", bodyBytes)
+		w := httptest.NewRecorder()
+
+		// Execute
+		ts.router.ServeHTTP(w, req)
+
+		// Verify
+		assert.Equal(tb, http.StatusNotFound, w.Code)
+	}, getAdminAPITestOptions())
+}
+
+func TestAdminHandleUpdatePlanPosition_InvalidPriceLineID(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
+
+		// Create request with invalid price line ID
+		requestBody := map[string]interface{}{
+			"position": 2,
+		}
+		bodyBytes, _ := json.Marshal(requestBody)
+		req := ctx.NewAPIRequest("PUT", "/api/billing/price-lines/invalid/plans/1", bodyBytes)
+		w := httptest.NewRecorder()
+
+		// Execute
+		ts.router.ServeHTTP(w, req)
+
+		// Verify
+		assert.Equal(tb, http.StatusBadRequest, w.Code)
+	}, getAdminAPITestOptions())
+}
+
+func TestAdminHandleUpdatePlanPosition_InvalidPlanID(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
+
+		// Create request with invalid plan ID
+		requestBody := map[string]interface{}{
+			"position": 2,
+		}
+		bodyBytes, _ := json.Marshal(requestBody)
+		req := ctx.NewAPIRequest("PUT", "/api/billing/price-lines/1/plans/invalid", bodyBytes)
+		w := httptest.NewRecorder()
+
+		// Execute
+		ts.router.ServeHTTP(w, req)
+
+		// Verify
+		assert.Equal(tb, http.StatusBadRequest, w.Code)
+	}, getAdminAPITestOptions())
+}
+
+// Remove Plan from Price Line Tests
+
+func TestAdminHandleRemovePlanFromPriceLine_Success(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
+
+		// Mock pricing service
+		ts.pricingSvc.EXPECT().RemovePlanFromPriceLine(mock.Anything, uint(1), uint(1)).Return(nil).Once()
+
+		// Create request
+		req := ctx.NewAPIRequest("DELETE", "/api/billing/price-lines/1/plans/1", nil)
+		w := httptest.NewRecorder()
+
+		// Execute
+		ts.router.ServeHTTP(w, req)
+
+		// Verify
+		assert.Equal(tb, http.StatusNoContent, w.Code)
+	}, getAdminAPITestOptions())
+}
+
+func TestAdminHandleRemovePlanFromPriceLine_InvalidPriceLineID(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
+
+		// Create request with invalid price line ID
+		req := ctx.NewAPIRequest("DELETE", "/api/billing/price-lines/invalid/plans/1", nil)
+		w := httptest.NewRecorder()
+
+		// Execute
+		ts.router.ServeHTTP(w, req)
+
+		// Verify
+		assert.Equal(tb, http.StatusBadRequest, w.Code)
+	}, getAdminAPITestOptions())
+}
+
+func TestAdminHandleRemovePlanFromPriceLine_InvalidPlanID(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
+
+		// Create request with invalid plan ID
+		req := ctx.NewAPIRequest("DELETE", "/api/billing/price-lines/1/plans/invalid", nil)
+		w := httptest.NewRecorder()
+
+		// Execute
+		ts.router.ServeHTTP(w, req)
+
+		// Verify
+		assert.Equal(tb, http.StatusBadRequest, w.Code)
+	}, getAdminAPITestOptions())
+}
+
 // Credit Endpoint Tests
 
 // createMockCredit creates a mock credit with the given parameters
@@ -1106,11 +1459,11 @@ func TestAdminHandleCreateCredit_Success(t *testing.T) {
 
 		// Create request body
 		requestBody := map[string]interface{}{
-			"user_id":           userID,
-			"amount":            amount.String(),  // Amount must be string due to Zog validation schema
-			"type":  pluginCore.TransactionTypeCharge,
-			"direction":         pluginCore.DirectionCredit,
-			"description":       "Test credit",
+			"user_id":     userID,
+			"amount":      amount.String(), // Amount must be string due to Zog validation schema
+			"type":        pluginCore.TransactionTypeCharge,
+			"direction":   pluginCore.DirectionCredit,
+			"description": "Test credit",
 		}
 		bodyBytes, _ := json.Marshal(requestBody)
 
@@ -1154,11 +1507,11 @@ func TestAdminHandleCreateCredit_InvalidUserID(t *testing.T) {
 
 		// Create request body with invalid user_id
 		requestBody := map[string]interface{}{
-			"user_id":           -1,
-			"amount":            1000,
-			 "type":  pluginCore.TransactionTypeCharge,
-			"direction":         pluginCore.DirectionCredit,
-			"description":       "Test credit",
+			"user_id":     -1,
+			"amount":      1000,
+			"type":        pluginCore.TransactionTypeCharge,
+			"direction":   pluginCore.DirectionCredit,
+			"description": "Test credit",
 		}
 		bodyBytes, _ := json.Marshal(requestBody)
 
@@ -1181,11 +1534,11 @@ func TestAdminHandleCreateCredit_InvalidCreditType(t *testing.T) {
 
 		// Create request body with empty transaction_type
 		requestBody := map[string]interface{}{
-			"user_id":           12345,
-			"amount":            "1000",
-			"type":  "",
-			"direction":         pluginCore.DirectionCredit,
-			"description":       "Test credit",
+			"user_id":     12345,
+			"amount":      "1000",
+			"type":        "",
+			"direction":   pluginCore.DirectionCredit,
+			"description": "Test credit",
 		}
 		bodyBytes, _ := json.Marshal(requestBody)
 
@@ -1208,11 +1561,11 @@ func TestAdminHandleCreateCredit_InvalidDirection(t *testing.T) {
 
 		// Create request body with invalid direction
 		requestBody := map[string]interface{}{
-			"user_id":           12345,
-			"amount":            "1000",
-			 "type":  pluginCore.TransactionTypeCharge,
-			"direction":         "",
-			"description":       "Test credit",
+			"user_id":     12345,
+			"amount":      "1000",
+			"type":        pluginCore.TransactionTypeCharge,
+			"direction":   "",
+			"description": "Test credit",
 		}
 		bodyBytes, _ := json.Marshal(requestBody)
 
@@ -1235,11 +1588,11 @@ func TestAdminHandleCreateCredit_InvalidAmount(t *testing.T) {
 
 		// Create request body with empty amount
 		requestBody := map[string]interface{}{
-			"user_id":           12345,
-			"amount":            "",
-			 "type":  pluginCore.TransactionTypeCharge,
-			"direction":         pluginCore.DirectionCredit,
-			"description":       "Test credit",
+			"user_id":     12345,
+			"amount":      "",
+			"type":        pluginCore.TransactionTypeCharge,
+			"direction":   pluginCore.DirectionCredit,
+			"description": "Test credit",
 		}
 		bodyBytes, _ := json.Marshal(requestBody)
 
@@ -1731,7 +2084,6 @@ func TestAdminExtension_CreatePricingPlanPeriod_Validation_RollingDays(t *testin
 	}, getAdminAPITestOptions())
 }
 
-
 func TestAdminExtension_UpdatePricingPlanPeriod_Success(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		pricingSvc := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
@@ -1739,12 +2091,12 @@ func TestAdminExtension_UpdatePricingPlanPeriod_Success(t *testing.T) {
 
 		// Setup mock for updated pricing plan period
 		updatedPeriod := &internalModels.PricingPlanPeriod{
-			
-			PricingPlanID:  1,
-			Cadence:        "monthly",
-			PriceUSD:       19.99,
-			QuotaPlanID:    123,
-			Model:          gorm.Model{ID: 100, CreatedAt: time.Now(), UpdatedAt: time.Now()},
+
+			PricingPlanID: 1,
+			Cadence:       "monthly",
+			PriceUSD:      19.99,
+			QuotaPlanID:   123,
+			Model:         gorm.Model{ID: 100, CreatedAt: time.Now(), UpdatedAt: time.Now()},
 		}
 
 		pricingSvc.EXPECT().
@@ -1803,13 +2155,13 @@ func TestAdminExtension_GetPricingPlanPeriod_Success(t *testing.T) {
 		router := ctx.Router()
 
 		period := &internalModels.PricingPlanPeriod{
-			
-			PricingPlanID:  1,
-			Cadence:        "yearly",
-			PriceUSD:       99.99,
-			QuotaPlanID:    456,
-			RollingDays:    nil,
-			Model:          gorm.Model{ID: 100, CreatedAt: time.Now(), UpdatedAt: time.Now()},
+
+			PricingPlanID: 1,
+			Cadence:       "yearly",
+			PriceUSD:      99.99,
+			QuotaPlanID:   456,
+			RollingDays:   nil,
+			Model:         gorm.Model{ID: 100, CreatedAt: time.Now(), UpdatedAt: time.Now()},
 		}
 
 		pricingSvc.EXPECT().
@@ -1841,20 +2193,20 @@ func TestAdminExtension_ListPricingPlanPeriods_Success(t *testing.T) {
 
 		periods := []*internalModels.PricingPlanPeriod{
 			{
-				
-				PricingPlanID:  1,
-				Cadence:        "monthly",
-				PriceUSD:       9.99,
-				QuotaPlanID:    123,
-				Model:          gorm.Model{CreatedAt: time.Now(), UpdatedAt: time.Now()},
+
+				PricingPlanID: 1,
+				Cadence:       "monthly",
+				PriceUSD:      9.99,
+				QuotaPlanID:   123,
+				Model:         gorm.Model{CreatedAt: time.Now(), UpdatedAt: time.Now()},
 			},
 			{
-				
-				PricingPlanID:  1,
-				Cadence:        "yearly",
-				PriceUSD:       99.99,
-				QuotaPlanID:    123,
-				Model:          gorm.Model{CreatedAt: time.Now(), UpdatedAt: time.Now()},
+
+				PricingPlanID: 1,
+				Cadence:       "yearly",
+				PriceUSD:      99.99,
+				QuotaPlanID:   123,
+				Model:         gorm.Model{CreatedAt: time.Now(), UpdatedAt: time.Now()},
 			},
 		}
 
@@ -1884,12 +2236,12 @@ func TestAdminExtension_ListPricingPlanPeriods_WithFilter(t *testing.T) {
 
 		periods := []*internalModels.PricingPlanPeriod{
 			{
-				
-				PricingPlanID:  1,
-				Cadence:        "monthly",
-				PriceUSD:       9.99,
-				QuotaPlanID:    123,
-				Model:          gorm.Model{CreatedAt: time.Now(), UpdatedAt: time.Now()},
+
+				PricingPlanID: 1,
+				Cadence:       "monthly",
+				PriceUSD:      9.99,
+				QuotaPlanID:   123,
+				Model:         gorm.Model{CreatedAt: time.Now(), UpdatedAt: time.Now()},
 			},
 		}
 
@@ -1914,13 +2266,13 @@ func TestAdminExtension_ListPricingPlanPeriods_WithFilter(t *testing.T) {
 
 func TestPricingPlanPeriodDTO_FromModel(t *testing.T) {
 	period := &internalModels.PricingPlanPeriod{
-		
-		PricingPlanID:  1,
-		Cadence:        "quarterly",
-		PriceUSD:       49.99,
-		QuotaPlanID:    789,
-		RollingDays:    nil,
-		Model:          gorm.Model{ID: 100, CreatedAt: time.Now(), UpdatedAt: time.Now()},
+
+		PricingPlanID: 1,
+		Cadence:       "quarterly",
+		PriceUSD:      49.99,
+		QuotaPlanID:   789,
+		RollingDays:   nil,
+		Model:         gorm.Model{ID: 100, CreatedAt: time.Now(), UpdatedAt: time.Now()},
 	}
 
 	var dto dto.PricingPlanPeriodDTO
@@ -1940,10 +2292,10 @@ func TestPricingPlanPeriodCreateRequest_ToModel_Success(t *testing.T) {
 	rollDays := 30
 	req := dto.PricingPlanPeriodCreateRequest{
 		PricingPlanID: 1,
-		Cadence:        "rolling",
-		PriceUSD:       9.99,
-		QuotaPlanID:    123,
-		RollingDays:    &rollDays,
+		Cadence:       "rolling",
+		PriceUSD:      9.99,
+		QuotaPlanID:   123,
+		RollingDays:   &rollDays,
 	}
 
 	model, err := req.ToModel()
@@ -1966,10 +2318,10 @@ func TestPricingPlanPeriodCreateRequest_ToModel_ValidationError(t *testing.T) {
 			name: "rolling_days without rolling cadence",
 			req: dto.PricingPlanPeriodCreateRequest{
 				PricingPlanID: 1,
-				Cadence:        "monthly",
-				PriceUSD:       9.99,
-				QuotaPlanID:    123,
-				RollingDays:    intPtr(30),
+				Cadence:       "monthly",
+				PriceUSD:      9.99,
+				QuotaPlanID:   123,
+				RollingDays:   intPtr(30),
 			},
 			wantErr: true,
 		},
@@ -1977,10 +2329,10 @@ func TestPricingPlanPeriodCreateRequest_ToModel_ValidationError(t *testing.T) {
 			name: "rolling cadence without rolling_days",
 			req: dto.PricingPlanPeriodCreateRequest{
 				PricingPlanID: 1,
-				Cadence:        "rolling",
-				PriceUSD:       9.99,
-				QuotaPlanID:    123,
-				RollingDays:    nil,
+				Cadence:       "rolling",
+				PriceUSD:      9.99,
+				QuotaPlanID:   123,
+				RollingDays:   nil,
 			},
 			wantErr: true,
 		},
@@ -1988,9 +2340,9 @@ func TestPricingPlanPeriodCreateRequest_ToModel_ValidationError(t *testing.T) {
 			name: "zero or negative price",
 			req: dto.PricingPlanPeriodCreateRequest{
 				PricingPlanID: 1,
-				Cadence:        "monthly",
-				PriceUSD:       0,
-				QuotaPlanID:    123,
+				Cadence:       "monthly",
+				PriceUSD:      0,
+				QuotaPlanID:   123,
 			},
 			wantErr: true,
 		},
@@ -2023,6 +2375,7 @@ func TestPricingPlanPeriodUpdateRequest_ToModel_Success(t *testing.T) {
 func intPtr(i int) *int {
 	return &i
 }
+
 // ============================================================
 // Subscription Management Tests
 // ============================================================
@@ -2061,12 +2414,12 @@ func TestAdminHandleGetSubscriber_Success(t *testing.T) {
 		router := ctx.Router()
 
 		subscriber := pluginCore.Subscriber{
-			Model:        gorm.Model{ID: 1, CreatedAt: time.Now(), UpdatedAt: time.Now()},
-			UserID:       123,
-			GatewayType:  "stripe",
-			ExternalID:   "ext_123",
+			Model:          gorm.Model{ID: 1, CreatedAt: time.Now(), UpdatedAt: time.Now()},
+			UserID:         123,
+			GatewayType:    "stripe",
+			ExternalID:     "ext_123",
 			SubscriptionID: "sub_123",
-			IsActive:     true,
+			IsActive:       true,
 		}
 
 		billingSvc.EXPECT().
@@ -2128,12 +2481,12 @@ func TestAdminHandleGetUserSubscribers_Success(t *testing.T) {
 
 		subscribers := []pluginCore.Subscriber{
 			{
-				Model:        gorm.Model{ID: 1, CreatedAt: time.Now(), UpdatedAt: time.Now()},
-				UserID:       123,
-				GatewayType:  "stripe",
-				ExternalID:   "ext_123",
+				Model:          gorm.Model{ID: 1, CreatedAt: time.Now(), UpdatedAt: time.Now()},
+				UserID:         123,
+				GatewayType:    "stripe",
+				ExternalID:     "ext_123",
 				SubscriptionID: "sub_123",
-				IsActive:     true,
+				IsActive:       true,
 			},
 		}
 
@@ -2288,8 +2641,6 @@ func TestAdminHandleCancelUserSubscription_InvalidUserID(t *testing.T) {
 	}, getAdminAPITestOptions())
 }
 
-
-
 // TestAdminHandleListGatewaySubscribers_Success tests listing subscribers for a specific gateway
 func TestAdminHandleListGatewaySubscribers_Success(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
@@ -2298,12 +2649,12 @@ func TestAdminHandleListGatewaySubscribers_Success(t *testing.T) {
 
 		subscribers := []pluginCore.Subscriber{
 			{
-				Model:        gorm.Model{ID: 1, CreatedAt: time.Now(), UpdatedAt: time.Now()},
-				UserID:       123,
-				GatewayType:  "stripe",
-				ExternalID:   "ext_123",
+				Model:          gorm.Model{ID: 1, CreatedAt: time.Now(), UpdatedAt: time.Now()},
+				UserID:         123,
+				GatewayType:    "stripe",
+				ExternalID:     "ext_123",
 				SubscriptionID: "sub_123",
-				IsActive:     true,
+				IsActive:       true,
 			},
 		}
 
@@ -2374,4 +2725,3 @@ func TestAdminCancelSubscriptionRequest_Schema_DatabaseMode(t *testing.T) {
 	_, err := validReq.ToModel()
 	assert.NoError(t, err)
 }
-

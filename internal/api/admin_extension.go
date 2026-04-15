@@ -159,11 +159,43 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 		router.NewRoute(http.MethodGet, "/api/billing/price-lines/:id", e.handleGetPriceLine,
 			router.WithSwagger(
 				router.WithSummary("Get Price Line"),
-				router.WithDescription("Retrieves a specific price line by ID"),
+				router.WithDescription("Retrieves a specific price line by ID with its associated plans"),
 				router.WithTags("Billing Admin"),
 				router.WithPathParam("id", "Price Line ID", "123"),
 				router.WithSuccessResponse(http.StatusOK, "",
-					router.WithJSONContent(dto.PriceLineResponse{})),
+					router.WithJSONContent(dto.PriceLineDetailResponse{})),
+			)),
+		router.NewRoute(http.MethodPost, "/api/billing/price-lines/:id/plan", e.handleAddPlanToPriceLine,
+			router.WithSwagger(
+				router.WithoutDefaultSuccessResponse(),
+				router.WithSummary("Add Plan to Price Line"),
+				router.WithDescription("Adds a pricing plan to a price line with a specified position"),
+				router.WithTags("Billing Admin"),
+				router.WithPathParam("id", "Price Line ID", "123"),
+				router.WithRequestBody(dto.AddPlanToPriceLineRequest{}, "Plan to add with position", true),
+				router.WithSuccessResponse(http.StatusOK, "Plan added to price line",
+					router.WithJSONContent(dto.PriceLineDetailResponse{})),
+			)),
+		router.NewRoute(http.MethodPut, "/api/billing/price-lines/:id/plans/:planId", e.handleUpdatePlanPosition,
+			router.WithSwagger(
+				router.WithSummary("Update Plan Position"),
+				router.WithDescription("Updates the position of a plan within a price line, reordering other plans as needed"),
+				router.WithTags("Billing Admin"),
+				router.WithPathParam("id", "Price Line ID", "123"),
+				router.WithPathParam("planId", "Plan ID", "456"),
+				router.WithRequestBody(dto.UpdatePlanPositionRequest{}, "New position for the plan", true),
+				router.WithSuccessResponse(http.StatusOK, "Plan position updated",
+					router.WithJSONContent(dto.PriceLineDetailResponse{})),
+			)),
+		router.NewRoute(http.MethodDelete, "/api/billing/price-lines/:id/plans/:planId", e.handleRemovePlanFromPriceLine,
+			router.WithSwagger(
+				router.WithoutDefaultSuccessResponse(),
+				router.WithSummary("Remove Plan from Price Line"),
+				router.WithDescription("Removes a pricing plan from a price line and reorders remaining plans"),
+				router.WithTags("Billing Admin"),
+				router.WithPathParam("id", "Price Line ID", "123"),
+				router.WithPathParam("planId", "Plan ID", "456"),
+				router.WithSuccessResponse(http.StatusNoContent, "Plan removed from price line"),
 			)),
 		router.NewRoute(http.MethodPost, "/api/billing/pricing-plan-periods", e.handleCreatePricingPlanPeriod,
 			router.WithSwagger(
@@ -523,6 +555,32 @@ func (e *AdminExtension) handleCreatePricingPlan(c echo.Context) error {
 		return ctx.Error(NewError(ErrKeyPricingPlanCreateFailed, fmt.Errorf("failed to create pricing plan: %w", err)), http.StatusInternalServerError)
 	}
 
+	// Auto-link to price line if specified
+	if req.PriceLineID != nil {
+		position := 0
+		if req.Position != nil {
+			position = *req.Position
+		} else {
+			// Auto-calculate position (append to end)
+			existingPlans, err := e.pricingService.GetPriceLinePlans(reqCtx, *req.PriceLineID)
+			if err != nil {
+				e.Logger().Warn("failed to get price line plans for position calculation",
+					zap.Uint("price_line_id", *req.PriceLineID),
+					zap.Error(err))
+			}
+			position = len(existingPlans)
+		}
+
+		if err := e.pricingService.AddPlanToPriceLine(reqCtx, *req.PriceLineID, plan.ID, position); err != nil {
+			e.Logger().Warn("failed to auto-link plan to price line",
+				zap.Uint("price_line_id", *req.PriceLineID),
+				zap.Uint("plan_id", plan.ID),
+				zap.Int("position", position),
+				zap.Error(err))
+			// Don't fail the request - plan was created successfully
+		}
+	}
+
 	ctx.Response().Before(func() {
 		ctx.Response().Status = http.StatusCreated
 	})
@@ -625,24 +683,29 @@ func (e *AdminExtension) handleListPriceLines(c echo.Context) error {
 	)
 }
 
-// handleGetPriceLine retrieves a single price line by ID
+// handleGetPriceLine retrieves a single price line by ID with its plans
 func (e *AdminExtension) handleGetPriceLine(c echo.Context) error {
 	ctx := httputil.Context(c)
 	reqCtx := ctx.Context.Request().Context()
 
-	idStr := c.Param("id")
-	id, err := strconv.ParseUint(idStr, 10, 64)
+	priceLineID, err := parsePriceLineID(c)
 	if err != nil {
-		return ctx.Error(NewError(ErrKeyInvalidPriceLineID, fmt.Errorf("invalid id: %w", err)), http.StatusBadRequest)
+		return ctx.Error(NewError(ErrKeyInvalidPriceLineID, err), http.StatusBadRequest)
 	}
 
-	priceLine, err := e.pricingService.GetPriceLine(reqCtx, uint(id))
+	priceLine, err := e.pricingService.GetPriceLine(reqCtx, priceLineID)
 	if err != nil {
-		return ctx.Error(NewError(ErrKeyPriceLineNotFound, fmt.Errorf("price line with ID %d not found", id)), http.StatusNotFound)
+		return ctx.Error(NewError(ErrKeyPriceLineNotFound, err), http.StatusNotFound)
 	}
 
-	var resp dto.PriceLineResponse
-	return httputil.EncodeResponse(ctx, priceLine, &resp)
+	// Fetch plans for the price line
+	priceLinePlans, err := e.pricingService.GetPriceLinePlans(reqCtx, priceLineID)
+	if err != nil {
+		e.Logger().Error("failed to get price line plans", zap.Uint("price_line_id", priceLineID), zap.Error(err))
+		// Continue without plans rather than failing the entire request
+	}
+
+	return buildPriceLineDetailResponse(ctx, priceLine, priceLinePlans)
 }
 
 // handleCreatePriceLine creates a new price line
@@ -726,6 +789,133 @@ func (e *AdminExtension) handleDeletePriceLine(c echo.Context) error {
 	if err := e.pricingService.DeletePriceLine(reqCtx, uint(id)); err != nil {
 		e.Logger().Error("failed to delete price line", zap.Error(err))
 		return ctx.Error(NewError(ErrKeyPriceLineDeleteFailed, fmt.Errorf("failed to delete price line: %w", err)), http.StatusInternalServerError)
+	}
+
+	return ctx.NoContent(http.StatusNoContent)
+}
+
+// handleAddPlanToPriceLine adds a plan to a price line
+func (e *AdminExtension) handleAddPlanToPriceLine(c echo.Context) error {
+	ctx := httputil.Context(c)
+	reqCtx := ctx.Context.Request().Context()
+
+	priceLineID, err := parsePriceLineID(c)
+	if err != nil {
+		return ctx.Error(NewError(ErrKeyInvalidPriceLineID, err), http.StatusBadRequest)
+	}
+
+	// Parse and validate request body
+	var req dto.AddPlanToPriceLineRequest
+	if _, ok := httputil.DecodeAndValidateRequest(ctx, &req); !ok {
+		return nil
+	}
+
+	// Verify price line exists
+	priceLine, err := e.pricingService.GetPriceLine(reqCtx, priceLineID)
+	if err != nil {
+		return ctx.Error(NewError(ErrKeyPriceLineNotFound, err), http.StatusNotFound)
+	}
+
+	// Verify plan exists
+	_, err = e.pricingService.GetPricingPlan(reqCtx, req.PlanID)
+	if err != nil {
+		return ctx.Error(NewError(ErrKeyPricingPlanNotFound, err), http.StatusNotFound)
+	}
+
+	// Add plan to price line
+	position := 0
+	if req.Position != nil {
+		position = *req.Position
+	}
+	if err := e.pricingService.AddPlanToPriceLine(reqCtx, priceLineID, req.PlanID, position); err != nil {
+		e.Logger().Error("failed to add plan to price line",
+			zap.Uint("price_line_id", priceLineID),
+			zap.Uint("plan_id", req.PlanID),
+			zap.Int("position", position),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeyPriceLinePlanAddFailed, fmt.Errorf("failed to add plan to price line: %w", err)), http.StatusInternalServerError)
+	}
+
+	// Fetch updated plans
+	priceLinePlans, err := e.pricingService.GetPriceLinePlans(reqCtx, priceLineID)
+	if err != nil {
+		e.Logger().Error("failed to get price line plans", zap.Uint("price_line_id", priceLineID), zap.Error(err))
+	}
+
+	return buildPriceLineDetailResponse(ctx, priceLine, priceLinePlans)
+}
+
+// handleUpdatePlanPosition updates a plan's position within a price line
+func (e *AdminExtension) handleUpdatePlanPosition(c echo.Context) error {
+	ctx := httputil.Context(c)
+	reqCtx := ctx.Context.Request().Context()
+
+	priceLineID, err := parsePriceLineID(c)
+	if err != nil {
+		return ctx.Error(NewError(ErrKeyInvalidPriceLineID, err), http.StatusBadRequest)
+	}
+
+	planID, err := parsePlanID(c)
+	if err != nil {
+		return ctx.Error(NewError(ErrKeyInvalidPlanID, err), http.StatusBadRequest)
+	}
+
+	// Parse and validate request body
+	var req dto.UpdatePlanPositionRequest
+	if _, ok := httputil.DecodeAndValidateRequest(ctx, &req); !ok {
+		return nil
+	}
+
+	// Verify price line exists
+	priceLine, err := e.pricingService.GetPriceLine(reqCtx, priceLineID)
+	if err != nil {
+		return ctx.Error(NewError(ErrKeyPriceLineNotFound, err), http.StatusNotFound)
+	}
+
+	// Update plan position
+	if req.Position == nil {
+		return ctx.Error(NewError(ErrKeyInvalidRequest, fmt.Errorf("position is required")), http.StatusBadRequest)
+	}
+	if err := e.pricingService.UpdatePlanPosition(reqCtx, priceLineID, planID, *req.Position); err != nil {
+		e.Logger().Error("failed to update plan position",
+			zap.Uint("price_line_id", priceLineID),
+			zap.Uint("plan_id", planID),
+			zap.Int("position", *req.Position),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeyPriceLinePlanUpdateFailed, fmt.Errorf("failed to update plan position: %w", err)), http.StatusInternalServerError)
+	}
+
+	// Fetch updated plans
+	priceLinePlans, err := e.pricingService.GetPriceLinePlans(reqCtx, priceLineID)
+	if err != nil {
+		e.Logger().Error("failed to get price line plans", zap.Uint("price_line_id", priceLineID), zap.Error(err))
+	}
+
+	return buildPriceLineDetailResponse(ctx, priceLine, priceLinePlans)
+}
+
+// handleRemovePlanFromPriceLine removes a plan from a price line
+func (e *AdminExtension) handleRemovePlanFromPriceLine(c echo.Context) error {
+	ctx := httputil.Context(c)
+	reqCtx := ctx.Context.Request().Context()
+
+	priceLineID, err := parsePriceLineID(c)
+	if err != nil {
+		return ctx.Error(NewError(ErrKeyInvalidPriceLineID, err), http.StatusBadRequest)
+	}
+
+	planID, err := parsePlanID(c)
+	if err != nil {
+		return ctx.Error(NewError(ErrKeyInvalidPlanID, err), http.StatusBadRequest)
+	}
+
+	// Remove plan from price line
+	if err := e.pricingService.RemovePlanFromPriceLine(reqCtx, priceLineID, planID); err != nil {
+		e.Logger().Error("failed to remove plan from price line",
+			zap.Uint("price_line_id", priceLineID),
+			zap.Uint("plan_id", planID),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeyPriceLinePlanRemoveFailed, fmt.Errorf("failed to remove plan from price line: %w", err)), http.StatusInternalServerError)
 	}
 
 	return ctx.NoContent(http.StatusNoContent)
@@ -1536,4 +1726,36 @@ func (e *AdminExtension) handleListGatewaySubscribers(c echo.Context) error {
 			return resp
 		},
 	)
+}
+
+// Helper methods for price line plan management
+
+// parsePriceLineID parses and validates a price line ID from route parameter
+func parsePriceLineID(c echo.Context) (uint, error) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid price line id: %w", err)
+	}
+	return uint(id), nil
+}
+
+// parsePlanID parses and validates a plan ID from route parameter
+func parsePlanID(c echo.Context) (uint, error) {
+	idStr := c.Param("planId")
+	id, err := strconv.ParseUint(idStr, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid plan id: %w", err)
+	}
+	return uint(id), nil
+}
+
+// buildPriceLineDetailResponse builds a PriceLineDetailResponse and returns it via EncodeResponse
+func buildPriceLineDetailResponse(ctx httputil.RequestContext, priceLine *models.PriceLine, priceLinePlans []*models.PriceLinePlan) error {
+	var resp dto.PriceLineDetailResponse
+	if err := resp.FromModel(priceLine); err != nil {
+		return ctx.Error(NewError(ErrKeyPriceLineNotFound, fmt.Errorf("failed to encode response: %w", err)), http.StatusInternalServerError)
+	}
+	resp.SetPlans(priceLinePlans)
+	return httputil.EncodeResponse(ctx, priceLine, &resp)
 }

@@ -1299,6 +1299,74 @@ func (_c *MockPricingService_GetPriceLine_Call) RunAndReturn(run func(ctx contex
 	return _c
 }
 
+// GetPriceLinePlans provides a mock function for the type MockPricingService
+func (_mock *MockPricingService) GetPriceLinePlans(ctx context.Context, priceLineID uint) ([]*models.PriceLinePlan, error) {
+	ret := _mock.Called(ctx, priceLineID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetPriceLinePlans")
+	}
+
+	var r0 []*models.PriceLinePlan
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uint) ([]*models.PriceLinePlan, error)); ok {
+		return returnFunc(ctx, priceLineID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uint) []*models.PriceLinePlan); ok {
+		r0 = returnFunc(ctx, priceLineID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*models.PriceLinePlan)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, uint) error); ok {
+		r1 = returnFunc(ctx, priceLineID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockPricingService_GetPriceLinePlans_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetPriceLinePlans'
+type MockPricingService_GetPriceLinePlans_Call struct {
+	*mock.Call
+}
+
+// GetPriceLinePlans is a helper method to define mock.On call
+//   - ctx context.Context
+//   - priceLineID uint
+func (_e *MockPricingService_Expecter) GetPriceLinePlans(ctx interface{}, priceLineID interface{}) *MockPricingService_GetPriceLinePlans_Call {
+	return &MockPricingService_GetPriceLinePlans_Call{Call: _e.mock.On("GetPriceLinePlans", ctx, priceLineID)}
+}
+
+func (_c *MockPricingService_GetPriceLinePlans_Call) Run(run func(ctx context.Context, priceLineID uint)) *MockPricingService_GetPriceLinePlans_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 uint
+		if args[1] != nil {
+			arg1 = args[1].(uint)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockPricingService_GetPriceLinePlans_Call) Return(priceLinePlans []*models.PriceLinePlan, err error) *MockPricingService_GetPriceLinePlans_Call {
+	_c.Call.Return(priceLinePlans, err)
+	return _c
+}
+
+func (_c *MockPricingService_GetPriceLinePlans_Call) RunAndReturn(run func(ctx context.Context, priceLineID uint) ([]*models.PriceLinePlan, error)) *MockPricingService_GetPriceLinePlans_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetPriceLines provides a mock function for the type MockPricingService
 func (_mock *MockPricingService) GetPriceLines(ctx context.Context, userID uint, filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination) ([]*models.PriceLine, int64, error) {
 	ret := _mock.Called(ctx, userID, filters, sorts, pagination)
@@ -2425,6 +2493,75 @@ func (_c *MockPricingService_UpdateGatewaySyncStatus_Call) Return(err error) *Mo
 }
 
 func (_c *MockPricingService_UpdateGatewaySyncStatus_Call) RunAndReturn(run func(ctx context.Context, planID uint, gatewayType string, syncResult SyncResult) error) *MockPricingService_UpdateGatewaySyncStatus_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// UpdatePlanPosition provides a mock function for the type MockPricingService
+func (_mock *MockPricingService) UpdatePlanPosition(ctx context.Context, priceLineID uint, planID uint, newPosition int) error {
+	ret := _mock.Called(ctx, priceLineID, planID, newPosition)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdatePlanPosition")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uint, uint, int) error); ok {
+		r0 = returnFunc(ctx, priceLineID, planID, newPosition)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockPricingService_UpdatePlanPosition_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdatePlanPosition'
+type MockPricingService_UpdatePlanPosition_Call struct {
+	*mock.Call
+}
+
+// UpdatePlanPosition is a helper method to define mock.On call
+//   - ctx context.Context
+//   - priceLineID uint
+//   - planID uint
+//   - newPosition int
+func (_e *MockPricingService_Expecter) UpdatePlanPosition(ctx interface{}, priceLineID interface{}, planID interface{}, newPosition interface{}) *MockPricingService_UpdatePlanPosition_Call {
+	return &MockPricingService_UpdatePlanPosition_Call{Call: _e.mock.On("UpdatePlanPosition", ctx, priceLineID, planID, newPosition)}
+}
+
+func (_c *MockPricingService_UpdatePlanPosition_Call) Run(run func(ctx context.Context, priceLineID uint, planID uint, newPosition int)) *MockPricingService_UpdatePlanPosition_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 uint
+		if args[1] != nil {
+			arg1 = args[1].(uint)
+		}
+		var arg2 uint
+		if args[2] != nil {
+			arg2 = args[2].(uint)
+		}
+		var arg3 int
+		if args[3] != nil {
+			arg3 = args[3].(int)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+			arg3,
+		)
+	})
+	return _c
+}
+
+func (_c *MockPricingService_UpdatePlanPosition_Call) Return(err error) *MockPricingService_UpdatePlanPosition_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockPricingService_UpdatePlanPosition_Call) RunAndReturn(run func(ctx context.Context, priceLineID uint, planID uint, newPosition int) error) *MockPricingService_UpdatePlanPosition_Call {
 	_c.Call.Return(run)
 	return _c
 }

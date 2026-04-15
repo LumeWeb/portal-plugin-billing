@@ -48,10 +48,14 @@ const (
 	ErrKeyPricingPlanDeleteFailed core.ErrorType = "PRICING_PLAN_DELETE_FAILED"
 
 	// Price line errors
-	ErrKeyPriceLineNotFound     core.ErrorType = "PRICE_LINE_NOT_FOUND"
-	ErrKeyPriceLineCreateFailed core.ErrorType = "PRICE_LINE_CREATE_FAILED"
-	ErrKeyPriceLineUpdateFailed core.ErrorType = "PRICE_LINE_UPDATE_FAILED"
-	ErrKeyPriceLineDeleteFailed core.ErrorType = "PRICE_LINE_DELETE_FAILED"
+	ErrKeyPriceLineNotFound         core.ErrorType = "PRICE_LINE_NOT_FOUND"
+	ErrKeyPriceLineCreateFailed     core.ErrorType = "PRICE_LINE_CREATE_FAILED"
+	ErrKeyPriceLineUpdateFailed     core.ErrorType = "PRICE_LINE_UPDATE_FAILED"
+	ErrKeyPriceLineDeleteFailed     core.ErrorType = "PRICE_LINE_DELETE_FAILED"
+	ErrKeyPriceLinePlanNotFound     core.ErrorType = "PRICE_LINE_PLAN_NOT_FOUND"
+	ErrKeyPriceLinePlanAddFailed    core.ErrorType = "PRICE_LINE_PLAN_ADD_FAILED"
+	ErrKeyPriceLinePlanRemoveFailed core.ErrorType = "PRICE_LINE_PLAN_REMOVE_FAILED"
+	ErrKeyPriceLinePlanUpdateFailed core.ErrorType = "PRICE_LINE_PLAN_UPDATE_FAILED"
 
 	// Gateway errors
 	ErrKeyGatewayNotFound           core.ErrorType = "GATEWAY_NOT_FOUND"
@@ -180,10 +184,14 @@ func init() {
 		ErrKeyPricingPlanDeleteFailed: {Key: ErrKeyPricingPlanDeleteFailed, Message: "Failed to delete pricing plan"},
 
 		// Price line errors
-		ErrKeyPriceLineNotFound:     {Key: ErrKeyPriceLineNotFound, Message: "Price line not found"},
-		ErrKeyPriceLineCreateFailed: {Key: ErrKeyPriceLineCreateFailed, Message: "Failed to create price line"},
-		ErrKeyPriceLineUpdateFailed: {Key: ErrKeyPriceLineUpdateFailed, Message: "Failed to update price line"},
-		ErrKeyPriceLineDeleteFailed: {Key: ErrKeyPriceLineDeleteFailed, Message: "Failed to delete price line"},
+		ErrKeyPriceLineNotFound:         {Key: ErrKeyPriceLineNotFound, Message: "Price line not found"},
+		ErrKeyPriceLineCreateFailed:     {Key: ErrKeyPriceLineCreateFailed, Message: "Failed to create price line"},
+		ErrKeyPriceLineUpdateFailed:     {Key: ErrKeyPriceLineUpdateFailed, Message: "Failed to update price line"},
+		ErrKeyPriceLineDeleteFailed:     {Key: ErrKeyPriceLineDeleteFailed, Message: "Failed to delete price line"},
+		ErrKeyPriceLinePlanNotFound:     {Key: ErrKeyPriceLinePlanNotFound, Message: "Plan not found in price line"},
+		ErrKeyPriceLinePlanAddFailed:    {Key: ErrKeyPriceLinePlanAddFailed, Message: "Failed to add plan to price line"},
+		ErrKeyPriceLinePlanRemoveFailed: {Key: ErrKeyPriceLinePlanRemoveFailed, Message: "Failed to remove plan from price line"},
+		ErrKeyPriceLinePlanUpdateFailed: {Key: ErrKeyPriceLinePlanUpdateFailed, Message: "Failed to update plan position"},
 
 		// Gateway errors
 		ErrKeyGatewayNotFound:     {Key: ErrKeyGatewayNotFound, Message: "Gateway not found"},
@@ -241,10 +249,14 @@ func init() {
 		ErrKeyPricingPlanDeleteFailed: http.StatusInternalServerError,
 
 		// Price line errors
-		ErrKeyPriceLineNotFound:     http.StatusNotFound,
-		ErrKeyPriceLineCreateFailed: http.StatusInternalServerError,
-		ErrKeyPriceLineUpdateFailed: http.StatusInternalServerError,
-		ErrKeyPriceLineDeleteFailed: http.StatusInternalServerError,
+		ErrKeyPriceLineNotFound:         http.StatusNotFound,
+		ErrKeyPriceLineCreateFailed:     http.StatusInternalServerError,
+		ErrKeyPriceLineUpdateFailed:     http.StatusInternalServerError,
+		ErrKeyPriceLineDeleteFailed:     http.StatusInternalServerError,
+		ErrKeyPriceLinePlanNotFound:     http.StatusNotFound,
+		ErrKeyPriceLinePlanAddFailed:    http.StatusInternalServerError,
+		ErrKeyPriceLinePlanRemoveFailed: http.StatusInternalServerError,
+		ErrKeyPriceLinePlanUpdateFailed: http.StatusInternalServerError,
 
 		// Gateway errors
 		ErrKeyGatewayNotFound:     http.StatusNotFound,

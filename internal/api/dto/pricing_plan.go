@@ -160,6 +160,8 @@ type PricingPlanCreateRequest struct {
 	Currency       string                 `json:"currency"`
 	IsActive       *bool                  `json:"is_active"`
 	IsPublic       *bool                  `json:"is_public"`
+	PriceLineID    *uint                  `json:"priceline_id,omitempty"`
+	Position       *int                   `json:"position,omitempty"`
 }
 
 func (r PricingPlanCreateRequest) Schema() *z.StructSchema {
@@ -173,9 +175,11 @@ func (r PricingPlanCreateRequest) Schema() *z.StructSchema {
 			"RollingDays": z.Ptr(z.Int()),
 			"IsActive":    z.Bool().Required(),
 		})).Min(1),
-		"Currency": z.String().Default("USD").Min(3).Max(3),
-		"IsActive": z.Ptr(z.Bool()),
-		"IsPublic": z.Ptr(z.Bool()),
+		"Currency":    z.String().Default("USD").Min(3).Max(3),
+		"IsActive":    z.Ptr(z.Bool()),
+		"IsPublic":    z.Ptr(z.Bool()),
+		"PriceLineID": z.Ptr(z.UintLike[uint]()),
+		"Position":    z.Ptr(z.Int()),
 	})
 }
 
