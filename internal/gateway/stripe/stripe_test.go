@@ -251,6 +251,14 @@ func setupMockServices(ctx coreTesting.TestContext) (*quotaCore.MockQuotaService
 func setupSubscriptionActivationMocks(mockQuota *quotaCore.MockQuotaService, mockUsers *coreTesting.MockUserService, mockBilling *pluginCore.MockBillingService, mockPricing *pluginCore.MockPricingService, userID uint, pricingPlanPeriodID, quotaPlanID uint) {
 	mockUsers.EXPECT().AccountExists(mock.Anything, userID).Return(true, createTestUser(userID), nil)
 
+	// Mock fetching the period to get the plan ID for the event
+	pricingPlanID := uint(1)
+	period := &billingModels.PricingPlanPeriod{
+		PricingPlanID: pricingPlanID,
+	}
+	period.ID = pricingPlanPeriodID
+	mockPricing.EXPECT().GetPricingPlanPeriod(mock.Anything, pricingPlanPeriodID).Return(period, nil)
+
 	// Billing service tracks with PricingPlanPeriodID
 	mockBilling.EXPECT().CreateOrUpdateSubscriber(
 		mock.Anything,

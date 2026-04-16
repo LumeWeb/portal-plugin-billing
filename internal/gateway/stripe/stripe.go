@@ -1421,13 +1421,19 @@ func (g *StripeGateway) activateSubscriptionWithPeriodID(ctx context.Context, us
 			zap.String("subscription_id", subscription.ID))
 	}
 
+	// Fetch the period to get the actual plan ID
+	period, err := g.pricing.GetPricingPlanPeriod(ctx, pricingPlanPeriodID)
+	if err != nil {
+		return fmt.Errorf("failed to fetch pricing plan period: %w", err)
+	}
+
 	// Fire subscription active event
 	evt := billingEvent.NewSubscriptionActiveEvent(
 		ctx,
 		user.ID,
 		subscription.ID,
 		GatewayID,
-		pricingPlanPeriodID,
+		period.PricingPlanID,
 		pricingPlanPeriodID,
 	)
 	core.Fire(g.coreCtx, billingEvent.EVENT_SUBSCRIPTION_ACTIVE, evt)
