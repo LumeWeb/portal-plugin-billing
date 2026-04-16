@@ -2710,8 +2710,9 @@ func TestAdminHandleListGatewaySubscribers_InvalidGatewayID(t *testing.T) {
 
 func TestAdminCancelSubscriptionRequest_Schema_GatewayMode(t *testing.T) {
 	validReq := dto.AdminCancelSubscriptionRequest{
-		Mode: dto.CancellationModeGateway,
+		Mode: new(dto.CancellationMode),
 	}
+	*validReq.Mode = dto.CancellationModeGateway
 
 	_, err := validReq.ToModel()
 	assert.NoError(t, err)
@@ -2719,8 +2720,9 @@ func TestAdminCancelSubscriptionRequest_Schema_GatewayMode(t *testing.T) {
 
 func TestAdminCancelSubscriptionRequest_Schema_DatabaseMode(t *testing.T) {
 	validReq := dto.AdminCancelSubscriptionRequest{
-		Mode: dto.CancellationModeDatabase,
+		Mode: new(dto.CancellationMode),
 	}
+	*validReq.Mode = dto.CancellationModeDatabase
 
 	_, err := validReq.ToModel()
 	assert.NoError(t, err)
