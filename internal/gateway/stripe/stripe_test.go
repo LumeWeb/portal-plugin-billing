@@ -1214,8 +1214,7 @@ func TestStripeGateway_HandleWebhook_InvoicePaid_Success(t *testing.T) {
 		mockCredit.EXPECT().GetUserBalance(mock.Anything, uint64(userID)).Return(decimal.NewFromFloat(19.99), nil).Times(1)
 
 		mockQuota.EXPECT().RemoveUserFromPlan(mock.Anything, mock.Anything).Return(nil).Maybe()
-		mockBilling.On("CreateOrUpdateSubscriber", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
-		mockQuota.EXPECT().RemoveUserFromPlan(mock.Anything, mock.Anything).Return(nil).Maybe()
+		mockQuota.EXPECT().AssignUserToPlan(mock.Anything, userID, uint(100)).Return(nil).Maybe()
 		mockBilling.On("CreateOrUpdateSubscriber", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 
 		gw := NewWithConfig(ctx.Logger(), ctx, testConfig(), mockQuota, mockUsers, mockBilling, mockPricing, mockCredit)
