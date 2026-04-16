@@ -174,6 +174,11 @@ func TestStripeGateway_ValidateWebhook(t *testing.T) {
 
 // Helper function to create a test subscription
 func createTestSubscription(userID string, planID string) stripe.Subscription {
+	return createTestSubscriptionWithPeriod(userID, planID, "")
+}
+
+// Helper function to create a test subscription with period_id in price metadata
+func createTestSubscriptionWithPeriod(userID string, planID string, periodID string) stripe.Subscription {
 	subscription := stripe.Subscription{
 		ID: TestSubscriptionID,
 		Customer: &stripe.Customer{
@@ -187,17 +192,26 @@ func createTestSubscription(userID string, planID string) stripe.Subscription {
 		},
 	}
 
-	if planID != "" {
+	if planID != "" || periodID != "" {
+		priceMetadata := map[string]string{}
+		if planID != "" {
+			priceMetadata[PlanIDMetadataKey] = planID
+		}
+		if periodID != "" {
+			priceMetadata["period_id"] = periodID
+		}
+
 		subscription.Items = &stripe.SubscriptionItemList{
 			Data: []*stripe.SubscriptionItem{
 				{
 					Price: &stripe.Price{
 						ID: "price_123",
 						Product: &stripe.Product{
-							ID: "prod_123",
-							Metadata: map[string]string{
-								PlanIDMetadataKey: planID,
-							},
+							ID:       "prod_123",
+							Metadata: priceMetadata,
+						},
+						Metadata: map[string]string{
+							"period_id": periodID,
 						},
 					},
 				},
@@ -234,11 +248,29 @@ func setupMockServices(ctx coreTesting.TestContext) (*quotaCore.MockQuotaService
 }
 
 // Helper function to setup mocks for subscription activation scenarios
-func setupSubscriptionActivationMocks(mockQuota *quotaCore.MockQuotaService, mockUsers *coreTesting.MockUserService, mockBilling *pluginCore.MockBillingService, mockPricing *pluginCore.MockPricingService, userID uint, pricingPlanID, quotaPlanID uint) {
+func setupSubscriptionActivationMocks(mockQuota *quotaCore.MockQuotaService, mockUsers *coreTesting.MockUserService, mockBilling *pluginCore.MockBillingService, mockPricing *pluginCore.MockPricingService, userID uint, pricingPlanPeriodID, quotaPlanID uint) {
 	mockUsers.EXPECT().AccountExists(mock.Anything, userID).Return(true, createTestUser(userID), nil)
 
+	// Mock fetching the period to get the plan ID for the event
+	pricingPlanID := uint(1)
+	period := &billingModels.PricingPlanPeriod{
+		PricingPlanID: pricingPlanID,
+	}
+	period.ID = pricingPlanPeriodID
+	mockPricing.EXPECT().GetPricingPlanPeriod(mock.Anything, pricingPlanPeriodID).Return(period, nil)
+
 	// Billing service tracks with PricingPlanPeriodID
-	mockBilling.EXPECT().CreateOrUpdateSubscriber(mock.Anything, userID, "stripe", TestCustomerID, TestSubscriptionID, true, mock.AnythingOfType("*uint")).Return(nil)
+	mockBilling.EXPECT().CreateOrUpdateSubscriber(
+		mock.Anything,
+		userID,
+		"stripe",
+		TestCustomerID,
+		TestSubscriptionID,
+		true,
+		mock.MatchedBy(func(p *uint) bool {
+			return p != nil && *p == pricingPlanPeriodID
+		}),
+	).Return(nil)
 }
 
 // Helper function to setup mocks for subscription deactivation scenarios
@@ -249,18 +281,18 @@ func setupSubscriptionDeactivationMocks(mockQuota *quotaCore.MockQuotaService, m
 }
 
 // Helper function to run a subscription activation test scenario
-func runSubscriptionActivationTest(t *testing.T, eventType string, pricingPlanID, quotaPlanID uint) {
+func runSubscriptionActivationTest(t *testing.T, eventType string, pricingPlanPeriodID, quotaPlanID uint) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		mockQuota, mockUsers, mockBilling, mockPricing := setupMockServices(ctx)
 		mockSubService := &MockSubscriptionRetriever{}
 
-		subscription := createTestSubscription("123", strconv.FormatUint(uint64(pricingPlanID), 10))
+		subscription := createTestSubscriptionWithPeriod(strconv.FormatUint(uint64(TestUserID), 10), "", strconv.FormatUint(uint64(pricingPlanPeriodID), 10))
 		rawData, _ := json.Marshal(subscription)
 		event := createTestEvent(eventType, rawData)
 		payload, _ := json.Marshal(event)
 
 		mockSubService.SetupGetSuccess(&subscription)
-		setupSubscriptionActivationMocks(mockQuota, mockUsers, mockBilling, mockPricing, TestUserID, pricingPlanID, quotaPlanID)
+		setupSubscriptionActivationMocks(mockQuota, mockUsers, mockBilling, mockPricing, TestUserID, pricingPlanPeriodID, quotaPlanID)
 
 		gw := NewWithConfig(ctx.Logger(), ctx, testConfig(), mockQuota, mockUsers, mockBilling, mockPricing, nil)
 		gw.subService = mockSubService
@@ -674,28 +706,67 @@ func TestStripeGateway_GetCustomerPortalURL_Success(t *testing.T) {
 func TestStripeGateway_HandleWebhook_CheckoutSessionCompleted(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		mockQuota, mockUsers, mockBilling, mockPricing := setupMockServices(ctx)
+		mockSubService := &MockSubscriptionRetriever{}
 
 		userID := uint(456)
 		customerID := "cus_456"
+		periodID := uint(100)
+		subscriptionID := "sub_456"
 
 		checkoutSession := stripe.CheckoutSession{
 			ID:                "cs_test_123",
 			ClientReferenceID: strconv.FormatUint(uint64(userID), 10),
 			Customer:          &stripe.Customer{ID: customerID},
-			Subscription:      &stripe.Subscription{ID: "sub_456"},
+			Subscription:      &stripe.Subscription{ID: subscriptionID},
 			Mode:              stripe.CheckoutSessionModeSubscription,
 		}
 		rawData, _ := json.Marshal(checkoutSession)
 		event := createTestEvent(EventTypeCheckoutSessionCompleted, rawData)
 		payload, _ := json.Marshal(event)
 
-		// Setup mocks - checkout.session.completed only creates pending subscriber, does not activate
-		// No user check needed in checkout.session.completed flow
+		// Create subscription with period_id in price metadata
+		subscription := stripe.Subscription{
+			ID: subscriptionID,
+			Customer: &stripe.Customer{
+				ID: customerID,
+				Metadata: map[string]string{
+					UserIDMetadataKey: strconv.FormatUint(uint64(userID), 10),
+				},
+			},
+			Items: &stripe.SubscriptionItemList{
+				Data: []*stripe.SubscriptionItem{
+					{
+						Price: &stripe.Price{
+							ID: "price_456",
+							Product: &stripe.Product{
+								ID:       "prod_456",
+								Metadata: map[string]string{},
+							},
+							Metadata: map[string]string{
+								"period_id": strconv.FormatUint(uint64(periodID), 10),
+							},
+						},
+					},
+				},
+			},
+		}
+		mockSubService.SetupGetSuccess(&subscription)
 
-		// Billing service creates a pending (inactive) subscriber
-		mockBilling.EXPECT().CreateOrUpdateSubscriber(mock.Anything, userID, "stripe", customerID, "sub_456", false, mock.AnythingOfType("*uint")).Return(nil)
+		// Billing service creates a pending (inactive) subscriber with period ID
+		mockBilling.EXPECT().CreateOrUpdateSubscriber(
+			mock.Anything,
+			userID,
+			"stripe",
+			customerID,
+			subscriptionID,
+			false,
+			mock.MatchedBy(func(p *uint) bool {
+				return p != nil && *p == periodID
+			}),
+		).Return(nil)
 
 		gw := NewWithConfig(ctx.Logger(), ctx, testConfigWithSecrets(TestWebhookSecret, "test_api_key"), mockQuota, mockUsers, mockBilling, mockPricing, nil)
+		gw.subService = mockSubService
 
 		err := gw.HandleWebhook(context.Background(), payload)
 

@@ -534,23 +534,23 @@ func (g *StripeGateway) handleSubscriptionUpdatedEvent(ctx context.Context, user
 				return nil
 			}
 
-			// Check if the subscription has a plan
-			planID, hasPlan, err := findPlanIDFromSubscription(subscription)
+			// Check if the subscription has a period
+			periodID, hasPeriod, err := findPeriodIDFromSubscription(subscription)
 			if err != nil {
 				return err
 			}
 
-			// If no plan is found, treat as deactivation
-			if !hasPlan {
-				g.logger.Warn("subscription updated but product metadata missing plan_id",
+			// If no period is found, treat as deactivation
+			if !hasPeriod {
+				g.logger.Warn("subscription updated but price metadata missing period_id",
 					zap.String("subscription_id", subscription.ID),
 					zap.String("event_id", event.ID))
 
 				return g.deactivateSubscription(ctx, userID, subscription, event)
 			}
 
-			// If plan is found, treat as activation
-			return g.activateSubscriptionWithPlanID(ctx, userID, subscription, event, planID)
+			// If period is found, treat as activation
+			return g.activateSubscriptionWithPeriodID(ctx, userID, subscription, event, periodID)
 		},
 	)
 }
@@ -830,6 +830,48 @@ func findPlanIDFromSubscription(sub *stripe.Subscription) (uint, bool, error) {
 	return 0, false, nil
 }
 
+// findPeriodIDFromSubscription extracts the period ID from the Stripe price metadata
+func findPeriodIDFromSubscription(sub *stripe.Subscription) (uint, bool, error) {
+	if sub.Items == nil || len(sub.Items.Data) == 0 {
+		return 0, false, nil
+	}
+
+	for _, item := range sub.Items.Data {
+		if item == nil || item.Price == nil {
+			continue
+		}
+
+		periodID, found, err := extractPeriodIDFromPrice(item.Price)
+		if err != nil {
+			return 0, false, err
+		}
+		if found {
+			return periodID, true, nil
+		}
+	}
+
+	return 0, false, nil
+}
+
+// extractPeriodIDFromPrice extracts the period ID from Stripe price metadata
+func extractPeriodIDFromPrice(price *stripe.Price) (uint, bool, error) {
+	if price == nil || price.Metadata == nil {
+		return 0, false, nil
+	}
+
+	periodIDStr := price.Metadata["period_id"]
+	if periodIDStr == "" {
+		return 0, false, nil
+	}
+
+	periodID, err := strconv.ParseUint(periodIDStr, 10, 64)
+	if err != nil {
+		return 0, false, fmt.Errorf("invalid period_id format in price metadata: %w", err)
+	}
+
+	return uint(periodID), true, nil
+}
+
 // handleCheckoutSessionCompleted processes a completed checkout session.
 // This is the first event in the subscription flow and creates a pending subscriber entry locally.
 //
@@ -904,6 +946,22 @@ func (g *StripeGateway) handleCheckoutSessionCompleted(ctx context.Context, even
 			}
 			customerID = session.Customer.ID
 
+			// Fetch the subscription to get period_id from price metadata
+			subscription, err := g.getExpandedSubscription(ctx, subscriptionID)
+			if err != nil {
+				g.logger.Warn("failed to fetch subscription for checkout, creating subscriber without period",
+					zap.Error(err),
+					zap.String("session_id", session.ID),
+					zap.String("subscription_id", subscriptionID))
+			}
+
+			var periodID *uint
+			if subscription != nil {
+				if pid, found, _ := findPeriodIDFromSubscription(subscription); found {
+					periodID = &pid
+				}
+			}
+
 			// Create pending subscriber entry for this subscription
 			// This will be activated when invoice.paid fires
 			if err := g.billing.CreateOrUpdateSubscriber(
@@ -913,7 +971,7 @@ func (g *StripeGateway) handleCheckoutSessionCompleted(ctx context.Context, even
 				customerID,
 				subscriptionID,
 				false,
-				nil,
+				periodID,
 			); err != nil {
 				g.logger.Error("failed to create pending subscriber for checkout",
 					zap.Error(err),
@@ -1304,29 +1362,29 @@ func (g *StripeGateway) activateSubscription(ctx context.Context, userID uint, s
 				return err
 			}
 
-			planID, hasPlan, err := findPlanIDFromSubscription(subscription)
+			periodID, hasPeriod, err := findPeriodIDFromSubscription(subscription)
 			if err != nil {
 				return err
 			}
 
-			if !hasPlan {
-				g.logger.Warn("subscription activated but product metadata missing plan_id",
+			if !hasPeriod {
+				g.logger.Warn("subscription activated but price metadata missing period_id",
 					zap.Uint("user_id", userID),
 					zap.String("subscription_id", subscription.ID),
 					zap.String("event_id", event.ID))
 				return nil
 			}
 
-			return g.activateSubscriptionWithPlanID(ctx, userID, subscription, event, planID)
+			return g.activateSubscriptionWithPeriodID(ctx, userID, subscription, event, periodID)
 		},
 	)
 }
 
-// activateSubscriptionWithPlanID handles subscription activation with a known PricingPlan ID.
+// activateSubscriptionWithPeriodID handles subscription activation with a known PricingPlanPeriod ID.
 // It assigns the user to the QuotaPlan if one is configured, and tracks the subscriber
 // in the local billing database.
-func (g *StripeGateway) activateSubscriptionWithPlanID(ctx context.Context, userID uint, subscription *stripe.Subscription, event stripe.Event, pricingPlanID uint) error {
-	ctx, span := core.TraceMethod(ctx, "StripeGateway.activateSubscriptionWithPlanID")
+func (g *StripeGateway) activateSubscriptionWithPeriodID(ctx context.Context, userID uint, subscription *stripe.Subscription, event stripe.Event, pricingPlanPeriodID uint) error {
+	ctx, span := core.TraceMethod(ctx, "StripeGateway.activateSubscriptionWithPeriodID")
 	defer span.End()
 
 	// Validate services
@@ -1341,13 +1399,12 @@ func (g *StripeGateway) activateSubscriptionWithPlanID(ctx context.Context, user
 	}
 
 	// TODO: Update to fetch PricingPlanPeriod and get QuotaPlanID from period
-	// Note: pricingPlanID is actually a pricingPlanPeriodID in the new model
 	// For now, skip quota plan assignment as it requires refactoring to use PricingPlanPeriod
 	g.logger.Debug("quota plan assignment skipped - needs refactoring for PricingPlanPeriod",
 		zap.Uint("user_id", userID),
-		zap.Uint("pricing_plan_period_id", pricingPlanID))
+		zap.Uint("pricing_plan_period_id", pricingPlanPeriodID))
 
-	// Track subscriber in billing service with PricingPlan ID
+	// Track subscriber in billing service with PricingPlanPeriod ID
 	if subscription.Customer == nil {
 		return fmt.Errorf("subscription missing customer id")
 	}
@@ -1356,12 +1413,18 @@ func (g *StripeGateway) activateSubscriptionWithPlanID(ctx context.Context, user
 		return fmt.Errorf("subscription missing customer id")
 	}
 
-	if err := g.trackSubscriber(ctx, user.ID, subscription.Customer.ID, subscription.ID, true, &pricingPlanID); err != nil {
+	if err := g.trackSubscriber(ctx, user.ID, subscription.Customer.ID, subscription.ID, true, &pricingPlanPeriodID); err != nil {
 		g.logger.Error("failed to track subscriber",
 			zap.Error(err),
 			zap.Uint("user_id", userID),
 			zap.String("customer_id", subscription.Customer.ID),
 			zap.String("subscription_id", subscription.ID))
+	}
+
+	// Fetch the period to get the actual plan ID
+	period, err := g.pricing.GetPricingPlanPeriod(ctx, pricingPlanPeriodID)
+	if err != nil {
+		return fmt.Errorf("failed to fetch pricing plan period: %w", err)
 	}
 
 	// Fire subscription active event
@@ -1370,15 +1433,15 @@ func (g *StripeGateway) activateSubscriptionWithPlanID(ctx context.Context, user
 		user.ID,
 		subscription.ID,
 		GatewayID,
-		pricingPlanID,
-		pricingPlanID,
+		period.PricingPlanID,
+		pricingPlanPeriodID,
 	)
 	core.Fire(g.coreCtx, billingEvent.EVENT_SUBSCRIPTION_ACTIVE, evt)
 
 	g.logger.Debug("subscription activated",
 		zap.Uint("user_id", userID),
 		zap.String("subscription_id", subscription.ID),
-		zap.Uint("pricing_plan_id", pricingPlanID),
+		zap.Uint("pricing_plan_period_id", pricingPlanPeriodID),
 		zap.String("event_id", event.ID),
 		zap.Uint("user_db_id", user.ID))
 
@@ -2047,6 +2110,9 @@ func (g *StripeGateway) createOrUpdateStripePriceForPeriod(ctx context.Context, 
 		Product:    stripe.String(productID),
 		Recurring: &stripe.PriceCreateRecurringParams{
 			Interval: stripe.String(string(interval)),
+		},
+		Metadata: map[string]string{
+			"period_id": strconv.FormatUint(uint64(period.ID), 10),
 		},
 	}
 
