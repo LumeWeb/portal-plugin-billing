@@ -1488,7 +1488,8 @@ func (e *AdminExtension) handleCancelUserSubscription(c echo.Context) error {
 	}
 
 	// Handle database-only cancellation
-	if request.Mode == dto.CancellationModeDatabase {
+	isDatabaseMode := request.Mode != nil && *request.Mode == dto.CancellationModeDatabase
+	if isDatabaseMode {
 		// Cancel directly in the database
 		if err := e.billingService.DeactivateSubscriber(reqCtx, uint(userID), sub.GatewayType); err != nil {
 			e.Logger().Error("failed to cancel subscription in database",

@@ -68,13 +68,13 @@ const (
 
 // AdminCancelSubscriptionRequest represents an admin request to cancel a subscription
 type AdminCancelSubscriptionRequest struct {
-	Mode CancellationMode `json:"mode" validate:"required,oneof=gateway database"`
+	Mode *CancellationMode `json:"mode,omitempty"`
 }
 
 // Schema returns the validation schema for AdminCancelSubscriptionRequest
 func (r *AdminCancelSubscriptionRequest) Schema() *z.StructSchema {
 	return z.Struct(z.Shape{
-		"Mode": z.StringLike[CancellationMode]().Required().OneOf([]CancellationMode{CancellationModeGateway, CancellationModeDatabase}),
+		"Mode": z.Ptr(z.StringLike[CancellationMode]().OneOf([]CancellationMode{CancellationModeGateway, CancellationModeDatabase})),
 	})
 }
 
