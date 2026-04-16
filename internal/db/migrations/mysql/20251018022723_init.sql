@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS billing_subscribers (
     billing_period_end TIMESTAMP NULL DEFAULT NULL,
     will_cancel_at TIMESTAMP NULL DEFAULT NULL,
     cancelled_at TIMESTAMP NULL DEFAULT NULL,
-    payment_status ENUM('pending', 'paid', 'failed', 'missed') DEFAULT 'pending',
+    payment_status VARCHAR(50) DEFAULT 'pending',
     previous_plan_id BIGINT UNSIGNED NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
