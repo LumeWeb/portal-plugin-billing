@@ -18,7 +18,7 @@ require (
 	github.com/tkuchiki/faketime v0.1.1
 	go.lumeweb.com/atlos-sdk v0.1.0
 	go.lumeweb.com/httputil v0.5.4
-	go.lumeweb.com/portal v0.4.2-0.20260415162206-c9cbbd70654c
+	go.lumeweb.com/portal v0.4.2-0.20260416092626-4c4e87d58cf8
 	go.lumeweb.com/portal-middleware v0.3.7
 	go.lumeweb.com/portal-plugin-quota v0.0.0-20260407174945-e2b2217206a8
 	go.lumeweb.com/portal-router v0.6.13
@@ -56,7 +56,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sso v1.30.15 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.35.19 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.41.10 // indirect
-	github.com/aws/smithy-go v1.24.3 // indirect
+	github.com/aws/smithy-go v1.25.0 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bmatcuk/doublestar/v4 v4.9.1 // indirect
