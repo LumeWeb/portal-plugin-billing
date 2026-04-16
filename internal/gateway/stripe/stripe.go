@@ -1196,7 +1196,7 @@ func (g *StripeGateway) handleInvoicePaid(ctx context.Context, event stripe.Even
 					zap.String("invoice_id", invoice.ID),
 					zap.String("balance", balance.String()))
 
-				planPeriodID, hasPlan, err := findPlanIDFromSubscription(subscription)
+				planPeriodID, hasPlan, err := findPeriodIDFromSubscription(subscription)
 				if err == nil && hasPlan {
 					period, err := g.pricing.GetPricingPlanPeriod(ctx, planPeriodID)
 					if err == nil && period != nil {
@@ -2619,11 +2619,11 @@ func (g *StripeGateway) determineOperationType(
 
 	// Check for plan changes
 	if currentSubscriber.PricingPlanPeriodID != nil {
-		newPlanID, found, err := findPlanIDFromSubscription(subscription)
+		newPlanPeriodID, found, err := findPeriodIDFromSubscription(subscription)
 		if err == nil && found {
-			if *currentSubscriber.PricingPlanPeriodID != newPlanID {
+			if *currentSubscriber.PricingPlanPeriodID != newPlanPeriodID {
 				// Plan changed - determine upgrade or downgrade
-				return g.determineUpgradeOrDowngrade(ctx, *currentSubscriber.PricingPlanPeriodID, newPlanID)
+				return g.determineUpgradeOrDowngrade(ctx, *currentSubscriber.PricingPlanPeriodID, newPlanPeriodID)
 			}
 		}
 	}
@@ -2706,12 +2706,12 @@ func (g *StripeGateway) validateAndCalculateCreditAmount(
 		}
 
 		// Populate new price from subscription
-		newPlanID, found, err := findPlanIDFromSubscription(stripeSubscription)
+		newPlanPeriodID, found, err := findPeriodIDFromSubscription(stripeSubscription)
 		if !found || err != nil {
 			return stripeAmount, nil // Can't compare, use Stripe's amount
 		}
 
-		newPeriod, err := g.pricing.GetPricingPlanPeriod(ctx, newPlanID)
+		newPeriod, err := g.pricing.GetPricingPlanPeriod(ctx, newPlanPeriodID)
 		if err != nil {
 			return stripeAmount, nil
 		}
