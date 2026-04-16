@@ -1185,7 +1185,7 @@ func TestStripeGateway_HandleWebhook_InvoicePaid_Success(t *testing.T) {
 			QuotaPlanID:   100,
 		}, nil)
 
-		subscription := createTestSubscription("123", fmt.Sprintf("%d", pricingPlanPeriodID))
+		subscription := createTestSubscriptionWithPeriod("123", "", fmt.Sprintf("%d", pricingPlanPeriodID))
 		mockSubService := &MockSubscriptionRetriever{}
 		mockSubService.SetupGetSuccess(&subscription)
 
