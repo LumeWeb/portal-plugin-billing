@@ -12,7 +12,7 @@ type WebhookEvent struct {
 	GatewayType string
 	EventID     string
 	EventType   string
-	ProcessedAt time.Time
+	ProcessedAt *time.Time
 	Payload     []byte
 }
 
