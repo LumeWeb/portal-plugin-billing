@@ -1772,3 +1772,77 @@ func (_c *MockBillingService_SetLogger_Call) RunAndReturn(run func(logger *core.
 	_c.Run(run)
 	return _c
 }
+
+// UpdateSubscriberPlan provides a mock function for the type MockBillingService
+func (_mock *MockBillingService) UpdateSubscriberPlan(ctx context.Context, userID uint, newPeriodID uint) (*PlanChangeResult, error) {
+	ret := _mock.Called(ctx, userID, newPeriodID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateSubscriberPlan")
+	}
+
+	var r0 *PlanChangeResult
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uint, uint) (*PlanChangeResult, error)); ok {
+		return returnFunc(ctx, userID, newPeriodID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uint, uint) *PlanChangeResult); ok {
+		r0 = returnFunc(ctx, userID, newPeriodID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*PlanChangeResult)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, uint, uint) error); ok {
+		r1 = returnFunc(ctx, userID, newPeriodID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockBillingService_UpdateSubscriberPlan_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateSubscriberPlan'
+type MockBillingService_UpdateSubscriberPlan_Call struct {
+	*mock.Call
+}
+
+// UpdateSubscriberPlan is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID uint
+//   - newPeriodID uint
+func (_e *MockBillingService_Expecter) UpdateSubscriberPlan(ctx interface{}, userID interface{}, newPeriodID interface{}) *MockBillingService_UpdateSubscriberPlan_Call {
+	return &MockBillingService_UpdateSubscriberPlan_Call{Call: _e.mock.On("UpdateSubscriberPlan", ctx, userID, newPeriodID)}
+}
+
+func (_c *MockBillingService_UpdateSubscriberPlan_Call) Run(run func(ctx context.Context, userID uint, newPeriodID uint)) *MockBillingService_UpdateSubscriberPlan_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 uint
+		if args[1] != nil {
+			arg1 = args[1].(uint)
+		}
+		var arg2 uint
+		if args[2] != nil {
+			arg2 = args[2].(uint)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockBillingService_UpdateSubscriberPlan_Call) Return(planChangeResult *PlanChangeResult, err error) *MockBillingService_UpdateSubscriberPlan_Call {
+	_c.Call.Return(planChangeResult, err)
+	return _c
+}
+
+func (_c *MockBillingService_UpdateSubscriberPlan_Call) RunAndReturn(run func(ctx context.Context, userID uint, newPeriodID uint) (*PlanChangeResult, error)) *MockBillingService_UpdateSubscriberPlan_Call {
+	_c.Call.Return(run)
+	return _c
+}

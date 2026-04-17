@@ -578,3 +578,58 @@ func (s *BillingServiceDefault) ListSubscribers(ctx context.Context, filters []q
 	})
 	return result, total, nil
 }
+
+// UpdateSubscriberPlan updates a subscriber's pricing plan period in the database
+// This is used for database-only plan changes when the gateway doesn't support backend plan changes
+func (s *BillingServiceDefault) UpdateSubscriberPlan(ctx context.Context, userID uint, newPeriodID uint) (*pluginCore.PlanChangeResult, error) {
+	ctx, span := core.TraceMethod(ctx, "BillingServiceDefault.UpdateSubscriberPlan")
+	defer span.End()
+
+	// Get the new pricing plan period to verify it exists and get plan info
+	newPeriod, err := s.pricingService.GetPricingPlanPeriod(ctx, newPeriodID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get new pricing plan period: %w", err)
+	}
+	if newPeriod == nil {
+		return nil, fmt.Errorf("pricing plan period not found: %d", newPeriodID)
+	}
+
+	// Find the active subscriber for this user
+	var subscriber models.Subscriber
+	err = db.RetryableComponentTransaction(s, ctx, func(tx *gorm.DB) *gorm.DB {
+		return tx.Where("user_id = ? AND is_active = ?", userID, true).First(&subscriber)
+	})
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("no active subscription found for user %d", userID)
+		}
+		return nil, fmt.Errorf("failed to find active subscriber: %w", err)
+	}
+
+	// Store the old period ID for the result
+	oldPeriodID := uint(0)
+	if subscriber.PricingPlanPeriodID != nil {
+		oldPeriodID = *subscriber.PricingPlanPeriodID
+	}
+
+	// Update the subscriber's pricing plan period
+	now := time.Now()
+	err = db.RetryableComponentTransaction(s, ctx, func(tx *gorm.DB) *gorm.DB {
+		return tx.Model(&subscriber).Updates(map[string]any{
+			"pricing_plan_period_id": newPeriodID,
+			"previous_plan_id":       oldPeriodID,
+			"updated_at":             now,
+		})
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to update subscriber plan: %w", err)
+	}
+
+	// Build the result
+	result := &pluginCore.PlanChangeResult{
+		Action:        pluginCore.PlanChangeActionComplete,
+		EffectiveDate: &now,
+	}
+
+	return result, nil
+}

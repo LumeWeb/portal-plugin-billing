@@ -2417,10 +2417,9 @@ func (g *StripeGateway) GetManagementInfo(ctx context.Context, userID uint) (*pl
 	}
 
 	// Admin operations: backend API calls
-	// Plan change not yet supported for admin backend (requires subscription item update + price ID mapping)
 	adminOperations := map[pluginCore.ManagementOperation]bool{
 		pluginCore.OperationCancel:     true,
-		pluginCore.OperationChangePlan: false,
+		pluginCore.OperationChangePlan: true,
 	}
 
 	return &pluginCore.ManagementCapabilities{
@@ -2982,11 +2981,110 @@ func (g *StripeGateway) ReconcileCancellation(ctx context.Context, userID uint) 
 	return nil
 }
 
-// ExecutePlanChange is not yet implemented for Stripe's backend API.
-// Stripe plan changes via admin API require updating subscription items with new price IDs,
-// which requires mapping from our pricing plan periods to Stripe price IDs.
-// For now, plan changes should go through the customer portal (user context).
-func (g *StripeGateway) ExecutePlanChange(ctx context.Context, userID uint, newPeriodID uint) (*pluginCore.PlanChangeResult, error) {
-	return nil, fmt.Errorf("backend plan change is not yet supported for Stripe; use the customer portal instead")
+// ExecutePlanChange executes a plan change via Stripe's API.
+// Unlike Atlos, Stripe handles proration automatically when updating the subscription item.
+// The webhook (invoice.paid) will handle credit/debit issuance based on Stripe's calculation.
+// DB changes are managed via webhooks - we only trigger the API call.
+func (g *StripeGateway) ExecutePlanChange(
+	ctx context.Context,
+	userID uint,
+	newPeriodID uint,
+) (*pluginCore.PlanChangeResult, error) {
+	ctx, span := core.TraceMethod(ctx, "StripeGateway.ExecutePlanChange")
+	defer span.End()
+
+	// 1. Validate the new pricing plan period
+	newPeriod, err := g.pricing.GetPricingPlanPeriod(ctx, newPeriodID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get new pricing plan period: %w", err)
+	}
+	if newPeriod == nil {
+		return nil, fmt.Errorf("new pricing plan period not found")
+	}
+
+	// 2. Verify the new plan is active
+	plan, err := g.pricing.GetPricingPlan(ctx, newPeriod.PricingPlanID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get pricing plan: %w", err)
+	}
+	if plan == nil || !plan.IsActive {
+		return nil, fmt.Errorf("new plan is not active")
+	}
+
+	// 3. Get the Stripe price ID for the new period
+	mapping, err := g.pricing.GetGatewayProductMapping(ctx, newPeriodID, GatewayID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get gateway product mapping: %w", err)
+	}
+	if mapping == nil || mapping.RemotePriceID == "" {
+		return nil, fmt.Errorf("no Stripe price ID found for pricing period %d", newPeriodID)
+	}
+
+	// 4. Get the current subscription
+	currentSub, err := g.billing.GetActiveSubscription(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get current subscription: %w", err)
+	}
+	if currentSub == nil {
+		return nil, fmt.Errorf("no active subscription found")
+	}
+	if currentSub.GatewayType != GatewayID {
+		return nil, fmt.Errorf("active subscription is not from Stripe")
+	}
+	if currentSub.SubscriptionID == "" {
+		return nil, fmt.Errorf("subscription has no Stripe subscription ID")
+	}
+
+	// 5. Retrieve subscription from Stripe to get the subscription item ID
+	stripeSub, err := g.stripeClient.V1Subscriptions().Retrieve(ctx, currentSub.SubscriptionID, &stripe.SubscriptionRetrieveParams{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve Stripe subscription: %w", err)
+	}
+
+	if stripeSub.Items == nil || len(stripeSub.Items.Data) == 0 {
+		return nil, fmt.Errorf("subscription has no items")
+	}
+	subscriptionItemID := stripeSub.Items.Data[0].ID
+
+	// 6. Update subscription with new price - Stripe handles proration automatically
+	// The webhook (invoice.paid) will process the proration and issue credits/debits
+	updateParams := &stripe.SubscriptionUpdateParams{
+		Items: []*stripe.SubscriptionUpdateItemParams{
+			{
+				ID:      stripe.String(subscriptionItemID),
+				Price:   stripe.String(mapping.RemotePriceID),
+			},
+		},
+		ProrationBehavior: stripe.String("create_prorations"),
+	}
+
+	_, err = g.stripeClient.V1Subscriptions().Update(ctx, currentSub.SubscriptionID, updateParams)
+	if err != nil {
+		g.logger.Error("failed to update subscription via Stripe API",
+			zap.Uint("user_id", userID),
+			zap.String("subscription_id", currentSub.SubscriptionID),
+			zap.Uint("new_period_id", newPeriodID),
+			zap.String("new_price_id", mapping.RemotePriceID),
+			zap.Error(err))
+		return nil, fmt.Errorf("failed to update subscription: %w", err)
+	}
+
+	g.logger.Info("Plan change initiated via Stripe API",
+		zap.Uint("user_id", userID),
+		zap.String("subscription_id", currentSub.SubscriptionID),
+		zap.Uint("old_period_id", func() uint {
+			if currentSub.PricingPlanPeriodID != nil {
+				return *currentSub.PricingPlanPeriodID
+			}
+			return 0
+		}()),
+		zap.Uint("new_period_id", newPeriodID),
+		zap.String("new_price_id", mapping.RemotePriceID))
+
+	// 7. Return completion - actual credit/debit issuance happens via webhooks
+	return &pluginCore.PlanChangeResult{
+		Action:        pluginCore.PlanChangeActionComplete,
+		EffectiveDate: nil, // Stripe handles this via webhook
+	}, nil
 }
 
