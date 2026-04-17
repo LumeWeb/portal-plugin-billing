@@ -703,6 +703,207 @@ func TestStripeGateway_GetCustomerPortalURL_Success(t *testing.T) {
 	})
 }
 
+func TestStripeGateway_ExecuteCancel_Immediate(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+		mockStripeClient := &MockStripeClient{}
+
+		userID := uint(123)
+		planID := uint(42)
+		mockSubscriber := &pluginCore.Subscriber{
+			UserID:              userID,
+			GatewayType:         "stripe",
+			ExternalID:          TestCustomerID,
+			SubscriptionID:      TestSubscriptionID,
+			IsActive:            true,
+			PricingPlanPeriodID: &planID,
+		}
+		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, userID).Return(mockSubscriber, nil)
+
+		mockStripeClient.SubscriptionsService = &MockSubscriptions{}
+		mockStripeClient.SubscriptionsService.
+			On("Cancel", mock.Anything, TestSubscriptionID, mock.AnythingOfType("*stripe.SubscriptionCancelParams")).
+			Return(&stripe.Subscription{ID: TestSubscriptionID}, nil)
+
+		gw := NewWithConfig(ctx.Logger(), ctx, testConfig(), nil, nil, mockBilling, nil, nil)
+		gw.stripeClient = mockStripeClient
+
+		result, err := gw.ExecuteCancel(context.Background(), userID, true)
+
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Equal(t, pluginCore.CancellationStatusImmediate, result.Status)
+		assert.NotNil(t, result.EffectiveAt)
+		assert.False(t, result.CanAbort)
+		mockStripeClient.SubscriptionsService.AssertExpectations(t)
+	})
+}
+
+func TestStripeGateway_ExecuteCancel_Scheduled(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+		mockStripeClient := &MockStripeClient{}
+
+		userID := uint(123)
+		planID := uint(42)
+		mockSubscriber := &pluginCore.Subscriber{
+			UserID:              userID,
+			GatewayType:         "stripe",
+			ExternalID:          TestCustomerID,
+			SubscriptionID:      TestSubscriptionID,
+			IsActive:            true,
+			PricingPlanPeriodID: &planID,
+		}
+		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, userID).Return(mockSubscriber, nil)
+
+		periodEnd := time.Now().Add(30 * 24 * time.Hour).Unix()
+		mockStripeClient.SubscriptionsService = &MockSubscriptions{}
+		mockStripeClient.SubscriptionsService.
+			On("Update", mock.Anything, TestSubscriptionID, mock.AnythingOfType("*stripe.SubscriptionUpdateParams")).
+			Return(&stripe.Subscription{
+				ID: TestSubscriptionID,
+				Items: &stripe.SubscriptionItemList{
+					Data: []*stripe.SubscriptionItem{
+						{CurrentPeriodEnd: periodEnd},
+					},
+				},
+			}, nil)
+
+		gw := NewWithConfig(ctx.Logger(), ctx, testConfig(), nil, nil, mockBilling, nil, nil)
+		gw.stripeClient = mockStripeClient
+
+		result, err := gw.ExecuteCancel(context.Background(), userID, false)
+
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Equal(t, pluginCore.CancellationStatusScheduled, result.Status)
+		assert.NotNil(t, result.EffectiveAt)
+		assert.True(t, result.CanAbort)
+		mockStripeClient.SubscriptionsService.AssertExpectations(t)
+	})
+}
+
+func TestStripeGateway_ExecuteCancel_Immediate_ApiError(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+		mockStripeClient := &MockStripeClient{}
+
+		userID := uint(123)
+		planID := uint(42)
+		mockSubscriber := &pluginCore.Subscriber{
+			UserID:              userID,
+			GatewayType:         "stripe",
+			ExternalID:          TestCustomerID,
+			SubscriptionID:      TestSubscriptionID,
+			IsActive:            true,
+			PricingPlanPeriodID: &planID,
+		}
+		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, userID).Return(mockSubscriber, nil)
+
+		mockStripeClient.SubscriptionsService = &MockSubscriptions{}
+		mockStripeClient.SubscriptionsService.
+			On("Cancel", mock.Anything, TestSubscriptionID, mock.AnythingOfType("*stripe.SubscriptionCancelParams")).
+			Return((*stripe.Subscription)(nil), fmt.Errorf("stripe api error"))
+
+		gw := NewWithConfig(ctx.Logger(), ctx, testConfig(), nil, nil, mockBilling, nil, nil)
+		gw.stripeClient = mockStripeClient
+
+		result, err := gw.ExecuteCancel(context.Background(), userID, true)
+
+		assert.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "failed to cancel subscription")
+	})
+}
+
+func TestStripeGateway_ExecuteCancel_NoActiveSubscription(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+
+		userID := uint(123)
+		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, userID).Return(nil, nil)
+
+		gw := NewWithConfig(ctx.Logger(), ctx, testConfig(), nil, nil, mockBilling, nil, nil)
+
+		result, err := gw.ExecuteCancel(context.Background(), userID, true)
+
+		assert.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "no active stripe subscription found")
+	})
+}
+
+func TestStripeGateway_ExecuteCancel_WrongGateway(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+
+		userID := uint(123)
+		mockSubscriber := &pluginCore.Subscriber{
+			UserID:         userID,
+			GatewayType:    "atlos",
+			SubscriptionID: TestSubscriptionID,
+			IsActive:       true,
+		}
+		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, userID).Return(mockSubscriber, nil)
+
+		gw := NewWithConfig(ctx.Logger(), ctx, testConfig(), nil, nil, mockBilling, nil, nil)
+
+		result, err := gw.ExecuteCancel(context.Background(), userID, true)
+
+		assert.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "no active stripe subscription found")
+	})
+}
+
+func TestStripeGateway_ExecuteCancel_NoBillingService(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		gw := NewWithConfig(ctx.Logger(), ctx, testConfig(), nil, nil, nil, nil, nil)
+
+		result, err := gw.ExecuteCancel(context.Background(), 123, true)
+
+		assert.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "billing service not configured")
+	})
+}
+
+func TestStripeGateway_ExecuteCancel_Immediate_DoesNotDeactivateOrFireEvent(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+		mockStripeClient := &MockStripeClient{}
+
+		userID := uint(123)
+		planID := uint(42)
+		mockSubscriber := &pluginCore.Subscriber{
+			UserID:              userID,
+			GatewayType:         "stripe",
+			ExternalID:          TestCustomerID,
+			SubscriptionID:      TestSubscriptionID,
+			IsActive:            true,
+			PricingPlanPeriodID: &planID,
+		}
+		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, userID).Return(mockSubscriber, nil)
+
+		mockStripeClient.SubscriptionsService = &MockSubscriptions{}
+		mockStripeClient.SubscriptionsService.
+			On("Cancel", mock.Anything, TestSubscriptionID, mock.AnythingOfType("*stripe.SubscriptionCancelParams")).
+			Return(&stripe.Subscription{ID: TestSubscriptionID}, nil)
+
+		gw := NewWithConfig(ctx.Logger(), ctx, testConfig(), nil, nil, mockBilling, nil, nil)
+		gw.stripeClient = mockStripeClient
+
+		result, err := gw.ExecuteCancel(context.Background(), userID, true)
+
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Equal(t, pluginCore.CancellationStatusImmediate, result.Status)
+
+		// Verify DeactivateSubscriber was NOT called — webhook handles that
+		mockBilling.AssertNotCalled(t, "DeactivateSubscriber", mock.Anything, userID, "stripe")
+	})
+}
+
 func TestStripeGateway_HandleWebhook_CheckoutSessionCompleted(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		mockQuota, mockUsers, mockBilling, mockPricing := setupMockServices(ctx)
