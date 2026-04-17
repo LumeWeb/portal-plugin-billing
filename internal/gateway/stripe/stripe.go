@@ -15,8 +15,8 @@ import (
 	"github.com/stripe/stripe-go/v83/webhook"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
 	"go.lumeweb.com/portal-plugin-billing/internal/config"
-	billingEvent "go.lumeweb.com/portal-plugin-billing/internal/event"
 	billingModels "go.lumeweb.com/portal-plugin-billing/internal/db/models"
+	billingEvent "go.lumeweb.com/portal-plugin-billing/internal/event"
 	"go.lumeweb.com/portal-plugin-billing/internal/gateway"
 	"go.lumeweb.com/portal-plugin-billing/pkg/subscription"
 	quotaCore "go.lumeweb.com/portal-plugin-quota/core"
@@ -2821,13 +2821,13 @@ func (g *StripeGateway) validateAndCalculateCreditAmount(
 
 // Compile-time interface checks
 var (
-	_ pluginCore.GatewayIdentity     = (*StripeGateway)(nil)
-	_ pluginCore.WebhookHandler      = (*StripeGateway)(nil)
-	_ pluginCore.CustomerPortal      = (*StripeGateway)(nil)
-	_ pluginCore.CheckoutProvider    = (*StripeGateway)(nil)
-	_ pluginCore.GatewayCapabilities = (*StripeGateway)(nil)
-	_ pluginCore.GatewaySync         = (*StripeGateway)(nil)
-	_ pluginCore.SubscriptionManager = (*StripeGateway)(nil)
+	_ pluginCore.GatewayIdentity      = (*StripeGateway)(nil)
+	_ pluginCore.WebhookHandler       = (*StripeGateway)(nil)
+	_ pluginCore.CustomerPortal       = (*StripeGateway)(nil)
+	_ pluginCore.CheckoutProvider     = (*StripeGateway)(nil)
+	_ pluginCore.GatewayCapabilities  = (*StripeGateway)(nil)
+	_ pluginCore.GatewaySync          = (*StripeGateway)(nil)
+	_ pluginCore.SubscriptionManager  = (*StripeGateway)(nil)
 	_ pluginCore.SubscriptionExecutor = (*StripeGateway)(nil) // Admin backend operations
 )
 
@@ -3051,8 +3051,8 @@ func (g *StripeGateway) ExecutePlanChange(
 	updateParams := &stripe.SubscriptionUpdateParams{
 		Items: []*stripe.SubscriptionUpdateItemParams{
 			{
-				ID:      stripe.String(subscriptionItemID),
-				Price:   stripe.String(mapping.RemotePriceID),
+				ID:    stripe.String(subscriptionItemID),
+				Price: stripe.String(mapping.RemotePriceID),
 			},
 		},
 		ProrationBehavior: stripe.String("create_prorations"),
@@ -3084,7 +3084,6 @@ func (g *StripeGateway) ExecutePlanChange(
 	// 7. Return completion - actual credit/debit issuance happens via webhooks
 	return &pluginCore.PlanChangeResult{
 		Action:        pluginCore.PlanChangeActionComplete,
-		EffectiveDate: nil, // Stripe handles this via webhook
+		EffectiveDate: new(time.Now()),
 	}, nil
 }
-
