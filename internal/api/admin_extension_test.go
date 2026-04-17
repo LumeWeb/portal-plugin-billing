@@ -2826,3 +2826,213 @@ func TestAdminCancelSubscriptionRequest_Schema_DatabaseMode(t *testing.T) {
 	_, err := validReq.ToModel()
 	assert.NoError(t, err)
 }
+
+// Admin Pause/Resume Tests
+
+// TestAdminHandlePauseUserSubscription_Success tests successful pause via gateway
+func TestAdminHandlePauseUserSubscription_Success(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		billingSvc := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+		router := ctx.Router()
+
+		planID := uint(100)
+		subscriber := &pluginCore.Subscriber{
+			UserID:              123,
+			GatewayType:         "stripe",
+			ExternalID:          "ext_123",
+			IsActive:            true,
+			PricingPlanPeriodID: &planID,
+		}
+
+		billingSvc.EXPECT().GetActiveSubscription(mock.Anything, uint(123)).Return(subscriber, nil).Once()
+
+		// Mock gateway with pause support
+		mockGateway := pluginCore.NewMockPaymentGateway(tb)
+		billingSvc.EXPECT().GetGateway(mock.Anything, "stripe").Return(mockGateway, nil).Once()
+
+		capabilities := &pluginCore.ManagementCapabilities{
+			ManagementMode: pluginCore.ModePortal,
+			AdminOperations: map[pluginCore.ManagementOperation]bool{
+				pluginCore.OperationPause: true,
+			},
+		}
+		mockGateway.EXPECT().GetManagementInfo(mock.Anything, uint(123)).Return(capabilities, nil).Once()
+		mockGateway.EXPECT().ExecutePause(mock.Anything, uint(123)).Return(nil).Once()
+
+		req := ctx.NewAPIRequest("POST", "/api/billing/users/123/subscriptions/pause", nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		assert.Equal(tb, http.StatusOK, w.Code)
+
+		var response dto.ManagementResultResponse
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(tb, err)
+		assert.Equal(tb, pluginCore.ActionAPIRequired, response.Action)
+		assert.Equal(tb, "paused", response.Status)
+	}, getAdminAPITestOptions())
+}
+
+// TestAdminHandlePauseUserSubscription_NotSupported tests pause when gateway doesn't support it
+func TestAdminHandlePauseUserSubscription_NotSupported(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		billingSvc := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+		router := ctx.Router()
+
+		planID := uint(100)
+		subscriber := &pluginCore.Subscriber{
+			UserID:              123,
+			GatewayType:         "atlos",
+			ExternalID:          "ext_123",
+			IsActive:            true,
+			PricingPlanPeriodID: &planID,
+		}
+
+		billingSvc.EXPECT().GetActiveSubscription(mock.Anything, uint(123)).Return(subscriber, nil).Once()
+
+		mockGateway := pluginCore.NewMockPaymentGateway(tb)
+		billingSvc.EXPECT().GetGateway(mock.Anything, "atlos").Return(mockGateway, nil).Once()
+
+		capabilities := &pluginCore.ManagementCapabilities{
+			ManagementMode: pluginCore.ModeAPI,
+			AdminOperations: map[pluginCore.ManagementOperation]bool{
+				pluginCore.OperationPause: false,
+			},
+		}
+		mockGateway.EXPECT().GetManagementInfo(mock.Anything, uint(123)).Return(capabilities, nil).Once()
+
+		req := ctx.NewAPIRequest("POST", "/api/billing/users/123/subscriptions/pause", nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		assert.Equal(tb, http.StatusBadRequest, w.Code)
+
+		var errResponse map[string]any
+		err := json.Unmarshal(w.Body.Bytes(), &errResponse)
+		require.NoError(tb, err)
+		assert.Contains(tb, errResponse["error"], "does not support")
+	}, getAdminAPITestOptions())
+}
+
+// TestAdminHandlePauseUserSubscription_NoActiveSubscription tests pause with no subscription
+func TestAdminHandlePauseUserSubscription_NoActiveSubscription(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		billingSvc := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+		router := ctx.Router()
+
+		billingSvc.EXPECT().GetActiveSubscription(mock.Anything, uint(123)).Return(nil, nil).Once()
+
+		req := ctx.NewAPIRequest("POST", "/api/billing/users/123/subscriptions/pause", nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		assert.Equal(tb, http.StatusNotFound, w.Code)
+	}, getAdminAPITestOptions())
+}
+
+// TestAdminHandleResumeUserSubscription_Success tests successful resume via gateway
+func TestAdminHandleResumeUserSubscription_Success(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		billingSvc := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+		router := ctx.Router()
+
+		planID := uint(100)
+		subscriber := &pluginCore.Subscriber{
+			UserID:              123,
+			GatewayType:         "stripe",
+			ExternalID:          "ext_123",
+			IsActive:            true,
+			PricingPlanPeriodID: &planID,
+		}
+
+		billingSvc.EXPECT().GetActiveSubscription(mock.Anything, uint(123)).Return(subscriber, nil).Once()
+
+		// Mock gateway with resume support
+		mockGateway := pluginCore.NewMockPaymentGateway(tb)
+		billingSvc.EXPECT().GetGateway(mock.Anything, "stripe").Return(mockGateway, nil).Once()
+
+		capabilities := &pluginCore.ManagementCapabilities{
+			ManagementMode: pluginCore.ModePortal,
+			AdminOperations: map[pluginCore.ManagementOperation]bool{
+				pluginCore.OperationResume: true,
+			},
+		}
+		mockGateway.EXPECT().GetManagementInfo(mock.Anything, uint(123)).Return(capabilities, nil).Once()
+		mockGateway.EXPECT().ExecuteResume(mock.Anything, uint(123)).Return(nil).Once()
+
+		req := ctx.NewAPIRequest("POST", "/api/billing/users/123/subscriptions/resume", nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		assert.Equal(tb, http.StatusOK, w.Code)
+
+		var response dto.ManagementResultResponse
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(tb, err)
+		assert.Equal(tb, pluginCore.ActionAPIRequired, response.Action)
+		assert.Equal(tb, "resumed", response.Status)
+	}, getAdminAPITestOptions())
+}
+
+// TestAdminHandleResumeUserSubscription_NotSupported tests resume when gateway doesn't support it
+func TestAdminHandleResumeUserSubscription_NotSupported(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		billingSvc := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+		router := ctx.Router()
+
+		planID := uint(100)
+		subscriber := &pluginCore.Subscriber{
+			UserID:              123,
+			GatewayType:         "atlos",
+			ExternalID:          "ext_123",
+			IsActive:            true,
+			PricingPlanPeriodID: &planID,
+		}
+
+		billingSvc.EXPECT().GetActiveSubscription(mock.Anything, uint(123)).Return(subscriber, nil).Once()
+
+		mockGateway := pluginCore.NewMockPaymentGateway(tb)
+		billingSvc.EXPECT().GetGateway(mock.Anything, "atlos").Return(mockGateway, nil).Once()
+
+		capabilities := &pluginCore.ManagementCapabilities{
+			ManagementMode: pluginCore.ModeAPI,
+			AdminOperations: map[pluginCore.ManagementOperation]bool{
+				pluginCore.OperationResume: false,
+			},
+		}
+		mockGateway.EXPECT().GetManagementInfo(mock.Anything, uint(123)).Return(capabilities, nil).Once()
+
+		req := ctx.NewAPIRequest("POST", "/api/billing/users/123/subscriptions/resume", nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		assert.Equal(tb, http.StatusBadRequest, w.Code)
+
+		var errResponse map[string]any
+		err := json.Unmarshal(w.Body.Bytes(), &errResponse)
+		require.NoError(tb, err)
+		assert.Contains(tb, errResponse["error"], "does not support")
+	}, getAdminAPITestOptions())
+}
+
+// TestAdminHandleResumeUserSubscription_NoActiveSubscription tests resume with no subscription
+func TestAdminHandleResumeUserSubscription_NoActiveSubscription(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		billingSvc := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+		router := ctx.Router()
+
+		billingSvc.EXPECT().GetActiveSubscription(mock.Anything, uint(123)).Return(nil, nil).Once()
+
+		req := ctx.NewAPIRequest("POST", "/api/billing/users/123/subscriptions/resume", nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		assert.Equal(tb, http.StatusNotFound, w.Code)
+	}, getAdminAPITestOptions())
+}

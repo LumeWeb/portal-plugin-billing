@@ -2410,16 +2410,20 @@ func (g *StripeGateway) GetManagementInfo(ctx context.Context, userID uint) (*pl
 	ctx, span := core.TraceMethod(ctx, "StripeGateway.GetManagementInfo")
 	defer span.End()
 
-	// User operations: portal-based management
+	// User operations: portal-based management (via customer portal deep link)
 	userOperations := map[pluginCore.ManagementOperation]bool{
 		pluginCore.OperationCancel:     true,
 		pluginCore.OperationChangePlan: true,
+		pluginCore.OperationPause:      true,
+		pluginCore.OperationResume:     true,
 	}
 
-	// Admin operations: backend API calls
+	// Admin operations: backend API calls (includes pause/resume for direct admin control)
 	adminOperations := map[pluginCore.ManagementOperation]bool{
 		pluginCore.OperationCancel:     true,
 		pluginCore.OperationChangePlan: true,
+		pluginCore.OperationPause:      true,
+		pluginCore.OperationResume:     true,
 	}
 
 	return &pluginCore.ManagementCapabilities{
@@ -2978,6 +2982,97 @@ func (g *StripeGateway) AbortCancellation(ctx context.Context, userID uint) erro
 func (g *StripeGateway) ReconcileCancellation(ctx context.Context, userID uint) error {
 	// Stripe handles cancellation finalization via webhooks
 	// No action needed here
+	return nil
+}
+
+// ExecutePause pauses a subscription through Stripe's API.
+// Admin can directly pause subscriptions via the Stripe API.
+func (g *StripeGateway) ExecutePause(ctx context.Context, userID uint) error {
+	ctx, span := core.TraceMethod(ctx, "StripeGateway.ExecutePause")
+	defer span.End()
+
+	if g.billing == nil {
+		return fmt.Errorf("billing service not configured")
+	}
+
+	// Get active subscription
+	subscriber, err := g.billing.GetActiveSubscription(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("failed to get active subscription: %w", err)
+	}
+	if subscriber == nil || subscriber.GatewayType != GatewayID {
+		return fmt.Errorf("no active stripe subscription found for user %d", userID)
+	}
+
+	if subscriber.SubscriptionID == "" {
+		return fmt.Errorf("no stripe subscription ID found for user %d", userID)
+	}
+
+	// Pause the subscription via Stripe API
+	params := &stripe.SubscriptionUpdateParams{
+		PauseCollection: &stripe.SubscriptionUpdatePauseCollectionParams{
+			Behavior: stripe.String("mark_uncollectible"),
+		},
+	}
+
+	_, err = g.stripeClient.V1Subscriptions().Update(ctx, subscriber.SubscriptionID, params)
+	if err != nil {
+		g.logger.Error("failed to pause subscription via Stripe API",
+			zap.Uint("user_id", userID),
+			zap.String("subscription_id", subscriber.SubscriptionID),
+			zap.Error(err))
+		return fmt.Errorf("failed to pause subscription: %w", err)
+	}
+
+	g.logger.Info("Paused subscription via Stripe API",
+		zap.Uint("user_id", userID),
+		zap.String("subscription_id", subscriber.SubscriptionID))
+
+	return nil
+}
+
+// ExecuteResume resumes a paused subscription through Stripe's API.
+// Admin can directly resume subscriptions via the Stripe API.
+func (g *StripeGateway) ExecuteResume(ctx context.Context, userID uint) error {
+	ctx, span := core.TraceMethod(ctx, "StripeGateway.ExecuteResume")
+	defer span.End()
+
+	if g.billing == nil {
+		return fmt.Errorf("billing service not configured")
+	}
+
+	// Get active subscription (will detect paused state via webhooks)
+	subscriber, err := g.billing.GetActiveSubscription(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("failed to get active subscription: %w", err)
+	}
+	if subscriber == nil || subscriber.GatewayType != GatewayID {
+		return fmt.Errorf("no active stripe subscription found for user %d", userID)
+	}
+
+	if subscriber.SubscriptionID == "" {
+		return fmt.Errorf("no stripe subscription ID found for user %d", userID)
+	}
+
+	// Resume the subscription via Stripe API by clearing pause_collection
+	// Set PauseCollection to empty struct with empty behavior to clear the pause
+	params := &stripe.SubscriptionUpdateParams{
+		PauseCollection: &stripe.SubscriptionUpdatePauseCollectionParams{},
+	}
+
+	_, err = g.stripeClient.V1Subscriptions().Update(ctx, subscriber.SubscriptionID, params)
+	if err != nil {
+		g.logger.Error("failed to resume subscription via Stripe API",
+			zap.Uint("user_id", userID),
+			zap.String("subscription_id", subscriber.SubscriptionID),
+			zap.Error(err))
+		return fmt.Errorf("failed to resume subscription: %w", err)
+	}
+
+	g.logger.Info("Resumed subscription via Stripe API",
+		zap.Uint("user_id", userID),
+		zap.String("subscription_id", subscriber.SubscriptionID))
+
 	return nil
 }
 

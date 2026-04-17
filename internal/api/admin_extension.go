@@ -481,6 +481,44 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 					),
 				),
 			)),
+		router.NewRoute(http.MethodPost, "/api/billing/users/:userId/subscriptions/pause", e.handlePauseUserSubscription,
+			router.WithSwagger(
+				router.WithoutDefaultSuccessResponse(),
+				router.WithSummary("Pause User Subscription"),
+				router.WithDescription("Pauses a user's active subscription through the payment gateway"),
+				router.WithTags("Billing Admin"),
+				router.WithPathParam("userId", "User ID", "123"),
+				router.WithSuccessResponse(http.StatusOK, "Subscription paused successfully",
+					router.WithJSONContent(dto.ManagementResultResponse{})),
+				router.WithErrorResponses(
+					router.DefineSwaggerErrorResponses(
+						router.DefineSwaggerErrorResponse(http.StatusUnauthorized, "Authentication required"),
+						router.DefineSwaggerErrorResponse(http.StatusForbidden, "Insufficient permissions"),
+						router.DefineSwaggerErrorResponse(http.StatusBadRequest, "Invalid request"),
+						router.DefineSwaggerErrorResponse(http.StatusNotFound, "No active subscription found"),
+						router.DefineSwaggerErrorResponse(http.StatusInternalServerError, "Server error"),
+					),
+				),
+			)),
+		router.NewRoute(http.MethodPost, "/api/billing/users/:userId/subscriptions/resume", e.handleResumeUserSubscription,
+			router.WithSwagger(
+				router.WithoutDefaultSuccessResponse(),
+				router.WithSummary("Resume User Subscription"),
+				router.WithDescription("Resumes a user's paused subscription through the payment gateway"),
+				router.WithTags("Billing Admin"),
+				router.WithPathParam("userId", "User ID", "123"),
+				router.WithSuccessResponse(http.StatusOK, "Subscription resumed successfully",
+					router.WithJSONContent(dto.ManagementResultResponse{})),
+				router.WithErrorResponses(
+					router.DefineSwaggerErrorResponses(
+						router.DefineSwaggerErrorResponse(http.StatusUnauthorized, "Authentication required"),
+						router.DefineSwaggerErrorResponse(http.StatusForbidden, "Insufficient permissions"),
+						router.DefineSwaggerErrorResponse(http.StatusBadRequest, "Invalid request"),
+						router.DefineSwaggerErrorResponse(http.StatusNotFound, "No paused subscription found"),
+						router.DefineSwaggerErrorResponse(http.StatusInternalServerError, "Server error"),
+					),
+				),
+			)),
 		router.NewRoute(http.MethodPost, "/api/billing/users/:userId/subscriptions/change-plan", e.handleChangeUserPlan,
 			router.WithSwagger(
 				router.WithoutDefaultSuccessResponse(),
@@ -1686,6 +1724,178 @@ func (e *AdminExtension) handleChangeUserPlan(c echo.Context) error {
 	response := dto.PlanChangeResultResponse{}
 	if err := response.FromModel(result); err != nil {
 		e.Logger().Error("failed to build plan change response",
+			zap.Uint("user_id", uint(userID)),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("failed to build response: %w", err)), http.StatusInternalServerError)
+	}
+
+	return httputil.EncodeResponse(ctx, result, &response)
+}
+
+// handlePauseUserSubscription pauses a user's subscription
+func (e *AdminExtension) handlePauseUserSubscription(c echo.Context) error {
+	ctx := httputil.Context(c)
+	reqCtx := ctx.Context.Request().Context()
+
+	userIDStr := c.Param("userId")
+	userID, err := strconv.ParseUint(userIDStr, 10, 64)
+	if err != nil {
+		return ctx.Error(NewError(ErrKeyInvalidIdentifier, fmt.Errorf("invalid user id: %w", err)), http.StatusBadRequest)
+	}
+
+	// Get active subscription for the user
+	sub, err := e.billingService.GetActiveSubscription(reqCtx, uint(userID))
+	if err != nil {
+		e.Logger().Error("failed to get active subscription",
+			zap.Uint("user_id", uint(userID)),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeySubscriptionCheckFailed, fmt.Errorf("failed to get active subscription: %w", err)), http.StatusInternalServerError)
+	}
+
+	if sub == nil {
+		return ctx.Error(NewError(ErrKeyNoActiveSubscription, fmt.Errorf("no active subscription found")), http.StatusNotFound)
+	}
+
+	// Get the gateway for this subscription
+	gateway, err := e.billingService.GetGateway(reqCtx, sub.GatewayType)
+	if err != nil {
+		e.Logger().Error("failed to get payment gateway",
+			zap.Uint("user_id", uint(userID)),
+			zap.String("gateway_type", sub.GatewayType),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("failed to get payment gateway")), http.StatusInternalServerError)
+	}
+
+	// Check if gateway implements SubscriptionManager
+	manager, ok := gateway.(pluginCore.SubscriptionManager)
+	if !ok {
+		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway does not support subscription management")), http.StatusInternalServerError)
+	}
+
+	// Get management capabilities to check admin operations
+	capabilities, err := manager.GetManagementInfo(reqCtx, uint(userID))
+	if err != nil {
+		e.Logger().Error("failed to get management capabilities",
+			zap.Uint("user_id", uint(userID)),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeyManagementCapabilitiesFailed, fmt.Errorf("failed to get management capabilities: %w", err)), http.StatusInternalServerError)
+	}
+
+	// Check if gateway supports admin backend pause
+	supported, exists := capabilities.AdminOperations[pluginCore.OperationPause]
+	if !exists || !supported {
+		return ctx.Error(NewError(ErrKeyManagementOperationFailed,
+			fmt.Errorf("gateway does not support backend pause")),
+			http.StatusBadRequest)
+	}
+
+	// Gateway supports backend pause - execute it
+	executor, ok := gateway.(pluginCore.SubscriptionExecutor)
+	if !ok {
+		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway reports admin pause support but does not implement SubscriptionExecutor")), http.StatusInternalServerError)
+	}
+
+	if err := executor.ExecutePause(reqCtx, uint(userID)); err != nil {
+		e.Logger().Error("failed to pause subscription",
+			zap.Uint("user_id", uint(userID)),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("failed to pause subscription: %w", err)), http.StatusInternalServerError)
+	}
+
+	result := &pluginCore.ManagementResult{
+		Action: pluginCore.ActionAPIRequired,
+		Status: "paused",
+	}
+
+	response := dto.ManagementResultResponse{}
+	if err := response.FromModel(result); err != nil {
+		e.Logger().Error("failed to build pause response",
+			zap.Uint("user_id", uint(userID)),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("failed to build response: %w", err)), http.StatusInternalServerError)
+	}
+
+	return httputil.EncodeResponse(ctx, result, &response)
+}
+
+// handleResumeUserSubscription resumes a user's paused subscription
+func (e *AdminExtension) handleResumeUserSubscription(c echo.Context) error {
+	ctx := httputil.Context(c)
+	reqCtx := ctx.Context.Request().Context()
+
+	userIDStr := c.Param("userId")
+	userID, err := strconv.ParseUint(userIDStr, 10, 64)
+	if err != nil {
+		return ctx.Error(NewError(ErrKeyInvalidIdentifier, fmt.Errorf("invalid user id: %w", err)), http.StatusBadRequest)
+	}
+
+	// Get active subscription for the user (allows paused subscriptions)
+	sub, err := e.billingService.GetActiveSubscription(reqCtx, uint(userID))
+	if err != nil {
+		e.Logger().Error("failed to get active subscription",
+			zap.Uint("user_id", uint(userID)),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeySubscriptionCheckFailed, fmt.Errorf("failed to get active subscription: %w", err)), http.StatusInternalServerError)
+	}
+
+	if sub == nil {
+		return ctx.Error(NewError(ErrKeyNoActiveSubscription, fmt.Errorf("no active subscription found")), http.StatusNotFound)
+	}
+
+	// Get the gateway for this subscription
+	gateway, err := e.billingService.GetGateway(reqCtx, sub.GatewayType)
+	if err != nil {
+		e.Logger().Error("failed to get payment gateway",
+			zap.Uint("user_id", uint(userID)),
+			zap.String("gateway_type", sub.GatewayType),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("failed to get payment gateway")), http.StatusInternalServerError)
+	}
+
+	// Check if gateway implements SubscriptionManager
+	manager, ok := gateway.(pluginCore.SubscriptionManager)
+	if !ok {
+		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway does not support subscription management")), http.StatusInternalServerError)
+	}
+
+	// Get management capabilities to check admin operations
+	capabilities, err := manager.GetManagementInfo(reqCtx, uint(userID))
+	if err != nil {
+		e.Logger().Error("failed to get management capabilities",
+			zap.Uint("user_id", uint(userID)),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeyManagementCapabilitiesFailed, fmt.Errorf("failed to get management capabilities: %w", err)), http.StatusInternalServerError)
+	}
+
+	// Check if gateway supports admin backend resume
+	supported, exists := capabilities.AdminOperations[pluginCore.OperationResume]
+	if !exists || !supported {
+		return ctx.Error(NewError(ErrKeyManagementOperationFailed,
+			fmt.Errorf("gateway does not support backend resume")),
+			http.StatusBadRequest)
+	}
+
+	// Gateway supports backend resume - execute it
+	executor, ok := gateway.(pluginCore.SubscriptionExecutor)
+	if !ok {
+		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway reports admin resume support but does not implement SubscriptionExecutor")), http.StatusInternalServerError)
+	}
+
+	if err := executor.ExecuteResume(reqCtx, uint(userID)); err != nil {
+		e.Logger().Error("failed to resume subscription",
+			zap.Uint("user_id", uint(userID)),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("failed to resume subscription: %w", err)), http.StatusInternalServerError)
+	}
+
+	result := &pluginCore.ManagementResult{
+		Action: pluginCore.ActionAPIRequired,
+		Status: "resumed",
+	}
+
+	response := dto.ManagementResultResponse{}
+	if err := response.FromModel(result); err != nil {
+		e.Logger().Error("failed to build resume response",
 			zap.Uint("user_id", uint(userID)),
 			zap.Error(err))
 		return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("failed to build response: %w", err)), http.StatusInternalServerError)

@@ -7,6 +7,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/samber/lo"
 	"go.lumeweb.com/httputil"
+	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
 	"go.lumeweb.com/portal-plugin-billing/internal/api/dto"
 	"go.lumeweb.com/portal-plugin-billing/internal/db/models"
 	"go.lumeweb.com/portal-plugin-billing/pkg/ledger"
@@ -16,6 +17,210 @@ import (
 )
 
 // handleGetBalance returns the authenticated user's current credit balance
+// handlePauseOperation executes the pause operation.
+// This endpoint is called after UI discovers it via POST /management.
+// For API mode gateways, it executes directly. For portal mode, it returns redirect URL.
+func (e *APIExtension) handlePauseOperation(c echo.Context) error {
+	ctx := httputil.Context(c)
+	userID, ok := e.getUser(ctx)
+	if !ok {
+		return ctx.Error(NewError(ErrKeyUnauthorized, fmt.Errorf("failed to get user ID")), http.StatusUnauthorized)
+	}
+
+	// Get active subscription to determine gateway
+	sub, err := e.billingService.GetActiveSubscription(c.Request().Context(), userID)
+	if err != nil {
+		e.Logger().Error("failed to check subscription status",
+			zap.Uint("user_id", userID),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeySubscriptionCheckFailed, fmt.Errorf("failed to check subscription status")), http.StatusInternalServerError)
+	}
+
+	if sub == nil {
+		return ctx.Error(NewError(ErrKeyNoActiveSubscription, fmt.Errorf("no active subscription found")), http.StatusNotFound)
+	}
+
+	// Get the gateway for this subscription
+	gateway, err := e.billingService.GetGateway(c.Request().Context(), sub.GatewayType)
+	if err != nil {
+		e.Logger().Error("failed to get payment gateway",
+			zap.Uint("user_id", userID),
+			zap.String("gateway_type", sub.GatewayType),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("failed to get payment gateway")), http.StatusInternalServerError)
+	}
+
+	// Check if gateway implements SubscriptionManager (for portal mode)
+	manager, ok := gateway.(pluginCore.SubscriptionManager)
+	if !ok {
+		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway does not support subscription management")), http.StatusInternalServerError)
+	}
+
+	// Get management capabilities to determine mode
+	capabilities, err := manager.GetManagementInfo(c.Request().Context(), userID)
+	if err != nil {
+		e.Logger().Error("failed to get management capabilities",
+			zap.Uint("user_id", userID),
+			zap.String("gateway_type", sub.GatewayType),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeyManagementCapabilitiesFailed, fmt.Errorf("failed to get management capabilities: %w", err)), http.StatusInternalServerError)
+	}
+
+	// API mode: execute directly
+	if capabilities.ManagementMode == pluginCore.ModeAPI {
+		// Verify operation is supported (defense in depth)
+		supported, exists := capabilities.Operations[pluginCore.OperationPause]
+		if !exists || !supported {
+			return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("pause is not supported by this gateway")), http.StatusBadRequest)
+		}
+
+		executor, ok := gateway.(pluginCore.SubscriptionExecutor)
+		if !ok {
+			return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway does not support subscription execution")), http.StatusInternalServerError)
+		}
+
+		if err := executor.ExecutePause(c.Request().Context(), userID); err != nil {
+			e.Logger().Error("failed to execute pause",
+				zap.Uint("user_id", userID),
+				zap.String("gateway_type", sub.GatewayType),
+				zap.Error(err))
+			return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("failed to pause subscription: %w", err)), http.StatusInternalServerError)
+		}
+
+		result := &pluginCore.ManagementResult{
+			Action: pluginCore.ActionShowUI,
+			Status: "paused",
+		}
+		response := dto.ManagementResultResponse{}
+		if err := response.FromModel(result); err != nil {
+			return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("failed to build response: %w", err)), http.StatusInternalServerError)
+		}
+		return httputil.EncodeResponse(ctx, result, &response)
+	}
+
+	// Portal mode: return redirect URL
+	result, err := manager.GetManagementURL(c.Request().Context(), userID, pluginCore.OperationPause)
+	if err != nil {
+		e.Logger().Error("failed to get pause portal URL",
+			zap.Uint("user_id", userID),
+			zap.String("gateway_type", sub.GatewayType),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("failed to get pause URL: %w", err)), http.StatusInternalServerError)
+	}
+
+	response := dto.ManagementResultResponse{}
+	if err := response.FromModel(result); err != nil {
+		e.Logger().Error("failed to build pause response",
+			zap.Uint("user_id", userID),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("failed to build response: %w", err)), http.StatusInternalServerError)
+	}
+
+	return httputil.EncodeResponse(ctx, result, &response)
+}
+
+// handleResumeOperation executes the resume operation.
+// This endpoint is called after UI discovers it via POST /management.
+// For API mode gateways, it executes directly. For portal mode, it returns redirect URL.
+func (e *APIExtension) handleResumeOperation(c echo.Context) error {
+	ctx := httputil.Context(c)
+	userID, ok := e.getUser(ctx)
+	if !ok {
+		return ctx.Error(NewError(ErrKeyUnauthorized, fmt.Errorf("failed to get user ID")), http.StatusUnauthorized)
+	}
+
+	// Get subscription to determine gateway (allow paused subscriptions)
+	sub, err := e.billingService.GetActiveSubscription(c.Request().Context(), userID)
+	if err != nil {
+		e.Logger().Error("failed to check subscription status",
+			zap.Uint("user_id", userID),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeySubscriptionCheckFailed, fmt.Errorf("failed to check subscription status")), http.StatusInternalServerError)
+	}
+
+	if sub == nil {
+		return ctx.Error(NewError(ErrKeyNoActiveSubscription, fmt.Errorf("no active subscription found")), http.StatusNotFound)
+	}
+
+	// Get the gateway for this subscription
+	gateway, err := e.billingService.GetGateway(c.Request().Context(), sub.GatewayType)
+	if err != nil {
+		e.Logger().Error("failed to get payment gateway",
+			zap.Uint("user_id", userID),
+			zap.String("gateway_type", sub.GatewayType),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("failed to get payment gateway")), http.StatusInternalServerError)
+	}
+
+	// Check if gateway implements SubscriptionManager (for portal mode)
+	manager, ok := gateway.(pluginCore.SubscriptionManager)
+	if !ok {
+		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway does not support subscription management")), http.StatusInternalServerError)
+	}
+
+	// Get management capabilities to determine mode
+	capabilities, err := manager.GetManagementInfo(c.Request().Context(), userID)
+	if err != nil {
+		e.Logger().Error("failed to get management capabilities",
+			zap.Uint("user_id", userID),
+			zap.String("gateway_type", sub.GatewayType),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeyManagementCapabilitiesFailed, fmt.Errorf("failed to get management capabilities: %w", err)), http.StatusInternalServerError)
+	}
+
+	// API mode: execute directly
+	if capabilities.ManagementMode == pluginCore.ModeAPI {
+		// Verify operation is supported (defense in depth)
+		supported, exists := capabilities.Operations[pluginCore.OperationResume]
+		if !exists || !supported {
+			return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("resume is not supported by this gateway")), http.StatusBadRequest)
+		}
+
+		executor, ok := gateway.(pluginCore.SubscriptionExecutor)
+		if !ok {
+			return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway does not support subscription execution")), http.StatusInternalServerError)
+		}
+
+		if err := executor.ExecuteResume(c.Request().Context(), userID); err != nil {
+			e.Logger().Error("failed to execute resume",
+				zap.Uint("user_id", userID),
+				zap.String("gateway_type", sub.GatewayType),
+				zap.Error(err))
+			return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("failed to resume subscription: %w", err)), http.StatusInternalServerError)
+		}
+
+		result := &pluginCore.ManagementResult{
+			Action: pluginCore.ActionShowUI,
+			Status: "resumed",
+		}
+		response := dto.ManagementResultResponse{}
+		if err := response.FromModel(result); err != nil {
+			return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("failed to build response: %w", err)), http.StatusInternalServerError)
+		}
+		return httputil.EncodeResponse(ctx, result, &response)
+	}
+
+	// Portal mode: return redirect URL
+	result, err := manager.GetManagementURL(c.Request().Context(), userID, pluginCore.OperationResume)
+	if err != nil {
+		e.Logger().Error("failed to get resume portal URL",
+			zap.Uint("user_id", userID),
+			zap.String("gateway_type", sub.GatewayType),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("failed to get resume URL: %w", err)), http.StatusInternalServerError)
+	}
+
+	response := dto.ManagementResultResponse{}
+	if err := response.FromModel(result); err != nil {
+		e.Logger().Error("failed to build resume response",
+			zap.Uint("user_id", userID),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("failed to build response: %w", err)), http.StatusInternalServerError)
+	}
+
+	return httputil.EncodeResponse(ctx, result, &response)
+}
+
 func (e *APIExtension) handleGetBalance(c echo.Context) error {
 	ctx := httputil.Context(c)
 	reqCtx := ctx.Context.Request().Context()
