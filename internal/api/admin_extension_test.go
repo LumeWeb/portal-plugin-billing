@@ -1178,6 +1178,33 @@ func TestAdminHandleGetPriceLine_InvalidID(t *testing.T) {
 	}, getAdminAPITestOptions())
 }
 
+func TestAdminHandleGetPriceLine_GetPriceLinePlansFailed(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
+
+		// Mock price line
+		line := createMockPriceLine(1, "Test Price Line", "Test description", true, false)
+
+		// Mock pricing service to return price line
+		ts.pricingSvc.EXPECT().GetPriceLine(mock.Anything, uint(1)).
+			Return(line, nil).Once()
+
+		// Mock GetPriceLinePlans to return an error
+		ts.pricingSvc.EXPECT().GetPriceLinePlans(mock.Anything, uint(1)).
+			Return(nil, errors.New("database connection failed")).Once()
+
+		// Create request
+		req := ctx.NewAPIRequest("GET", "/api/billing/price-lines/1", nil)
+		w := httptest.NewRecorder()
+
+		// Execute
+		ts.router.ServeHTTP(w, req)
+
+		// Verify - should return internal server error
+		assert.Equal(tb, http.StatusInternalServerError, w.Code)
+	}, getAdminAPITestOptions())
+}
+
 // Add Plan to Price Line Tests
 
 func TestAdminHandleAddPlanToPriceLine_Success(t *testing.T) {
@@ -1282,6 +1309,37 @@ func TestAdminHandleAddPlanToPriceLine_InvalidID(t *testing.T) {
 	}, getAdminAPITestOptions())
 }
 
+func TestAdminHandleAddPlanToPriceLine_GetPriceLinePlansFailed(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
+
+		// Mock price line
+		line := createMockPriceLine(1, "Test Price Line", "Test description", true, false)
+		plan := createMockPricingPlan(1, "Test Plan", "Test plan description", "USD", true, true)
+
+		// Mock pricing service - all operations succeed except final GetPriceLinePlans
+		ts.pricingSvc.EXPECT().GetPriceLine(mock.Anything, uint(1)).Return(line, nil).Once()
+		ts.pricingSvc.EXPECT().GetPricingPlan(mock.Anything, uint(1)).Return(plan, nil).Once()
+		ts.pricingSvc.EXPECT().AddPlanToPriceLine(mock.Anything, uint(1), uint(1), 0).Return(nil).Once()
+		ts.pricingSvc.EXPECT().GetPriceLinePlans(mock.Anything, uint(1)).Return(nil, errors.New("failed to retrieve updated price line")).Once()
+
+		// Create request
+		requestBody := map[string]any{
+			"plan_id":  1,
+			"position": 0,
+		}
+		bodyBytes, _ := json.Marshal(requestBody)
+		req := ctx.NewAPIRequest("POST", "/api/billing/price-lines/1/plan", bodyBytes)
+		w := httptest.NewRecorder()
+
+		// Execute
+		ts.router.ServeHTTP(w, req)
+
+		// Verify - should return internal server error
+		assert.Equal(tb, http.StatusInternalServerError, w.Code)
+	}, getAdminAPITestOptions())
+}
+
 // Update Plan Position Tests
 
 func TestAdminHandleUpdatePlanPosition_Success(t *testing.T) {
@@ -1372,6 +1430,34 @@ func TestAdminHandleUpdatePlanPosition_InvalidPlanID(t *testing.T) {
 
 		// Verify
 		assert.Equal(tb, http.StatusBadRequest, w.Code)
+	}, getAdminAPITestOptions())
+}
+
+func TestAdminHandleUpdatePlanPosition_GetPriceLinePlansFailed(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
+
+		// Mock price line
+		line := createMockPriceLine(1, "Test Price Line", "Test description", true, false)
+
+		// Mock pricing service - UpdatePlanPosition succeeds but GetPriceLinePlans fails
+		ts.pricingSvc.EXPECT().GetPriceLine(mock.Anything, uint(1)).Return(line, nil).Once()
+		ts.pricingSvc.EXPECT().UpdatePlanPosition(mock.Anything, uint(1), uint(1), 2).Return(nil).Once()
+		ts.pricingSvc.EXPECT().GetPriceLinePlans(mock.Anything, uint(1)).Return(nil, errors.New("failed to retrieve updated price line")).Once()
+
+		// Create request
+		requestBody := map[string]interface{}{
+			"position": 2,
+		}
+		bodyBytes, _ := json.Marshal(requestBody)
+		req := ctx.NewAPIRequest("PUT", "/api/billing/price-lines/1/plans/1", bodyBytes)
+		w := httptest.NewRecorder()
+
+		// Execute
+		ts.router.ServeHTTP(w, req)
+
+		// Verify - should return internal server error
+		assert.Equal(tb, http.StatusInternalServerError, w.Code)
 	}, getAdminAPITestOptions())
 }
 

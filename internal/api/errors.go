@@ -56,6 +56,7 @@ const (
 	ErrKeyPriceLinePlanAddFailed    core.ErrorType = "PRICE_LINE_PLAN_ADD_FAILED"
 	ErrKeyPriceLinePlanRemoveFailed core.ErrorType = "PRICE_LINE_PLAN_REMOVE_FAILED"
 	ErrKeyPriceLinePlanUpdateFailed core.ErrorType = "PRICE_LINE_PLAN_UPDATE_FAILED"
+	ErrKeyPriceLinePlanListFailed   core.ErrorType = "PRICE_LINE_PLAN_LIST_FAILED"
 
 	// Gateway errors
 	ErrKeyGatewayNotFound           core.ErrorType = "GATEWAY_NOT_FOUND"
@@ -192,6 +193,7 @@ func init() {
 		ErrKeyPriceLinePlanAddFailed:    {Key: ErrKeyPriceLinePlanAddFailed, Message: "Failed to add plan to price line"},
 		ErrKeyPriceLinePlanRemoveFailed: {Key: ErrKeyPriceLinePlanRemoveFailed, Message: "Failed to remove plan from price line"},
 		ErrKeyPriceLinePlanUpdateFailed: {Key: ErrKeyPriceLinePlanUpdateFailed, Message: "Failed to update plan position"},
+		ErrKeyPriceLinePlanListFailed:   {Key: ErrKeyPriceLinePlanListFailed, Message: "Failed to retrieve plans for price line"},
 
 		// Gateway errors
 		ErrKeyGatewayNotFound:     {Key: ErrKeyGatewayNotFound, Message: "Gateway not found"},
@@ -257,6 +259,7 @@ func init() {
 		ErrKeyPriceLinePlanAddFailed:    http.StatusInternalServerError,
 		ErrKeyPriceLinePlanRemoveFailed: http.StatusInternalServerError,
 		ErrKeyPriceLinePlanUpdateFailed: http.StatusInternalServerError,
+		ErrKeyPriceLinePlanListFailed:   http.StatusInternalServerError,
 
 		// Gateway errors
 		ErrKeyGatewayNotFound:     http.StatusNotFound,
