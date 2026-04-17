@@ -2825,9 +2825,11 @@ var (
 
 // ExecuteCancel cancels a subscription through Stripe's API.
 // This is used by admins to cancel subscriptions directly.
-// For Stripe, we schedule cancellation at the end of the billing period via Update with CancelAtPeriodEnd=true.
+// For Stripe:
+//   - If immediate=true: uses Cancel API for immediate cancellation
+//   - If immediate=false: schedules cancellation at end of billing period via Update with CancelAtPeriodEnd=true
 // The webhook (customer.subscription.deleted) will finalize the cancellation when it takes effect.
-func (g *StripeGateway) ExecuteCancel(ctx context.Context, userID uint) (*pluginCore.CancellationResult, error) {
+func (g *StripeGateway) ExecuteCancel(ctx context.Context, userID uint, immediate bool) (*pluginCore.CancellationResult, error) {
 	ctx, span := core.TraceMethod(ctx, "StripeGateway.ExecuteCancel")
 	defer span.End()
 
@@ -2843,6 +2845,71 @@ func (g *StripeGateway) ExecuteCancel(ctx context.Context, userID uint) (*plugin
 	if subscriber == nil || subscriber.GatewayType != GatewayID {
 		return nil, fmt.Errorf("no active stripe subscription found for user %d", userID)
 	}
+
+	if immediate {
+		return g.executeImmediateCancel(ctx, userID, subscriber)
+	} else {
+		return g.executeScheduledCancel(ctx, userID, subscriber)
+	}
+}
+
+// executeImmediateCancel cancels a subscription immediately using Stripe's Cancel API.
+func (g *StripeGateway) executeImmediateCancel(ctx context.Context, userID uint, subscriber *billingModels.Subscriber) (*pluginCore.CancellationResult, error) {
+	ctx, span := core.TraceMethod(ctx, "StripeGateway.executeImmediateCancel")
+	defer span.End()
+
+	// Cancel immediately via Stripe API
+	params := &stripe.SubscriptionCancelParams{}
+	_, err := g.stripeClient.V1Subscriptions().Cancel(ctx, subscriber.SubscriptionID, params)
+	if err != nil {
+		g.logger.Error("failed to cancel subscription immediately via Stripe API",
+			zap.Uint("user_id", userID),
+			zap.String("subscription_id", subscriber.SubscriptionID),
+			zap.Error(err))
+		return nil, fmt.Errorf("failed to cancel subscription: %w", err)
+	}
+
+	// Deactivate subscriber immediately for consistency with ATLOS gateway
+	if err := g.billing.DeactivateSubscriber(ctx, userID, GatewayID); err != nil {
+		g.logger.Error("failed to deactivate subscriber after immediate cancel",
+			zap.Uint("user_id", userID),
+			zap.Error(err))
+		return nil, fmt.Errorf("failed to deactivate subscriber: %w", err)
+	}
+
+	// Fire subscription cancelled event for consistency with ATLOS gateway
+	planID := uint(0)
+	if subscriber.PricingPlanPeriodID != nil {
+		if p, err := g.pricing.GetPricingPlanPeriod(ctx, *subscriber.PricingPlanPeriodID); err == nil && p != nil {
+			planID = p.PricingPlanID
+		}
+	}
+	evt := billingEvent.NewSubscriptionCancelledEvent(
+		ctx,
+		userID,
+		subscriber.SubscriptionID,
+		GatewayID,
+		planID,
+	)
+	core.Fire(g.coreCtx, billingEvent.EVENT_SUBSCRIPTION_CANCELLED, evt)
+
+	effectiveAt := time.Now()
+	g.logger.Info("Cancelled subscription immediately via Stripe API",
+		zap.Uint("user_id", userID),
+		zap.String("subscription_id", subscriber.SubscriptionID),
+		zap.Time("effective_at", effectiveAt))
+
+	return &pluginCore.CancellationResult{
+		Status:      pluginCore.CancellationStatusImmediate,
+		EffectiveAt: &effectiveAt,
+		CanAbort:    false, // Immediate cancellation cannot be aborted
+	}, nil
+}
+
+// executeScheduledCancel schedules cancellation at the end of the billing period using Stripe's Update API.
+func (g *StripeGateway) executeScheduledCancel(ctx context.Context, userID uint, subscriber *billingModels.Subscriber) (*pluginCore.CancellationResult, error) {
+	ctx, span := core.TraceMethod(ctx, "StripeGateway.executeScheduledCancel")
+	defer span.End()
 
 	// Schedule cancellation at period end via Update
 	params := &stripe.SubscriptionUpdateParams{

@@ -225,9 +225,11 @@ type PlanChangeResult struct {
 type SubscriptionExecutor interface {
 	// ExecuteCancel cancels the subscription through the gateway's API
 	// and updates the local subscriber state.
+	// The immediate parameter determines whether to cancel immediately or schedule
+	// cancellation at the end of the billing period.
 	// Returns a CancellationResult indicating whether cancellation is scheduled
 	// (at end of billing period) or immediate, and whether it can be aborted.
-	ExecuteCancel(ctx context.Context, userID uint) (*CancellationResult, error)
+	ExecuteCancel(ctx context.Context, userID uint, immediate bool) (*CancellationResult, error)
 
 	// ExecutePlanChange executes a plan change operation
 	// For gateways that don't support direct plan updates (like ATLOS), this involves:

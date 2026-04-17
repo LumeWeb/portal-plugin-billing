@@ -1386,7 +1386,7 @@ func TestHandleCancelOperation_Success_APIBased(t *testing.T) {
 			EffectiveAt: nil,
 			CanAbort:    true,
 		}
-		mockGateway.EXPECT().ExecuteCancel(mock.Anything, uint(1)).Return(cancelResult, nil).Once()
+		mockGateway.EXPECT().ExecuteCancel(mock.Anything, uint(1), false).Return(cancelResult, nil).Once()
 
 		// Create authenticated request
 		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/account/billing/cancel", nil, "1")

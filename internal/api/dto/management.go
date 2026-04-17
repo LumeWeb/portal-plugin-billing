@@ -75,7 +75,8 @@ const (
 
 // AdminCancelSubscriptionRequest represents an admin request to cancel a subscription
 type AdminCancelSubscriptionRequest struct {
-	Mode *CancellationMode `json:"mode,omitempty"`
+	Mode      *CancellationMode `json:"mode,omitempty"`
+	Immediate *bool             `json:"immediate,omitempty"` // true=immediate, false=scheduled (defaults to false)
 }
 
 // Schema returns the validation schema for AdminCancelSubscriptionRequest

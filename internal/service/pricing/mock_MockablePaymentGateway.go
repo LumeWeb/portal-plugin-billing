@@ -96,8 +96,8 @@ func (_c *MockMockablePaymentGateway_AbortCancellation_Call) RunAndReturn(run fu
 }
 
 // ExecuteCancel provides a mock function for the type MockMockablePaymentGateway
-func (_mock *MockMockablePaymentGateway) ExecuteCancel(ctx context.Context, userID uint) (*core.CancellationResult, error) {
-	ret := _mock.Called(ctx, userID)
+func (_mock *MockMockablePaymentGateway) ExecuteCancel(ctx context.Context, userID uint, immediate bool) (*core.CancellationResult, error) {
+	ret := _mock.Called(ctx, userID, immediate)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ExecuteCancel")
@@ -105,18 +105,18 @@ func (_mock *MockMockablePaymentGateway) ExecuteCancel(ctx context.Context, user
 
 	var r0 *core.CancellationResult
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, uint) (*core.CancellationResult, error)); ok {
-		return returnFunc(ctx, userID)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uint, bool) (*core.CancellationResult, error)); ok {
+		return returnFunc(ctx, userID, immediate)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, uint) *core.CancellationResult); ok {
-		r0 = returnFunc(ctx, userID)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uint, bool) *core.CancellationResult); ok {
+		r0 = returnFunc(ctx, userID, immediate)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*core.CancellationResult)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, uint) error); ok {
-		r1 = returnFunc(ctx, userID)
+	if returnFunc, ok := ret.Get(1).(func(context.Context, uint, bool) error); ok {
+		r1 = returnFunc(ctx, userID, immediate)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -131,11 +131,12 @@ type MockMockablePaymentGateway_ExecuteCancel_Call struct {
 // ExecuteCancel is a helper method to define mock.On call
 //   - ctx context.Context
 //   - userID uint
-func (_e *MockMockablePaymentGateway_Expecter) ExecuteCancel(ctx interface{}, userID interface{}) *MockMockablePaymentGateway_ExecuteCancel_Call {
-	return &MockMockablePaymentGateway_ExecuteCancel_Call{Call: _e.mock.On("ExecuteCancel", ctx, userID)}
+//   - immediate bool
+func (_e *MockMockablePaymentGateway_Expecter) ExecuteCancel(ctx interface{}, userID interface{}, immediate interface{}) *MockMockablePaymentGateway_ExecuteCancel_Call {
+	return &MockMockablePaymentGateway_ExecuteCancel_Call{Call: _e.mock.On("ExecuteCancel", ctx, userID, immediate)}
 }
 
-func (_c *MockMockablePaymentGateway_ExecuteCancel_Call) Run(run func(ctx context.Context, userID uint)) *MockMockablePaymentGateway_ExecuteCancel_Call {
+func (_c *MockMockablePaymentGateway_ExecuteCancel_Call) Run(run func(ctx context.Context, userID uint, immediate bool)) *MockMockablePaymentGateway_ExecuteCancel_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -145,9 +146,14 @@ func (_c *MockMockablePaymentGateway_ExecuteCancel_Call) Run(run func(ctx contex
 		if args[1] != nil {
 			arg1 = args[1].(uint)
 		}
+		var arg2 bool
+		if args[2] != nil {
+			arg2 = args[2].(bool)
+		}
 		run(
 			arg0,
 			arg1,
+			arg2,
 		)
 	})
 	return _c
@@ -158,7 +164,7 @@ func (_c *MockMockablePaymentGateway_ExecuteCancel_Call) Return(cancellationResu
 	return _c
 }
 
-func (_c *MockMockablePaymentGateway_ExecuteCancel_Call) RunAndReturn(run func(ctx context.Context, userID uint) (*core.CancellationResult, error)) *MockMockablePaymentGateway_ExecuteCancel_Call {
+func (_c *MockMockablePaymentGateway_ExecuteCancel_Call) RunAndReturn(run func(ctx context.Context, userID uint, immediate bool) (*core.CancellationResult, error)) *MockMockablePaymentGateway_ExecuteCancel_Call {
 	_c.Call.Return(run)
 	return _c
 }

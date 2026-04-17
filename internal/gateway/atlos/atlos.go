@@ -235,11 +235,12 @@ func (g *AtlosGateway) DeactivateSubscriber(ctx context.Context, userID uint, ga
 
 // ExecuteCancel schedules a subscription cancellation at the end of the billing period.
 // This implements the SubscriptionExecutor interface for API-based cancellation.
-// For ATLOS, we schedule cancellation at the end of the current billing period
-// rather than canceling immediately, allowing users full access until the period ends.
-// The reconciliation cron job will process the cancellation when WillCancelAt is reached.
-// Returns a CancellationResult indicating the cancellation is scheduled and can be aborted.
-func (g *AtlosGateway) ExecuteCancel(ctx context.Context, userID uint) (*pluginCore.CancellationResult, error) {
+// For ATLOS:
+//   - If immediate=true: cancels immediately, issues proration credit, deactivates subscriber
+//   - If immediate=false: schedules cancellation at the end of the current billing period
+// The reconciliation cron job will process scheduled cancellations when WillCancelAt is reached.
+// Returns a CancellationResult indicating the cancellation status and whether it can be aborted.
+func (g *AtlosGateway) ExecuteCancel(ctx context.Context, userID uint, immediate bool) (*pluginCore.CancellationResult, error) {
 	ctx, span := core.TraceMethod(ctx, "AtlosGateway.ExecuteCancel")
 	defer span.End()
 
@@ -270,7 +271,106 @@ func (g *AtlosGateway) ExecuteCancel(ctx context.Context, userID uint) (*pluginC
 		return nil, fmt.Errorf("subscriber billing period dates are nil")
 	}
 
-	if err := g.cancelSubscription(ctx, subscriber.SubscriptionID, "ExecuteCancel"); err != nil {
+	if immediate {
+		return g.executeImmediateCancel(ctx, userID, subscriber, period)
+	} else {
+		return g.executeScheduledCancel(ctx, userID, subscriber, period)
+	}
+}
+
+// executeImmediateCancel cancels a subscription immediately.
+// Issues proration credit for unused time and deactivates the subscriber.
+func (g *AtlosGateway) executeImmediateCancel(ctx context.Context, userID uint, subscriber *billingModels.Subscriber, period *billingModels.PricingPlanPeriod) (*pluginCore.CancellationResult, error) {
+	ctx, span := core.TraceMethod(ctx, "AtlosGateway.executeImmediateCancel")
+	defer span.End()
+
+	if err := g.cancelSubscription(ctx, subscriber.SubscriptionID, "ExecuteCancel-Immediate"); err != nil {
+		return nil, err
+	}
+
+	// Calculate and issue proration credit for unused time in the billing period
+	now := time.Now().UTC()
+	oldPrice := subscription.Price{
+		Amount:  decimal.NewFromFloat(period.PriceUSD),
+		Cadence: subscription.Cadence(period.Cadence),
+	}
+
+	cycle := subscription.BillingCycle{
+		StartAt: *subscriber.BillingPeriodStart,
+		EndAt:   *subscriber.BillingPeriodEnd,
+		Cadence: subscription.Cadence(period.Cadence),
+	}
+
+	proratedValue := subscription.UnusedPeriodValue(oldPrice, cycle, now)
+
+	if g.credit != nil && proratedValue.GreaterThan(decimal.Zero) {
+		err := g.credit.IssueCreditWithIdempotency(
+			ctx,
+			uint64(userID),
+			pluginCore.TransactionTypeRefund,
+			proratedValue,
+			pluginCore.ReferenceTypeAtlosPayment,
+			fmt.Sprintf("immediate-cancel-%s", subscriber.SubscriptionID),
+			"Proration credit for unused subscription period on immediate cancellation",
+			0,
+		)
+		if err != nil {
+			g.logger.Error("failed to issue proration credit for immediate cancellation",
+				zap.Error(err),
+				zap.Uint("user_id", userID),
+				zap.String("subscription_id", subscriber.SubscriptionID))
+			// Continue with deactivation even if credit issuance fails
+		}
+
+		g.logger.Info("Proration credit issued for immediate cancellation",
+			zap.Uint("user_id", userID),
+			zap.String("prorated_amount", proratedValue.String()),
+			zap.String("subscription_id", subscriber.SubscriptionID))
+	}
+
+	// Deactivate subscriber immediately
+	if err := g.billing.DeactivateSubscriber(ctx, userID, GatewayID); err != nil {
+		return nil, fmt.Errorf("failed to deactivate subscriber: %w", err)
+	}
+
+	// Fire subscription cancelled event
+	planID := uint(0)
+	if subscriber.PricingPlanPeriodID != nil {
+		if p, err := g.pricing.GetPricingPlanPeriod(ctx, *subscriber.PricingPlanPeriodID); err == nil && p != nil {
+			planID = p.PricingPlanID
+		}
+	}
+
+	evt := billingEvent.NewSubscriptionCancelledEvent(
+		ctx,
+		userID,
+		subscriber.SubscriptionID,
+		GatewayID,
+		planID,
+	)
+	core.Fire(g.coreCtx, billingEvent.EVENT_SUBSCRIPTION_CANCELLED, evt)
+
+	g.logger.Info("Subscription cancelled immediately",
+		zap.Uint("user_id", userID),
+		zap.String("subscription_id", subscriber.SubscriptionID),
+		zap.Time("effective_at", now))
+
+	effectiveAt := now
+	return &pluginCore.CancellationResult{
+		Status:      pluginCore.CancellationStatusImmediate,
+		EffectiveAt: &effectiveAt,
+		CanAbort:    false, // Immediate cancellation cannot be aborted
+	}, nil
+}
+
+// executeScheduledCancel schedules a subscription cancellation at the end of the billing period.
+// The reconciliation cron job will process the cancellation when WillCancelAt is reached.
+func (g *AtlosGateway) executeScheduledCancel(ctx context.Context, userID uint, subscriber *billingModels.Subscriber, period *billingModels.PricingPlanPeriod) (*pluginCore.CancellationResult, error) {
+	ctx, span := core.TraceMethod(ctx, "AtlosGateway.executeScheduledCancel")
+	defer span.End()
+
+	// Cancel in ATLOS (but keep local subscriber active until reconciliation)
+	if err := g.cancelSubscription(ctx, subscriber.SubscriptionID, "ExecuteCancel-Scheduled"); err != nil {
 		return nil, err
 	}
 
