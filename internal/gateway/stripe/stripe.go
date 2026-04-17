@@ -478,9 +478,11 @@ func (g *StripeGateway) HandleWebhook(ctx context.Context, payload []byte) error
 	case EventTypeCheckoutSessionCompleted:
 		return g.handleCheckoutSessionCompleted(ctx, event)
 	case EventTypeSubscriptionResumed:
-		return g.handleSubscriptionActivated(ctx, event)
-	case EventTypeSubscriptionDeleted, EventTypeSubscriptionPaused:
+		return g.handleSubscriptionResumed(ctx, event)
+	case EventTypeSubscriptionDeleted:
 		return g.handleSubscriptionDeactivated(ctx, event)
+	case EventTypeSubscriptionPaused:
+		return g.handleSubscriptionPaused(ctx, event)
 	case EventTypeSubscriptionUpdated:
 		return g.handleSubscriptionUpdated(ctx, event)
 	case EventTypeInvoicePaid:
@@ -507,6 +509,20 @@ func (g *StripeGateway) handleSubscriptionDeactivated(ctx context.Context, event
 	defer span.End()
 
 	return g.handleSubscriptionEvent(ctx, event, g.deactivateSubscription)
+}
+
+func (g *StripeGateway) handleSubscriptionPaused(ctx context.Context, event stripe.Event) error {
+	ctx, span := core.TraceMethod(ctx, "StripeGateway.handleSubscriptionPaused")
+	defer span.End()
+
+	return g.handleSubscriptionEvent(ctx, event, g.pauseSubscription)
+}
+
+func (g *StripeGateway) handleSubscriptionResumed(ctx context.Context, event stripe.Event) error {
+	ctx, span := core.TraceMethod(ctx, "StripeGateway.handleSubscriptionResumed")
+	defer span.End()
+
+	return g.handleSubscriptionEvent(ctx, event, g.resumeSubscription)
 }
 
 func (g *StripeGateway) handleSubscriptionUpdated(ctx context.Context, event stripe.Event) error {
@@ -1609,6 +1625,115 @@ func (g *StripeGateway) deactivateSubscription(ctx context.Context, userID uint,
 				zap.String("customer_id", subscription.Customer.ID),
 				zap.String("event_id", event.ID),
 				zap.Uint("user_db_id", user.ID))
+
+			return nil
+		},
+	)
+}
+
+// pauseSubscription handles subscription pause - maintains the subscription record but marks as paused
+func (g *StripeGateway) pauseSubscription(ctx context.Context, userID uint, subscription *stripe.Subscription, event stripe.Event) error {
+	ctx, span := core.TraceMethod(ctx, "StripeGateway.pauseSubscription")
+	defer span.End()
+
+	return core.MetricTrack(
+		nil,
+		SubscriptionDeactivated.WithLabelValues(LabelStatusError),
+		func() error {
+			// Validate services
+			if err := g.validateServices(); err != nil {
+				return err
+			}
+
+			// Get and validate user
+			user, err := g.getUser(ctx, userID)
+			if err != nil {
+				return err
+			}
+
+			// Remove user from their current plan (pause = no quota access)
+			if g.quota != nil {
+				if err := g.quota.RemoveUserFromPlan(ctx, user.ID); err != nil {
+					g.logger.Error("failed to remove user from plan",
+						zap.Error(err),
+						zap.Uint("user_id", user.ID))
+				}
+			}
+
+			// Pause the subscriber in billing service
+			if err := g.billing.PauseSubscriber(ctx, user.ID, GatewayID); err != nil {
+				g.logger.Error("failed to pause subscriber",
+					zap.Error(err),
+					zap.Uint("user_id", userID))
+			}
+
+			g.logger.Debug("subscription paused - removed quota plan",
+				zap.Uint("user_id", userID),
+				zap.String("subscription_id", subscription.ID),
+				zap.String("event_id", event.ID))
+
+			return nil
+		},
+	)
+}
+
+// resumeSubscription handles subscription resume - reactivates a paused subscription
+func (g *StripeGateway) resumeSubscription(ctx context.Context, userID uint, subscription *stripe.Subscription, event stripe.Event) error {
+	ctx, span := core.TraceMethod(ctx, "StripeGateway.resumeSubscription")
+	defer span.End()
+
+	return core.MetricTrack(
+		nil,
+		SubscriptionActivated.WithLabelValues(LabelStatusError),
+		func() error {
+			// Validate services
+			if err := g.validateServices(); err != nil {
+				return err
+			}
+
+			// Get and validate user
+			user, err := g.getUser(ctx, userID)
+			if err != nil {
+				return err
+			}
+
+			// Resume the subscriber in billing service
+			if err := g.billing.ResumeSubscriber(ctx, user.ID, GatewayID); err != nil {
+				g.logger.Error("failed to resume subscriber",
+					zap.Error(err),
+					zap.Uint("user_id", userID))
+			}
+
+			// Get period ID from subscription to re-assign quota
+			periodID, hasPeriod, err := findPeriodIDFromSubscription(subscription)
+			if err != nil {
+				return err
+			}
+
+			if hasPeriod {
+				// Fetch the pricing plan period to get the quota plan ID
+				period, err := g.pricing.GetPricingPlanPeriod(ctx, periodID)
+				if err != nil {
+					g.logger.Error("failed to fetch pricing plan period for quota assignment",
+						zap.Error(err),
+						zap.Uint("pricing_plan_period_id", periodID))
+				}
+
+				// Assign quota plan if configured
+				if g.quota != nil && period != nil && period.QuotaPlanID != 0 {
+					if err := g.quota.AssignUserToPlan(ctx, user.ID, period.QuotaPlanID); err != nil {
+						g.logger.Error("failed to assign user to quota plan after resume",
+							zap.Error(err),
+							zap.Uint("user_id", user.ID),
+							zap.Uint("quota_plan_id", period.QuotaPlanID))
+					}
+				}
+			}
+
+			g.logger.Debug("subscription resumed - quota plan assigned",
+				zap.Uint("user_id", userID),
+				zap.String("subscription_id", subscription.ID),
+				zap.String("event_id", event.ID))
 
 			return nil
 		},

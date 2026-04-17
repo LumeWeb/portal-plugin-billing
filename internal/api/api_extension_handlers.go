@@ -129,8 +129,9 @@ func (e *APIExtension) handleResumeOperation(c echo.Context) error {
 		return ctx.Error(NewError(ErrKeyUnauthorized, fmt.Errorf("failed to get user ID")), http.StatusUnauthorized)
 	}
 
-	// Get subscription to determine gateway (allow paused subscriptions)
-	sub, err := e.billingService.GetActiveSubscription(c.Request().Context(), userID)
+	// Get subscription to determine gateway (check active first, then paused)
+	reqCtx := c.Request().Context()
+	sub, err := e.billingService.GetActiveSubscription(reqCtx, userID)
 	if err != nil {
 		e.Logger().Error("failed to check subscription status",
 			zap.Uint("user_id", userID),
@@ -138,8 +139,19 @@ func (e *APIExtension) handleResumeOperation(c echo.Context) error {
 		return ctx.Error(NewError(ErrKeySubscriptionCheckFailed, fmt.Errorf("failed to check subscription status")), http.StatusInternalServerError)
 	}
 
+	// If no active subscription, check for paused subscription
 	if sub == nil {
-		return ctx.Error(NewError(ErrKeyNoActiveSubscription, fmt.Errorf("no active subscription found")), http.StatusNotFound)
+		sub, err = e.billingService.GetPausedSubscription(reqCtx, userID)
+		if err != nil {
+			e.Logger().Error("failed to check paused subscription status",
+				zap.Uint("user_id", userID),
+				zap.Error(err))
+			return ctx.Error(NewError(ErrKeySubscriptionCheckFailed, fmt.Errorf("failed to check subscription status")), http.StatusInternalServerError)
+		}
+	}
+
+	if sub == nil {
+		return ctx.Error(NewError(ErrKeyNoActiveSubscription, fmt.Errorf("no paused subscription found")), http.StatusNotFound)
 	}
 
 	// Get the gateway for this subscription

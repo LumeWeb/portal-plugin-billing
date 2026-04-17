@@ -367,7 +367,42 @@ func (s *BillingServiceDefault) DeactivateSubscriber(ctx context.Context, userID
 			return db.RetryableComponentTransaction(s, ctx, func(tx *gorm.DB) *gorm.DB {
 				return tx.Model(&models.Subscriber{}).
 					Where("user_id = ? AND gateway_type = ?", userID, gatewayType).
-					Updates(map[string]any{"is_active": false, "pricing_plan_period_id": nil})
+					Updates(map[string]any{"is_active": false, "pricing_plan_period_id": nil, "paused_at": nil})
+			})
+		},
+	)
+}
+
+func (s *BillingServiceDefault) PauseSubscriber(ctx context.Context, userID uint, gatewayType string) error {
+	ctx, span := core.TraceMethod(ctx, "BillingServiceDefault.PauseSubscriber")
+	defer span.End()
+
+	return core.MetricTrack(
+		nil,
+		SubscriberDeactivated.WithLabelValues(gatewayType, LabelStatusError),
+		func() error {
+			now := time.Now().UTC()
+			return db.RetryableComponentTransaction(s, ctx, func(tx *gorm.DB) *gorm.DB {
+				return tx.Model(&models.Subscriber{}).
+					Where("user_id = ? AND gateway_type = ?", userID, gatewayType).
+					Updates(map[string]any{"is_active": false, "paused_at": now})
+			})
+		},
+	)
+}
+
+func (s *BillingServiceDefault) ResumeSubscriber(ctx context.Context, userID uint, gatewayType string) error {
+	ctx, span := core.TraceMethod(ctx, "BillingServiceDefault.ResumeSubscriber")
+	defer span.End()
+
+	return core.MetricTrack(
+		nil,
+		SubscriberCreated.WithLabelValues(gatewayType, LabelStatusError),
+		func() error {
+			return db.RetryableComponentTransaction(s, ctx, func(tx *gorm.DB) *gorm.DB {
+				return tx.Model(&models.Subscriber{}).
+					Where("user_id = ? AND gateway_type = ?", userID, gatewayType).
+					Updates(map[string]any{"is_active": true, "paused_at": nil})
 			})
 		},
 	)
@@ -468,6 +503,25 @@ func (s *BillingServiceDefault) GetActiveSubscription(ctx context.Context, userI
 	var subscriber models.Subscriber
 	err := db.RetryableComponentTransaction(s, ctx, func(tx *gorm.DB) *gorm.DB {
 		return tx.Preload("PricingPlanPeriod").Where("user_id = ? AND is_active = ?", userID, true).
+			First(&subscriber)
+	})
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &subscriber, nil
+}
+
+func (s *BillingServiceDefault) GetPausedSubscription(ctx context.Context, userID uint) (*pluginCore.Subscriber, error) {
+	ctx, span := core.TraceMethod(ctx, "BillingServiceDefault.GetPausedSubscription")
+	defer span.End()
+
+	var subscriber models.Subscriber
+	err := db.RetryableComponentTransaction(s, ctx, func(tx *gorm.DB) *gorm.DB {
+		return tx.Preload("PricingPlanPeriod").
+			Where("user_id = ? AND is_active = ? AND paused_at IS NOT NULL AND cancelled_at IS NULL", userID, false).
 			First(&subscriber)
 	})
 	if err != nil {
