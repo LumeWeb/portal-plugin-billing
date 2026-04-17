@@ -1381,7 +1381,12 @@ func TestHandleCancelOperation_Success_APIBased(t *testing.T) {
 		mockGateway.EXPECT().GetManagementInfo(mock.Anything, uint(1)).Return(capabilities, nil).Once()
 
 		// API mode: ExecuteCancel is called directly (no GetManagementURL)
-		mockGateway.EXPECT().ExecuteCancel(mock.Anything, uint(1)).Return(nil).Once()
+		cancelResult := &pluginCore.CancellationResult{
+			Status:      pluginCore.CancellationStatusScheduled,
+			EffectiveAt: nil,
+			CanAbort:    true,
+		}
+		mockGateway.EXPECT().ExecuteCancel(mock.Anything, uint(1)).Return(cancelResult, nil).Once()
 
 		// Create authenticated request
 		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/account/billing/cancel", nil, "1")
@@ -1574,6 +1579,118 @@ func TestHandleCancelOperation_GatewayNotSubscriptionManager(t *testing.T) {
 
 		// Verify
 		assert.Equal(tb, http.StatusInternalServerError, w.Code)
+
+	}, getUserAPITestOptions())
+}
+
+func TestHandleAbortCancellationOperation_Success(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupTest(ctx)
+
+		// Mock user account validation
+		ts.userSvc.EXPECT().AccountExists(mock.Anything, uint(1)).Return(true, nil, nil)
+
+		// Mock subscriber with scheduled cancellation
+		cancelAt := time.Now().Add(24 * time.Hour)
+		planID := uint(42)
+		mockSubscriber := &pluginCore.Subscriber{
+			UserID:              1,
+			GatewayType:         "atlos",
+			ExternalID:          "ext_123",
+			SubscriptionID:      "sub_123",
+			IsActive:            true,
+			PricingPlanPeriodID: &planID,
+			WillCancelAt:        &cancelAt,
+		}
+		ts.billingSvc.EXPECT().GetActiveSubscription(mock.Anything, uint(1)).Return(mockSubscriber, nil).Once()
+
+		// Mock gateway
+		mockGateway := pluginCore.NewMockPaymentGateway(t)
+		ts.billingSvc.EXPECT().GetGateway(mock.Anything, "atlos").Return(mockGateway, nil).Once()
+
+		// Mock capability check
+		mockGateway.EXPECT().GetManagementInfo(mock.Anything, uint(1)).Return(&pluginCore.ManagementCapabilities{
+			ManagementMode: pluginCore.ModeAPI,
+			Operations: map[pluginCore.ManagementOperation]bool{
+				pluginCore.OperationCancel: true,
+			},
+		}, nil).Once()
+
+		// Mock abort cancellation
+		mockGateway.EXPECT().AbortCancellation(mock.Anything, uint(1)).Return(nil).Once()
+
+		// Create authenticated request
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/account/billing/cancel/abort", nil, "1")
+		assert.NoError(tb, err, "Failed to create authenticated request")
+
+		w := httptest.NewRecorder()
+
+		// Execute
+		ts.router.ServeHTTP(w, req)
+
+		// Verify
+		assert.Equal(tb, http.StatusOK, w.Code)
+
+		var response dto.ManagementResultResponse
+		err = json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(tb, err)
+
+		assert.Equal(tb, pluginCore.ActionShowUI, response.Action)
+		assert.Equal(tb, "aborted", response.Status)
+		assert.False(tb, response.CanAbort)
+
+	}, getUserAPITestOptions())
+}
+
+func TestHandleAbortCancellationOperation_NoScheduledCancellation(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupTest(ctx)
+
+		// Mock user account validation
+		ts.userSvc.EXPECT().AccountExists(mock.Anything, uint(1)).Return(true, nil, nil)
+
+		// Mock subscriber without scheduled cancellation
+		planID := uint(42)
+		mockSubscriber := createMockSubscriber(1, "atlos", "sub_123", true, &planID)
+		// WillCancelAt is nil by default
+		ts.billingSvc.EXPECT().GetActiveSubscription(mock.Anything, uint(1)).Return(mockSubscriber, nil).Once()
+
+		// Create authenticated request
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/account/billing/cancel/abort", nil, "1")
+		assert.NoError(tb, err, "Failed to create authenticated request")
+
+		w := httptest.NewRecorder()
+
+		// Execute
+		ts.router.ServeHTTP(w, req)
+
+		// Verify - should return not found
+		assert.Equal(tb, http.StatusNotFound, w.Code)
+
+	}, getUserAPITestOptions())
+}
+
+func TestHandleAbortCancellationOperation_NoActiveSubscription(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupTest(ctx)
+
+		// Mock user account validation
+		ts.userSvc.EXPECT().AccountExists(mock.Anything, uint(1)).Return(true, nil, nil)
+
+		// Mock no active subscription
+		ts.billingSvc.EXPECT().GetActiveSubscription(mock.Anything, uint(1)).Return(nil, nil).Once()
+
+		// Create authenticated request
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/account/billing/cancel/abort", nil, "1")
+		assert.NoError(tb, err, "Failed to create authenticated request")
+
+		w := httptest.NewRecorder()
+
+		// Execute
+		ts.router.ServeHTTP(w, req)
+
+		// Verify - should return not found
+		assert.Equal(tb, http.StatusNotFound, w.Code)
 
 	}, getUserAPITestOptions())
 }

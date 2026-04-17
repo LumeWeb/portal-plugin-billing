@@ -208,6 +208,26 @@ func (m *MockSubscriptions) Retrieve(ctx context.Context, id string, params *str
 	return subscription, args.Error(1)
 }
 
+// Cancel mocks the Stripe subscription cancellation
+func (m *MockSubscriptions) Cancel(ctx context.Context, id string, params *stripe.SubscriptionCancelParams) (*stripe.Subscription, error) {
+	args := m.Called(ctx, id, params)
+	subscription, ok := args.Get(0).(*stripe.Subscription)
+	if !ok && args.Get(0) != nil {
+		return nil, fmt.Errorf("mock setup error: expected *stripe.Subscription, got %T", args.Get(0))
+	}
+	return subscription, args.Error(1)
+}
+
+// Update mocks the Stripe subscription update
+func (m *MockSubscriptions) Update(ctx context.Context, id string, params *stripe.SubscriptionUpdateParams) (*stripe.Subscription, error) {
+	args := m.Called(ctx, id, params)
+	subscription, ok := args.Get(0).(*stripe.Subscription)
+	if !ok && args.Get(0) != nil {
+		return nil, fmt.Errorf("mock setup error: expected *stripe.Subscription, got %T", args.Get(0))
+	}
+	return subscription, args.Error(1)
+}
+
 // MockSubscriptionRetriever is a mock implementation of the SubscriptionRetriever interface
 // for testing purposes. It allows tests to control the subscription data returned without
 // making actual API calls to Stripe.

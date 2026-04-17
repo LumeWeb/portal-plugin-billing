@@ -238,39 +238,40 @@ func (g *AtlosGateway) DeactivateSubscriber(ctx context.Context, userID uint, ga
 // For ATLOS, we schedule cancellation at the end of the current billing period
 // rather than canceling immediately, allowing users full access until the period ends.
 // The reconciliation cron job will process the cancellation when WillCancelAt is reached.
-func (g *AtlosGateway) ExecuteCancel(ctx context.Context, userID uint) error {
+// Returns a CancellationResult indicating the cancellation is scheduled and can be aborted.
+func (g *AtlosGateway) ExecuteCancel(ctx context.Context, userID uint) (*pluginCore.CancellationResult, error) {
 	ctx, span := core.TraceMethod(ctx, "AtlosGateway.ExecuteCancel")
 	defer span.End()
 
 	// Get active subscriber to retrieve the subscription ID
 	subscriber, err := g.billing.GetActiveSubscription(ctx, userID)
 	if err != nil {
-		return fmt.Errorf("failed to get active subscription: %w", err)
+		return nil, fmt.Errorf("failed to get active subscription: %w", err)
 	}
 	if subscriber == nil || subscriber.GatewayType != GatewayID {
-		return fmt.Errorf("no active Atlas subscription found for user %d", userID)
+		return nil, fmt.Errorf("no active Atlas subscription found for user %d", userID)
 	}
 
 	// Get the pricing period
 	if subscriber.PricingPlanPeriodID == nil {
-		return fmt.Errorf("subscriber pricing plan period ID is nil")
+		return nil, fmt.Errorf("subscriber pricing plan period ID is nil")
 	}
 
 	period, err := g.pricing.GetPricingPlanPeriod(ctx, *subscriber.PricingPlanPeriodID)
 	if err != nil {
-		return fmt.Errorf("failed to get pricing plan period: %w", err)
+		return nil, fmt.Errorf("failed to get pricing plan period: %w", err)
 	}
 	if period == nil {
-		return fmt.Errorf("pricing plan period not found")
+		return nil, fmt.Errorf("pricing plan period not found")
 	}
 
 	// Handle edge case where billing period dates might be nil
 	if subscriber.BillingPeriodStart == nil || subscriber.BillingPeriodEnd == nil {
-		return fmt.Errorf("subscriber billing period dates are nil")
+		return nil, fmt.Errorf("subscriber billing period dates are nil")
 	}
 
 	if err := g.cancelSubscription(ctx, subscriber.SubscriptionID, "ExecuteCancel"); err != nil {
-		return err
+		return nil, err
 	}
 
 	// Schedule cancellation at the end of the billing period
@@ -296,10 +297,14 @@ func (g *AtlosGateway) ExecuteCancel(ctx context.Context, userID uint) error {
 		pluginCore.WithBillingPeriodStart(subscriber.BillingPeriodStart),
 		pluginCore.WithBillingPeriodEnd(subscriber.BillingPeriodEnd),
 	); err != nil {
-		return fmt.Errorf("failed to schedule cancellation: %w", err)
+		return nil, fmt.Errorf("failed to schedule cancellation: %w", err)
 	}
 
-	return nil
+	return &pluginCore.CancellationResult{
+		Status:      pluginCore.CancellationStatusScheduled,
+		EffectiveAt: &cancelAt,
+		CanAbort:    true,
+	}, nil
 }
 
 // ReconcileCancellation handles pending subscription cancellations that were scheduled
@@ -421,6 +426,56 @@ func (g *AtlosGateway) ReconcileCancellation(ctx context.Context, userID uint) e
 	core.Fire(g.coreCtx, billingEvent.EVENT_SUBSCRIPTION_CANCELLED, evt)
 
 	g.logger.Info("Reconciled scheduled cancellation successfully",
+		zap.Uint("user_id", userID),
+		zap.String("subscription_id", subscriber.SubscriptionID))
+
+	return nil
+}
+
+// AbortCancellation cancels a scheduled subscription cancellation, restoring
+// the subscription to active status. This implements the SubscriptionExecutor interface.
+// Returns an error if no scheduled cancellation exists or if the gateway doesn't support abort.
+func (g *AtlosGateway) AbortCancellation(ctx context.Context, userID uint) error {
+	ctx, span := core.TraceMethod(ctx, "AtlosGateway.AbortCancellation")
+	defer span.End()
+
+	// Get active subscriber
+	subscriber, err := g.billing.GetActiveSubscription(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("failed to get active subscription: %w", err)
+	}
+	if subscriber == nil || subscriber.GatewayType != GatewayID {
+		return fmt.Errorf("no active ATLOS subscription found for user %d", userID)
+	}
+
+	// Verify scheduled cancellation exists
+	if subscriber.WillCancelAt == nil {
+		return fmt.Errorf("no scheduled cancellation found for user %d", userID)
+	}
+
+	g.logger.Info("Aborting scheduled cancellation",
+		zap.Uint("user_id", userID),
+		zap.String("subscription_id", subscriber.SubscriptionID),
+		zap.Time("was_scheduled_for", *subscriber.WillCancelAt))
+
+	// Clear WillCancelAt to abort the scheduled cancellation
+	// The subscription remains active
+	if err := g.billing.CreateOrUpdateSubscriber(
+		ctx,
+		userID,
+		GatewayID,
+		subscriber.ExternalID,
+		subscriber.SubscriptionID,
+		true, // Keep active
+		subscriber.PricingPlanPeriodID,
+		pluginCore.WithBillingPeriodStart(subscriber.BillingPeriodStart),
+		pluginCore.WithBillingPeriodEnd(subscriber.BillingPeriodEnd),
+		pluginCore.WithClearWillCancelAt(),
+	); err != nil {
+		return fmt.Errorf("failed to abort scheduled cancellation: %w", err)
+	}
+
+	g.logger.Info("Successfully aborted scheduled cancellation",
 		zap.Uint("user_id", userID),
 		zap.String("subscription_id", subscriber.SubscriptionID))
 
@@ -1440,15 +1495,16 @@ func (g *AtlosGateway) GetManagementInfo(ctx context.Context, userID uint) (*plu
 	ctx, span := core.TraceMethod(ctx, "AtlosGateway.GetManagementInfo")
 	defer span.End()
 
-	// Atlas supports only API-based operations
+	// Atlas supports only API-based operations for both user and admin
 	operations := map[pluginCore.ManagementOperation]bool{
 		pluginCore.OperationCancel:     true,
-		pluginCore.OperationChangePlan: true, // Implemented via cancel + new pattern
+		pluginCore.OperationChangePlan: true,
 	}
 
 	return &pluginCore.ManagementCapabilities{
-		ManagementMode: pluginCore.ModeAPI,
-		Operations:     operations,
+		ManagementMode:  pluginCore.ModeAPI,
+		Operations:      operations,
+		AdminOperations: operations, // Same operations for admin
 	}, nil
 }
 

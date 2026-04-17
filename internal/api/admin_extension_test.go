@@ -14,6 +14,7 @@ import (
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
 	"go.lumeweb.com/portal-plugin-billing/internal/api/dto"
 	"go.lumeweb.com/portal/core"
@@ -2638,6 +2639,104 @@ func TestAdminHandleCancelUserSubscription_InvalidUserID(t *testing.T) {
 
 		// Verify - should return bad request
 		assert.Equal(tb, http.StatusBadRequest, w.Code)
+	}, getAdminAPITestOptions())
+}
+
+// TestAdminHandleAbortCancellation_Success tests aborting a scheduled cancellation
+func TestAdminHandleAbortCancellation_Success(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		billingSvc := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+		mockGateway := pluginCore.NewMockPaymentGateway(t)
+		router := ctx.Router()
+
+		// Mock subscriber with scheduled cancellation
+		cancelAt := time.Now().Add(24 * time.Hour)
+		subscriber := &pluginCore.Subscriber{
+			SubscriptionID:      "sub_123",
+			UserID:              123,
+			GatewayType:         "atlos",
+			ExternalID:          "ext_123",
+			IsActive:            true,
+			PricingPlanPeriodID: new(uint(100)),
+			WillCancelAt:        &cancelAt,
+		}
+
+		billingSvc.EXPECT().GetActiveSubscription(mock.Anything, uint(123)).Return(subscriber, nil).Once()
+		billingSvc.EXPECT().GetGateway(mock.Anything, "atlos").Return(mockGateway, nil).Once()
+		mockGateway.EXPECT().GetManagementInfo(mock.Anything, uint(123)).Return(&pluginCore.ManagementCapabilities{
+			ManagementMode: pluginCore.ModeAPI,
+			AdminOperations: map[pluginCore.ManagementOperation]bool{
+				pluginCore.OperationCancel: true,
+			},
+		}, nil).Once()
+		mockGateway.EXPECT().AbortCancellation(mock.Anything, uint(123)).Return(nil).Once()
+
+		// Create request
+		req := ctx.NewAPIRequest("POST", "/api/billing/users/123/subscriptions/cancel/abort", nil)
+		w := httptest.NewRecorder()
+
+		// Execute
+		router.ServeHTTP(w, req)
+
+		// Verify
+		assert.Equal(tb, http.StatusOK, w.Code)
+
+		var response dto.ManagementResultResponse
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(tb, err)
+		assert.Equal(tb, "aborted", response.Status)
+		assert.False(tb, response.CanAbort)
+	}, getAdminAPITestOptions())
+}
+
+// TestAdminHandleAbortCancellation_NoScheduledCancellation tests aborting when no cancellation is scheduled
+func TestAdminHandleAbortCancellation_NoScheduledCancellation(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		billingSvc := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+		router := ctx.Router()
+
+		// Mock subscriber without scheduled cancellation
+		subscriber := &pluginCore.Subscriber{
+			SubscriptionID:      "sub_123",
+			UserID:              123,
+			GatewayType:         "atlos",
+			ExternalID:          "ext_123",
+			IsActive:            true,
+			PricingPlanPeriodID: new(uint(100)),
+			WillCancelAt:        nil, // No scheduled cancellation
+		}
+
+		billingSvc.EXPECT().GetActiveSubscription(mock.Anything, uint(123)).Return(subscriber, nil).Once()
+
+		// Create request
+		req := ctx.NewAPIRequest("POST", "/api/billing/users/123/subscriptions/cancel/abort", nil)
+		w := httptest.NewRecorder()
+
+		// Execute
+		router.ServeHTTP(w, req)
+
+		// Verify - should return not found
+		assert.Equal(tb, http.StatusNotFound, w.Code)
+	}, getAdminAPITestOptions())
+}
+
+// TestAdminHandleAbortCancellation_NoActiveSubscription tests aborting when user has no active subscription
+func TestAdminHandleAbortCancellation_NoActiveSubscription(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		billingSvc := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+		router := ctx.Router()
+
+		billingSvc.EXPECT().GetActiveSubscription(mock.Anything, uint(123)).Return(nil, nil).Once()
+
+		// Create request
+		req := ctx.NewAPIRequest("POST", "/api/billing/users/123/subscriptions/cancel/abort", nil)
+		w := httptest.NewRecorder()
+
+		// Execute
+		router.ServeHTTP(w, req)
+
+		// Verify - should return not found
+		assert.Equal(tb, http.StatusNotFound, w.Code)
 	}, getAdminAPITestOptions())
 }
 

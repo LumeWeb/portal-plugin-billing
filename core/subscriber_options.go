@@ -7,9 +7,10 @@ type SubscriberOption func(*SubscriberOptions)
 
 // SubscriberOptions holds optional subscriber configuration
 type SubscriberOptions struct {
-	BillingPeriodStart *time.Time
-	BillingPeriodEnd   *time.Time
-	WillCancelAt       *time.Time
+	BillingPeriodStart  *time.Time
+	BillingPeriodEnd    *time.Time
+	WillCancelAt        *time.Time
+	ClearWillCancelAt   bool // Flag to clear WillCancelAt (set to nil)
 }
 
 // WithBillingPeriodStart sets the billing period start date
@@ -30,6 +31,15 @@ func WithBillingPeriodEnd(end *time.Time) SubscriberOption {
 func WithWillCancelAt(cancelAt *time.Time) SubscriberOption {
 	return func(opts *SubscriberOptions) {
 		opts.WillCancelAt = cancelAt
+		opts.ClearWillCancelAt = false // Explicit setting takes precedence
+	}
+}
+
+// WithClearWillCancelAt clears the scheduled cancellation date
+func WithClearWillCancelAt() SubscriberOption {
+	return func(opts *SubscriberOptions) {
+		opts.ClearWillCancelAt = true
+		opts.WillCancelAt = nil // Ensure it's nil
 	}
 }
 

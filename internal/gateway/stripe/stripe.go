@@ -195,6 +195,8 @@ type Customers interface {
 // Subscriptions defines the interface for subscription operations
 type Subscriptions interface {
 	Retrieve(ctx context.Context, id string, params *stripe.SubscriptionRetrieveParams) (*stripe.Subscription, error)
+	Cancel(ctx context.Context, id string, params *stripe.SubscriptionCancelParams) (*stripe.Subscription, error)
+	Update(ctx context.Context, id string, params *stripe.SubscriptionUpdateParams) (*stripe.Subscription, error)
 }
 
 // Products defines the interface for product operations
@@ -2399,15 +2401,23 @@ func (g *StripeGateway) GetManagementInfo(ctx context.Context, userID uint) (*pl
 	ctx, span := core.TraceMethod(ctx, "StripeGateway.GetManagementInfo")
 	defer span.End()
 
-	// Stripe supports portal-based management for all operations
-	operations := map[pluginCore.ManagementOperation]bool{
+	// User operations: portal-based management
+	userOperations := map[pluginCore.ManagementOperation]bool{
 		pluginCore.OperationCancel:     true,
 		pluginCore.OperationChangePlan: true,
 	}
 
+	// Admin operations: backend API calls
+	// Plan change not yet supported for admin backend (requires subscription item update + price ID mapping)
+	adminOperations := map[pluginCore.ManagementOperation]bool{
+		pluginCore.OperationCancel:     true,
+		pluginCore.OperationChangePlan: false,
+	}
+
 	return &pluginCore.ManagementCapabilities{
-		ManagementMode: pluginCore.ModePortal,
-		Operations:     operations,
+		ManagementMode:  pluginCore.ModePortal,
+		Operations:      userOperations,
+		AdminOperations: adminOperations,
 	}, nil
 }
 
@@ -2810,7 +2820,123 @@ var (
 	_ pluginCore.GatewayCapabilities = (*StripeGateway)(nil)
 	_ pluginCore.GatewaySync         = (*StripeGateway)(nil)
 	_ pluginCore.SubscriptionManager = (*StripeGateway)(nil)
-	// Note: StripeGateway does NOT implement SubscriptionExecutor
-	// It uses portal-based management via SubscriptionManager instead
+	_ pluginCore.SubscriptionExecutor = (*StripeGateway)(nil) // Admin backend operations
 )
+
+// ExecuteCancel cancels a subscription through Stripe's API.
+// This is used by admins to cancel subscriptions directly.
+// For Stripe, we schedule cancellation at the end of the billing period via Update with CancelAtPeriodEnd=true.
+// The webhook (customer.subscription.deleted) will finalize the cancellation when it takes effect.
+func (g *StripeGateway) ExecuteCancel(ctx context.Context, userID uint) (*pluginCore.CancellationResult, error) {
+	ctx, span := core.TraceMethod(ctx, "StripeGateway.ExecuteCancel")
+	defer span.End()
+
+	if g.billing == nil {
+		return nil, fmt.Errorf("billing service not configured")
+	}
+
+	// Get active subscription
+	subscriber, err := g.billing.GetActiveSubscription(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get active subscription: %w", err)
+	}
+	if subscriber == nil || subscriber.GatewayType != GatewayID {
+		return nil, fmt.Errorf("no active stripe subscription found for user %d", userID)
+	}
+
+	// Schedule cancellation at period end via Update
+	params := &stripe.SubscriptionUpdateParams{
+		CancelAtPeriodEnd: stripe.Bool(true),
+	}
+
+	updatedSub, err := g.stripeClient.V1Subscriptions().Update(ctx, subscriber.SubscriptionID, params)
+	if err != nil {
+		g.logger.Error("failed to schedule cancellation via Stripe API",
+			zap.Uint("user_id", userID),
+			zap.String("subscription_id", subscriber.SubscriptionID),
+			zap.Error(err))
+		return nil, fmt.Errorf("failed to cancel subscription: %w", err)
+	}
+
+	// Calculate effective time (end of current billing period)
+	// CurrentPeriodEnd is on subscription items in the v83 SDK
+	var effectiveAt *time.Time
+	if len(updatedSub.Items.Data) > 0 && updatedSub.Items.Data[0].CurrentPeriodEnd > 0 {
+		t := time.Unix(updatedSub.Items.Data[0].CurrentPeriodEnd, 0)
+		effectiveAt = &t
+	}
+
+	if effectiveAt != nil {
+		g.logger.Info("Scheduled subscription cancellation via Stripe API",
+			zap.Uint("user_id", userID),
+			zap.String("subscription_id", subscriber.SubscriptionID),
+			zap.Time("effective_at", *effectiveAt))
+	} else {
+		g.logger.Info("Scheduled subscription cancellation via Stripe API",
+			zap.Uint("user_id", userID),
+			zap.String("subscription_id", subscriber.SubscriptionID))
+	}
+
+	return &pluginCore.CancellationResult{
+		Status:      pluginCore.CancellationStatusScheduled,
+		EffectiveAt: effectiveAt,
+		CanAbort:    true, // Can be aborted by updating subscription with CancelAtPeriodEnd=false
+	}, nil
+}
+
+// AbortCancellation reverses a scheduled subscription cancellation.
+// This removes the cancel_at_period_end flag from the subscription via Update.
+func (g *StripeGateway) AbortCancellation(ctx context.Context, userID uint) error {
+	ctx, span := core.TraceMethod(ctx, "StripeGateway.AbortCancellation")
+	defer span.End()
+
+	if g.billing == nil {
+		return fmt.Errorf("billing service not configured")
+	}
+
+	// Get active subscription
+	subscriber, err := g.billing.GetActiveSubscription(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("failed to get active subscription: %w", err)
+	}
+	if subscriber == nil || subscriber.GatewayType != GatewayID {
+		return fmt.Errorf("no active stripe subscription found for user %d", userID)
+	}
+
+	// Remove cancel_at_period_end by updating subscription
+	params := &stripe.SubscriptionUpdateParams{
+		CancelAtPeriodEnd: stripe.Bool(false),
+	}
+
+	_, err = g.stripeClient.V1Subscriptions().Update(ctx, subscriber.SubscriptionID, params)
+	if err != nil {
+		g.logger.Error("failed to abort cancellation via Stripe API",
+			zap.Uint("user_id", userID),
+			zap.String("subscription_id", subscriber.SubscriptionID),
+			zap.Error(err))
+		return fmt.Errorf("failed to abort cancellation: %w", err)
+	}
+
+	g.logger.Info("Aborted scheduled cancellation via Stripe API",
+		zap.Uint("user_id", userID),
+		zap.String("subscription_id", subscriber.SubscriptionID))
+
+	return nil
+}
+
+// ReconcileCancellation is a no-op for Stripe as cancellations are handled via webhooks.
+// Stripe sends customer.subscription.deleted webhook when the cancellation takes effect.
+func (g *StripeGateway) ReconcileCancellation(ctx context.Context, userID uint) error {
+	// Stripe handles cancellation finalization via webhooks
+	// No action needed here
+	return nil
+}
+
+// ExecutePlanChange is not yet implemented for Stripe's backend API.
+// Stripe plan changes via admin API require updating subscription items with new price IDs,
+// which requires mapping from our pricing plan periods to Stripe price IDs.
+// For now, plan changes should go through the customer portal (user context).
+func (g *StripeGateway) ExecutePlanChange(ctx context.Context, userID uint, newPeriodID uint) (*pluginCore.PlanChangeResult, error) {
+	return nil, fmt.Errorf("backend plan change is not yet supported for Stripe; use the customer portal instead")
+}
 
