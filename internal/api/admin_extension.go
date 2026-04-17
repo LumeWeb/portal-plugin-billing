@@ -759,7 +759,7 @@ func (e *AdminExtension) handleGetPriceLine(c echo.Context) error {
 	priceLinePlans, err := e.pricingService.GetPriceLinePlans(reqCtx, priceLineID)
 	if err != nil {
 		e.Logger().Error("failed to get price line plans", zap.Uint("price_line_id", priceLineID), zap.Error(err))
-		// Continue without plans rather than failing the entire request
+		return ctx.Error(NewError(ErrKeyPriceLinePlanListFailed, fmt.Errorf("failed to retrieve plans for price line: %w", err)), http.StatusInternalServerError)
 	}
 
 	return buildPriceLineDetailResponse(ctx, priceLine, priceLinePlans)
@@ -897,6 +897,7 @@ func (e *AdminExtension) handleAddPlanToPriceLine(c echo.Context) error {
 	priceLinePlans, err := e.pricingService.GetPriceLinePlans(reqCtx, priceLineID)
 	if err != nil {
 		e.Logger().Error("failed to get price line plans", zap.Uint("price_line_id", priceLineID), zap.Error(err))
+		return ctx.Error(NewError(ErrKeyPriceLinePlanAddFailed, fmt.Errorf("failed to retrieve updated price line: %w", err)), http.StatusInternalServerError)
 	}
 
 	return buildPriceLineDetailResponse(ctx, priceLine, priceLinePlans)
@@ -946,6 +947,7 @@ func (e *AdminExtension) handleUpdatePlanPosition(c echo.Context) error {
 	priceLinePlans, err := e.pricingService.GetPriceLinePlans(reqCtx, priceLineID)
 	if err != nil {
 		e.Logger().Error("failed to get price line plans", zap.Uint("price_line_id", priceLineID), zap.Error(err))
+		return ctx.Error(NewError(ErrKeyPriceLinePlanUpdateFailed, fmt.Errorf("failed to retrieve updated price line: %w", err)), http.StatusInternalServerError)
 	}
 
 	return buildPriceLineDetailResponse(ctx, priceLine, priceLinePlans)
