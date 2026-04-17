@@ -607,6 +607,59 @@ func TestStripeGateway_HandleWebhook_SubscriptionUpdated_CancellationRequest(t *
 	})
 }
 
+func TestStripeGateway_HandleWebhook_SubscriptionUpdated_CanceledStatus(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockQuota, mockUsers, mockBilling, _ := setupMockServices(ctx)
+		mockSubService := &MockSubscriptionRetriever{}
+
+		subscription := stripe.Subscription{
+			ID: TestSubscriptionID,
+			Status: stripe.SubscriptionStatusCanceled,
+			Customer: &stripe.Customer{
+				ID: TestCustomerID,
+				Metadata: map[string]string{
+					UserIDMetadataKey: "123",
+				},
+			},
+			Metadata: map[string]string{
+				UserIDMetadataKey: "123",
+			},
+			Items: &stripe.SubscriptionItemList{
+				Data: []*stripe.SubscriptionItem{
+					{
+						Price: &stripe.Price{
+							ID: "price_123",
+							Product: &stripe.Product{
+								ID: "prod_123",
+								Metadata: map[string]string{
+									PlanIDMetadataKey: "2",
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		rawData, _ := json.Marshal(subscription)
+		event := createTestEvent(EventTypeSubscriptionUpdated, rawData)
+		payload, _ := json.Marshal(event)
+
+		mockSubService.SetupGetSuccess(&subscription)
+
+		gw := NewWithConfig(ctx.Logger(), ctx, testConfig(), mockQuota, mockUsers, mockBilling, nil, nil)
+		gw.subService = mockSubService
+		err := gw.HandleWebhook(context.Background(), payload)
+
+		assert.NoError(t, err)
+
+		mockQuota.AssertNotCalled(t, "AssignUserToPlan")
+		mockQuota.AssertNotCalled(t, "RemoveUserFromPlan")
+		mockBilling.AssertNotCalled(t, "CreateOrUpdateSubscriber")
+		mockBilling.AssertNotCalled(t, "DeactivateSubscriber")
+	})
+}
+
 func TestStripeGateway_HandleWebhook_SubscriptionUpdated_AllPricesNil(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		mockQuota, mockUsers, mockBilling, _ := setupMockServices(ctx)
