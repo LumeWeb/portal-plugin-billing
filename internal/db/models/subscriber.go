@@ -30,6 +30,9 @@ type Subscriber struct {
 
 	// Plan Change Tracking
 	PreviousPlanID *uint `json:"previous_plan_id"` // Previous plan reference after plan change
+
+	// Pause Tracking
+	PausedAt *time.Time `json:"paused_at"` // When subscription was paused
 }
 
 // TableName sets the table name for Subscriber

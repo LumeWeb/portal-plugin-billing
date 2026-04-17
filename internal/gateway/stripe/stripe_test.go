@@ -707,12 +707,72 @@ func TestStripeGateway_HandleWebhook_SubscriptionUpdated_AllPricesNil(t *testing
 }
 
 func TestStripeGateway_HandleWebhook_SubscriptionPaused(t *testing.T) {
-	runSubscriptionDeactivationTest(t, EventTypeSubscriptionPaused)
+	runSubscriptionPauseTest(t, EventTypeSubscriptionPaused)
+}
+
+
+// Helper function to run a subscription pause test scenario
+func runSubscriptionPauseTest(t *testing.T, eventType string) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockQuota, mockUsers, mockBilling, _ := setupMockServices(ctx)
+		mockSubService := &MockSubscriptionRetriever{}
+
+		subscription := createTestSubscription("123", "")
+		rawData, _ := json.Marshal(subscription)
+		event := createTestEvent(eventType, rawData)
+		payload, _ := json.Marshal(event)
+
+		mockSubService.SetupGetSuccess(&subscription)
+		mockUsers.EXPECT().AccountExists(mock.Anything, TestUserID).Return(true, createTestUser(TestUserID), nil)
+		mockQuota.EXPECT().RemoveUserFromPlan(mock.Anything, TestUserID).Return(nil)
+		mockBilling.EXPECT().PauseSubscriber(mock.Anything, TestUserID, "stripe").Return(nil)
+
+		gw := NewWithConfig(ctx.Logger(), ctx, testConfig(), mockQuota, mockUsers, mockBilling, nil, nil)
+		gw.subService = mockSubService
+		err := gw.HandleWebhook(context.Background(), payload)
+
+		assert.NoError(t, err)
+	})
+}
+
+// Helper function to setup mocks for subscription resume scenarios
+func setupSubscriptionResumeMocks(mockQuota *quotaCore.MockQuotaService, mockUsers *coreTesting.MockUserService, mockBilling *pluginCore.MockBillingService, mockPricing *pluginCore.MockPricingService, userID uint, pricingPlanPeriodID, quotaPlanID uint) {
+	mockUsers.EXPECT().AccountExists(mock.Anything, userID).Return(true, createTestUser(userID), nil)
+	mockBilling.EXPECT().ResumeSubscriber(mock.Anything, userID, "stripe").Return(nil)
+
+	mockPricing.EXPECT().GetPricingPlanPeriod(mock.Anything, pricingPlanPeriodID).Return(&billingModels.PricingPlanPeriod{
+		QuotaPlanID: quotaPlanID,
+	}, nil)
+
+	mockQuota.EXPECT().AssignUserToPlan(mock.Anything, userID, quotaPlanID).Return(nil)
+}
+
+// Helper function to run a subscription resume test scenario
+func runSubscriptionResumeTest(t *testing.T, eventType string, pricingPlanPeriodID, quotaPlanID uint) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockQuota, mockUsers, mockBilling, mockPricing := setupMockServices(ctx)
+		mockSubService := &MockSubscriptionRetriever{}
+
+		subscription := createTestSubscriptionWithPeriod(strconv.FormatUint(uint64(TestUserID), 10), "", strconv.FormatUint(uint64(pricingPlanPeriodID), 10))
+		rawData, _ := json.Marshal(subscription)
+		event := createTestEvent(eventType, rawData)
+		payload, _ := json.Marshal(event)
+
+		mockSubService.SetupGetSuccess(&subscription)
+		setupSubscriptionResumeMocks(mockQuota, mockUsers, mockBilling, mockPricing, TestUserID, pricingPlanPeriodID, quotaPlanID)
+
+		gw := NewWithConfig(ctx.Logger(), ctx, testConfig(), mockQuota, mockUsers, mockBilling, mockPricing, nil)
+		gw.subService = mockSubService
+		err := gw.HandleWebhook(context.Background(), payload)
+
+		assert.NoError(t, err)
+	})
 }
 
 func TestStripeGateway_HandleWebhook_SubscriptionResumed(t *testing.T) {
-	quotaPlanID := uint(20) // Different ID to test the mapping
-	runSubscriptionActivationTest(t, EventTypeSubscriptionResumed, TestPlanID, quotaPlanID)
+	pricingPlanPeriodID := uint(2)
+	quotaPlanID := uint(10)
+	runSubscriptionResumeTest(t, EventTypeSubscriptionResumed, pricingPlanPeriodID, quotaPlanID)
 }
 
 func TestStripeGateway_GetCustomerPortalURL_Success(t *testing.T) {

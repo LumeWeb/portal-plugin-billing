@@ -65,6 +65,7 @@ CREATE TABLE IF NOT EXISTS billing_subscribers (
     billing_period_end TIMESTAMP NULL DEFAULT NULL,
     will_cancel_at TIMESTAMP NULL DEFAULT NULL,
     cancelled_at TIMESTAMP NULL DEFAULT NULL,
+    paused_at TIMESTAMP NULL DEFAULT NULL,
     payment_status VARCHAR(50) DEFAULT 'pending',
     previous_plan_id BIGINT UNSIGNED NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -87,6 +88,7 @@ CREATE TABLE IF NOT EXISTS billing_subscribers (
     INDEX idx_billing_period_end (billing_period_end),
     INDEX idx_will_cancel_at (will_cancel_at),
     INDEX idx_cancelled_at (cancelled_at),
+    INDEX idx_paused_at (paused_at),
     INDEX idx_payment_status (payment_status),
     KEY fk_billing_subscribers_pricing_plan_periods (pricing_plan_period_id),
     CONSTRAINT fk_billing_subscribers_pricing_plan_periods FOREIGN KEY (pricing_plan_period_id) REFERENCES billing_pricing_plan_periods(id) ON DELETE CASCADE

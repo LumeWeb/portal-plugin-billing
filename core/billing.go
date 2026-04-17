@@ -49,6 +49,12 @@ type BillingService interface {
 	GetPendingCancellations(ctx context.Context, gatewayType string, now time.Time) ([]Subscriber, error)
 	// GetActiveSubscription returns the first active subscription for a user across all gateways
 	GetActiveSubscription(ctx context.Context, userID uint) (*Subscriber, error)
+	// GetPausedSubscription returns the subscription for a user that is paused (has paused_at set but not cancelled)
+	GetPausedSubscription(ctx context.Context, userID uint) (*Subscriber, error)
+	// PauseSubscriber marks a subscriber as paused (is_active=false, paused_at=now)
+	PauseSubscriber(ctx context.Context, userID uint, gatewayType string) error
+	// ResumeSubscriber marks a paused subscriber as active (is_active=true, paused_at=null)
+	ResumeSubscriber(ctx context.Context, userID uint, gatewayType string) error
 	// GetSubscriberByID returns a subscriber by database ID
 	GetSubscriberByID(ctx context.Context, id uint) (*Subscriber, error)
 	// GetSubscribersByUserID returns all subscribers for a specific user

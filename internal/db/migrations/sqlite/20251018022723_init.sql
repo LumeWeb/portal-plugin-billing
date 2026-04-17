@@ -68,6 +68,7 @@ CREATE TABLE IF NOT EXISTS billing_subscribers (
     billing_period_end DATETIME NULL DEFAULT NULL,
     will_cancel_at DATETIME NULL DEFAULT NULL,
     cancelled_at DATETIME NULL DEFAULT NULL,
+    paused_at DATETIME NULL DEFAULT NULL,
     payment_status TEXT DEFAULT 'pending',
     previous_plan_id INTEGER NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -85,6 +86,7 @@ CREATE INDEX IF NOT EXISTS idx_billing_subscribers_billing_period_start ON billi
 CREATE INDEX IF NOT EXISTS idx_billing_subscribers_billing_period_end ON billing_subscribers(billing_period_end);
 CREATE INDEX IF NOT EXISTS idx_billing_subscribers_will_cancel_at ON billing_subscribers(will_cancel_at);
 CREATE INDEX IF NOT EXISTS idx_billing_subscribers_cancelled_at ON billing_subscribers(cancelled_at);
+CREATE INDEX IF NOT EXISTS idx_billing_subscribers_paused_at ON billing_subscribers(paused_at);
 CREATE INDEX IF NOT EXISTS idx_billing_subscribers_payment_status ON billing_subscribers(payment_status);
 -- Partial unique index: only one active subscription per user per gateway
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_billing_subscribers_user_gateway_active
