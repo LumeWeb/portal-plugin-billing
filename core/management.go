@@ -21,6 +21,7 @@ const (
 // Predefined management endpoint paths
 const (
 	CancelEndpointPath     = "/api/account/billing/cancel"
+	AbortCancelEndpointPath = "/api/account/billing/cancel/abort"
 	ChangePlanEndpointPath = "/api/account/billing/change-plan"
 )
 
@@ -57,6 +58,30 @@ const (
 	ActionError ManagementAction = "error"
 )
 
+// CancellationStatus represents the state of a cancellation operation
+type CancellationStatus string
+
+const (
+	// CancellationStatusScheduled indicates cancellation is scheduled for end of billing period
+	CancellationStatusScheduled CancellationStatus = "scheduled"
+	// CancellationStatusImmediate indicates cancellation was processed immediately
+	CancellationStatusImmediate CancellationStatus = "immediate"
+	// CancellationStatusPortal indicates user was redirected to portal for cancellation
+	CancellationStatusPortal CancellationStatus = "portal"
+	// CancellationStatusCompleted indicates cancellation has been fully processed
+	CancellationStatusCompleted CancellationStatus = "completed"
+)
+
+// CancellationResult contains the result of a cancellation operation
+type CancellationResult struct {
+	// Status indicates the type of cancellation
+	Status CancellationStatus
+	// EffectiveAt is when the cancellation takes effect (nil for portal redirects)
+	EffectiveAt *time.Time
+	// CanAbort indicates whether this cancellation can be reversed
+	CanAbort bool
+}
+
 // ManagementResult contains the result of a management operation
 type ManagementResult struct {
 	// Action tells the UI how to handle this result
@@ -82,6 +107,12 @@ type ManagementResult struct {
 
 	// EffectiveTime is when the operation takes effect (for cancellations)
 	EffectiveTime *time.Time
+
+	// Status indicates the current status of the operation
+	Status string
+
+	// CanAbort indicates whether this operation can be reversed
+	CanAbort bool
 }
 
 // ManagementUIConfig contains configuration for embedded management UI
@@ -191,8 +222,10 @@ type PlanChangeResult struct {
 // This is used by gateways that require backend API calls for management operations
 type SubscriptionExecutor interface {
 	// ExecuteCancel cancels the subscription through the gateway's API
-	// and updates the local subscriber state
-	ExecuteCancel(ctx context.Context, userID uint) error
+	// and updates the local subscriber state.
+	// Returns a CancellationResult indicating whether cancellation is scheduled
+	// (at end of billing period) or immediate, and whether it can be aborted.
+	ExecuteCancel(ctx context.Context, userID uint) (*CancellationResult, error)
 
 	// ExecutePlanChange executes a plan change operation
 	// For gateways that don't support direct plan updates (like ATLOS), this involves:
@@ -211,13 +244,26 @@ type SubscriptionExecutor interface {
 	// - Issue any applicable credits
 	// - Update the subscriber's CancelledAt field
 	ReconcileCancellation(ctx context.Context, userID uint) error
+
+	// AbortCancellation cancels a scheduled subscription cancellation, restoring
+	// the subscription to active status. Returns an error if no scheduled
+	// cancellation exists or if the gateway doesn't support abort.
+	AbortCancellation(ctx context.Context, userID uint) error
 }
 
 // ManagementCapabilities describes what management operations a gateway supports
 type ManagementCapabilities struct {
-	// ManagementMode indicates how the gateway handles management operations
+	// ManagementMode indicates how the gateway handles management operations for users.
+	// ModePortal: users are redirected to gateway portal
+	// ModeAPI: users call our API which calls gateway backend
 	ManagementMode ManagementMode
 
-	// Operations maps operation types to support status
+	// Operations maps operation types to support status for USER context.
+	// These are discovered via GetManagementURL and executed by users.
 	Operations map[ManagementOperation]bool
+
+	// AdminOperations maps operation types to support status for ADMIN context.
+	// These are backend API calls that admins can execute directly.
+	// Portal-mode gateways may still support admin backend operations.
+	AdminOperations map[ManagementOperation]bool
 }

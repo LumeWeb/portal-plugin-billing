@@ -303,7 +303,9 @@ func (s *BillingServiceDefault) CreateOrUpdateSubscriber(ctx context.Context, us
 			if subOptions.BillingPeriodEnd != nil {
 				updates["billing_period_end"] = *subOptions.BillingPeriodEnd
 			}
-			if subOptions.WillCancelAt != nil {
+			if subOptions.ClearWillCancelAt {
+				updates["will_cancel_at"] = nil
+			} else if subOptions.WillCancelAt != nil {
 				updates["will_cancel_at"] = *subOptions.WillCancelAt
 			}
 
@@ -329,7 +331,10 @@ func (s *BillingServiceDefault) CreateOrUpdateSubscriber(ctx context.Context, us
 					PricingPlanPeriodID: pricingPlanPeriodID,
 					BillingPeriodStart:  subOptions.BillingPeriodStart,
 					BillingPeriodEnd:    subOptions.BillingPeriodEnd,
-					WillCancelAt:        subOptions.WillCancelAt,
+				}
+				// Only set WillCancelAt if not clearing it
+				if !subOptions.ClearWillCancelAt && subOptions.WillCancelAt != nil {
+					sub.WillCancelAt = subOptions.WillCancelAt
 				}
 
 				result = tx.Create(&sub)

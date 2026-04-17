@@ -636,9 +636,13 @@ func TestAtlosGateway_ExecuteCancel_Success(t *testing.T) {
 		).Return(nil)
 
 		gw := New(ctx.Logger(), ctx, TestAPISecret, TestMerchantID, nil, nil, nil, mockBilling, mockPricing, nil)
-		err := gw.ExecuteCancel(context.Background(), userID)
+		result, err := gw.ExecuteCancel(context.Background(), userID)
 
 		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Equal(t, pluginCore.CancellationStatusScheduled, result.Status)
+		assert.NotNil(t, result.EffectiveAt)
+		assert.True(t, result.CanAbort)
 	})
 }
 
@@ -649,9 +653,10 @@ func TestAtlosGateway_ExecuteCancel_NoActiveSubscription(t *testing.T) {
 		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, TestUserID).Return(nil, nil)
 
 		gw := New(ctx.Logger(), ctx, TestAPISecret, TestMerchantID, nil, nil, nil, mockBilling, nil, nil)
-		err := gw.ExecuteCancel(context.Background(), TestUserID)
+		result, err := gw.ExecuteCancel(context.Background(), TestUserID)
 
 		assert.Error(t, err)
+		assert.Nil(t, result)
 		assert.Contains(t, err.Error(), "no active Atlas subscription found")
 	})
 }
@@ -672,10 +677,97 @@ func TestAtlosGateway_ExecuteCancel_WrongGateway(t *testing.T) {
 		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, TestUserID).Return(mockSubscriber, nil)
 
 		gw := New(ctx.Logger(), ctx, TestAPISecret, TestMerchantID, nil, nil, nil, mockBilling, nil, nil)
-		err := gw.ExecuteCancel(context.Background(), TestUserID)
+		result, err := gw.ExecuteCancel(context.Background(), TestUserID)
 
 		assert.Error(t, err)
+		assert.Nil(t, result)
 		assert.Contains(t, err.Error(), "no active Atlas subscription found")
+	})
+}
+
+func TestAtlosGateway_AbortCancellation_Success(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+
+		userD := uint(999)
+		periodID := uint(5)
+		cancelAt := time.Now().Add(24 * time.Hour).UTC()
+		start := time.Now().AddDate(0, -1, 0).UTC()
+		end := time.Now().AddDate(0, 1, 0).UTC()
+
+		mockSubscriber := &pluginCore.Subscriber{
+			UserID:              userD,
+			GatewayType:         GatewayID,
+			ExternalID:          TestTransactionID,
+			SubscriptionID:      TestSubscriptionID,
+			IsActive:            true,
+			PricingPlanPeriodID: &periodID,
+			BillingPeriodStart:  &start,
+			BillingPeriodEnd:    &end,
+			WillCancelAt:        &cancelAt,
+		}
+
+		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, userD).Return(mockSubscriber, nil)
+
+		// Expect CreateOrUpdateSubscriber with ClearWillCancelAt option
+		mockBilling.EXPECT().CreateOrUpdateSubscriber(
+			mock.Anything,
+			userD,
+			GatewayID,
+			TestTransactionID,
+			TestSubscriptionID,
+			true,
+			&periodID,
+			mock.Anything, // WithBillingPeriodStart option
+			mock.Anything, // WithBillingPeriodEnd option
+			mock.Anything, // WithClearWillCancelAt option
+		).Return(nil)
+
+		gw := New(ctx.Logger(), ctx, TestAPISecret, TestMerchantID, nil, nil, nil, mockBilling, nil, nil)
+		err := gw.AbortCancellation(context.Background(), userD)
+
+		assert.NoError(t, err)
+	})
+}
+
+func TestAtlosGateway_AbortCancellation_NoScheduledCancellation(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+
+		userD := uint(999)
+		periodID := uint(5)
+
+		mockSubscriber := &pluginCore.Subscriber{
+			UserID:              userD,
+			GatewayType:         GatewayID,
+			ExternalID:          TestTransactionID,
+			SubscriptionID:      TestSubscriptionID,
+			IsActive:            true,
+			PricingPlanPeriodID: &periodID,
+			WillCancelAt:        nil, // No scheduled cancellation
+		}
+
+		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, userD).Return(mockSubscriber, nil)
+
+		gw := New(ctx.Logger(), ctx, TestAPISecret, TestMerchantID, nil, nil, nil, mockBilling, nil, nil)
+		err := gw.AbortCancellation(context.Background(), userD)
+
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "no scheduled cancellation found")
+	})
+}
+
+func TestAtlosGateway_AbortCancellation_NoActiveSubscription(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+
+		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, TestUserID).Return(nil, nil)
+
+		gw := New(ctx.Logger(), ctx, TestAPISecret, TestMerchantID, nil, nil, nil, mockBilling, nil, nil)
+		err := gw.AbortCancellation(context.Background(), TestUserID)
+
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "no active ATLOS subscription found")
 	})
 }
 

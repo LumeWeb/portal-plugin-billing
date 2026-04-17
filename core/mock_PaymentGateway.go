@@ -37,12 +37,12 @@ func (_m *MockPaymentGateway) EXPECT() *MockPaymentGateway_Expecter {
 	return &MockPaymentGateway_Expecter{mock: &_m.Mock}
 }
 
-// ExecuteCancel provides a mock function for the type MockPaymentGateway
-func (_mock *MockPaymentGateway) ExecuteCancel(ctx context.Context, userID uint) error {
+// AbortCancellation provides a mock function for the type MockPaymentGateway
+func (_mock *MockPaymentGateway) AbortCancellation(ctx context.Context, userID uint) error {
 	ret := _mock.Called(ctx, userID)
 
 	if len(ret) == 0 {
-		panic("no return value specified for ExecuteCancel")
+		panic("no return value specified for AbortCancellation")
 	}
 
 	var r0 error
@@ -52,6 +52,74 @@ func (_mock *MockPaymentGateway) ExecuteCancel(ctx context.Context, userID uint)
 		r0 = ret.Error(0)
 	}
 	return r0
+}
+
+// MockPaymentGateway_AbortCancellation_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AbortCancellation'
+type MockPaymentGateway_AbortCancellation_Call struct {
+	*mock.Call
+}
+
+// AbortCancellation is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID uint
+func (_e *MockPaymentGateway_Expecter) AbortCancellation(ctx interface{}, userID interface{}) *MockPaymentGateway_AbortCancellation_Call {
+	return &MockPaymentGateway_AbortCancellation_Call{Call: _e.mock.On("AbortCancellation", ctx, userID)}
+}
+
+func (_c *MockPaymentGateway_AbortCancellation_Call) Run(run func(ctx context.Context, userID uint)) *MockPaymentGateway_AbortCancellation_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 uint
+		if args[1] != nil {
+			arg1 = args[1].(uint)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockPaymentGateway_AbortCancellation_Call) Return(err error) *MockPaymentGateway_AbortCancellation_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockPaymentGateway_AbortCancellation_Call) RunAndReturn(run func(ctx context.Context, userID uint) error) *MockPaymentGateway_AbortCancellation_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ExecuteCancel provides a mock function for the type MockPaymentGateway
+func (_mock *MockPaymentGateway) ExecuteCancel(ctx context.Context, userID uint) (*CancellationResult, error) {
+	ret := _mock.Called(ctx, userID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ExecuteCancel")
+	}
+
+	var r0 *CancellationResult
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uint) (*CancellationResult, error)); ok {
+		return returnFunc(ctx, userID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uint) *CancellationResult); ok {
+		r0 = returnFunc(ctx, userID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*CancellationResult)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, uint) error); ok {
+		r1 = returnFunc(ctx, userID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
 }
 
 // MockPaymentGateway_ExecuteCancel_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ExecuteCancel'
@@ -84,12 +152,12 @@ func (_c *MockPaymentGateway_ExecuteCancel_Call) Run(run func(ctx context.Contex
 	return _c
 }
 
-func (_c *MockPaymentGateway_ExecuteCancel_Call) Return(err error) *MockPaymentGateway_ExecuteCancel_Call {
-	_c.Call.Return(err)
+func (_c *MockPaymentGateway_ExecuteCancel_Call) Return(cancellationResult *CancellationResult, err error) *MockPaymentGateway_ExecuteCancel_Call {
+	_c.Call.Return(cancellationResult, err)
 	return _c
 }
 
-func (_c *MockPaymentGateway_ExecuteCancel_Call) RunAndReturn(run func(ctx context.Context, userID uint) error) *MockPaymentGateway_ExecuteCancel_Call {
+func (_c *MockPaymentGateway_ExecuteCancel_Call) RunAndReturn(run func(ctx context.Context, userID uint) (*CancellationResult, error)) *MockPaymentGateway_ExecuteCancel_Call {
 	_c.Call.Return(run)
 	return _c
 }

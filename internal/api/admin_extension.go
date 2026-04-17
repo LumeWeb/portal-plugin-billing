@@ -462,6 +462,25 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 					),
 				),
 			)),
+		router.NewRoute(http.MethodPost, "/api/billing/users/:userId/subscriptions/cancel/abort", e.handleAbortCancellation,
+			router.WithSwagger(
+				router.WithoutDefaultSuccessResponse(),
+				router.WithSummary("Abort Scheduled Cancellation"),
+				router.WithDescription("Cancels a scheduled subscription cancellation, restoring the subscription to active status"),
+				router.WithTags("Billing Admin"),
+				router.WithPathParam("userId", "User ID", "123"),
+				router.WithSuccessResponse(http.StatusOK, "Scheduled cancellation aborted successfully",
+					router.WithJSONContent(dto.ManagementResultResponse{})),
+				router.WithErrorResponses(
+					router.DefineSwaggerErrorResponses(
+						router.DefineSwaggerErrorResponse(http.StatusUnauthorized, "Authentication required"),
+						router.DefineSwaggerErrorResponse(http.StatusForbidden, "Insufficient permissions"),
+						router.DefineSwaggerErrorResponse(http.StatusBadRequest, "Invalid request"),
+						router.DefineSwaggerErrorResponse(http.StatusNotFound, "No scheduled cancellation found"),
+						router.DefineSwaggerErrorResponse(http.StatusInternalServerError, "Server error"),
+					),
+				),
+			)),
 		router.NewRoute(http.MethodPost, "/api/billing/users/:userId/subscriptions/change-plan", e.handleChangeUserPlan,
 			router.WithSwagger(
 				router.WithoutDefaultSuccessResponse(),
@@ -1499,9 +1518,13 @@ func (e *AdminExtension) handleCancelUserSubscription(c echo.Context) error {
 			return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("failed to cancel subscription: %w", err)), http.StatusInternalServerError)
 		}
 
-		// Return success response
+		// Return success response with completed status
+		now := time.Now()
 		result := &pluginCore.ManagementResult{
-			Action: pluginCore.ActionAPIRequired,
+			Action:        pluginCore.ActionAPIRequired,
+			Status:        string(pluginCore.CancellationStatusCompleted),
+			EffectiveTime: &now,
+			CanAbort:      false,
 		}
 		response := dto.ManagementResultResponse{}
 		if err := response.FromModel(result); err != nil {
@@ -1521,15 +1544,13 @@ func (e *AdminExtension) handleCancelUserSubscription(c echo.Context) error {
 		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("failed to get payment gateway")), http.StatusInternalServerError)
 	}
 
-	// Check if gateway implements SubscriptionManager (for portal mode)
+	// Check if gateway implements SubscriptionManager
 	manager, ok := gateway.(pluginCore.SubscriptionManager)
 	if !ok {
 		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway does not support subscription management")), http.StatusInternalServerError)
 	}
 
-	var result *pluginCore.ManagementResult
-
-	// Check management mode
+	// Get management capabilities to check admin operations
 	capabilities, err := manager.GetManagementInfo(reqCtx, uint(userID))
 	if err != nil {
 		e.Logger().Error("failed to get management capabilities",
@@ -1538,32 +1559,33 @@ func (e *AdminExtension) handleCancelUserSubscription(c echo.Context) error {
 		return ctx.Error(NewError(ErrKeyManagementCapabilitiesFailed, fmt.Errorf("failed to get management capabilities: %w", err)), http.StatusInternalServerError)
 	}
 
-	if capabilities.ManagementMode == pluginCore.ModeAPI {
-		// API mode: execute directly
-		executor, ok := gateway.(pluginCore.SubscriptionExecutor)
-		if !ok {
-			return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway does not support subscription execution")), http.StatusInternalServerError)
-		}
+	// Check if gateway supports admin backend cancellation
+	supported, exists := capabilities.AdminOperations[pluginCore.OperationCancel]
+	if !exists || !supported {
+		return ctx.Error(NewError(ErrKeyManagementOperationFailed, 
+			fmt.Errorf("gateway does not support backend cancellation; use mode='database' for local-only cancellation")), 
+			http.StatusBadRequest)
+	}
 
-		if err := executor.ExecuteCancel(reqCtx, uint(userID)); err != nil {
-			e.Logger().Error("failed to cancel subscription",
-				zap.Uint("user_id", uint(userID)),
-				zap.Error(err))
-			return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("failed to cancel subscription: %w", err)), http.StatusInternalServerError)
-		}
+	// Gateway supports backend cancellation - execute it
+	executor, ok := gateway.(pluginCore.SubscriptionExecutor)
+	if !ok {
+		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway reports admin cancel support but does not implement SubscriptionExecutor")), http.StatusInternalServerError)
+	}
 
-		result = &pluginCore.ManagementResult{
-			Action: pluginCore.ActionAPIRequired,
-		}
-	} else {
-		// Portal mode: return redirect URL
-		result, err = manager.GetManagementURL(reqCtx, uint(userID), pluginCore.OperationCancel)
-		if err != nil {
-			e.Logger().Error("failed to get cancellation portal URL",
-				zap.Uint("user_id", uint(userID)),
-				zap.Error(err))
-			return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("failed to get cancellation URL: %w", err)), http.StatusInternalServerError)
-		}
+	cancelResult, err := executor.ExecuteCancel(reqCtx, uint(userID))
+	if err != nil {
+		e.Logger().Error("failed to cancel subscription",
+			zap.Uint("user_id", uint(userID)),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("failed to cancel subscription: %w", err)), http.StatusInternalServerError)
+	}
+
+	result := &pluginCore.ManagementResult{
+		Action:        pluginCore.ActionAPIRequired,
+		Status:        string(cancelResult.Status),
+		EffectiveTime: cancelResult.EffectiveAt,
+		CanAbort:      cancelResult.CanAbort,
 	}
 
 	response := dto.ManagementResultResponse{}
@@ -1618,13 +1640,13 @@ func (e *AdminExtension) handleChangeUserPlan(c echo.Context) error {
 		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("failed to get payment gateway")), http.StatusInternalServerError)
 	}
 
-	// Check if gateway implements SubscriptionManager (for portal mode)
+	// Check if gateway implements SubscriptionManager
 	manager, ok := gateway.(pluginCore.SubscriptionManager)
 	if !ok {
 		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway does not support subscription management")), http.StatusInternalServerError)
 	}
 
-	// Get management capabilities to determine mode
+	// Get management capabilities to check admin operations
 	capabilities, err := manager.GetManagementInfo(reqCtx, uint(userID))
 	if err != nil {
 		e.Logger().Error("failed to get management capabilities",
@@ -1634,51 +1656,31 @@ func (e *AdminExtension) handleChangeUserPlan(c echo.Context) error {
 		return ctx.Error(NewError(ErrKeyManagementCapabilitiesFailed, fmt.Errorf("failed to get management capabilities: %w", err)), http.StatusInternalServerError)
 	}
 
-	// API mode: execute directly
-	if capabilities.ManagementMode == pluginCore.ModeAPI {
-		// Verify operation is supported
-		supported, exists := capabilities.Operations[pluginCore.OperationChangePlan]
-		if !exists || !supported {
-			return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("plan change is not supported by this gateway")), http.StatusBadRequest)
-		}
-
-		executor, ok := gateway.(pluginCore.SubscriptionExecutor)
-		if !ok {
-			return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway does not support subscription execution")), http.StatusInternalServerError)
-		}
-
-		result, err := executor.ExecutePlanChange(reqCtx, uint(userID), request.PeriodID)
-		if err != nil {
-			e.Logger().Error("failed to execute plan change",
-				zap.Uint("user_id", uint(userID)),
-				zap.Uint("period_id", request.PeriodID),
-				zap.String("gateway_type", sub.GatewayType),
-				zap.Error(err))
-			return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("failed to change plan: %w", err)), http.StatusInternalServerError)
-		}
-
-		response := dto.PlanChangeResultResponse{}
-		if err := response.FromModel(result); err != nil {
-			e.Logger().Error("failed to build plan change response",
-				zap.Uint("user_id", uint(userID)),
-				zap.Error(err))
-			return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("failed to build response: %w", err)), http.StatusInternalServerError)
-		}
-
-		return httputil.EncodeResponse(ctx, result, &response)
+	// Check if gateway supports admin backend plan change
+	supported, exists := capabilities.AdminOperations[pluginCore.OperationChangePlan]
+	if !exists || !supported {
+		return ctx.Error(NewError(ErrKeyManagementOperationFailed,
+			fmt.Errorf("gateway does not support backend plan change; use mode='database' for local-only changes")),
+			http.StatusBadRequest)
 	}
 
-	// Portal mode: return redirect URL
-	result, err := manager.GetManagementURL(reqCtx, uint(userID), pluginCore.OperationChangePlan)
+	// Gateway supports backend plan change - execute it
+	executor, ok := gateway.(pluginCore.SubscriptionExecutor)
+	if !ok {
+		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway reports admin plan change support but does not implement SubscriptionExecutor")), http.StatusInternalServerError)
+	}
+
+	result, err := executor.ExecutePlanChange(reqCtx, uint(userID), request.PeriodID)
 	if err != nil {
-		e.Logger().Error("failed to get plan change portal URL",
+		e.Logger().Error("failed to execute plan change",
 			zap.Uint("user_id", uint(userID)),
+			zap.Uint("period_id", request.PeriodID),
 			zap.String("gateway_type", sub.GatewayType),
 			zap.Error(err))
-		return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("failed to get plan change URL: %w", err)), http.StatusInternalServerError)
+		return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("failed to change plan: %w", err)), http.StatusInternalServerError)
 	}
 
-	response := dto.ManagementResultResponse{}
+	response := dto.PlanChangeResultResponse{}
 	if err := response.FromModel(result); err != nil {
 		e.Logger().Error("failed to build plan change response",
 			zap.Uint("user_id", uint(userID)),
@@ -1727,6 +1729,87 @@ func (e *AdminExtension) handleListGatewaySubscribers(c echo.Context) error {
 			return resp
 		},
 	)
+}
+
+// handleAbortCancellation aborts a scheduled subscription cancellation
+func (e *AdminExtension) handleAbortCancellation(c echo.Context) error {
+	ctx := httputil.Context(c)
+	reqCtx := ctx.Context.Request().Context()
+
+	userIDStr := c.Param("userId")
+	userID, err := strconv.ParseUint(userIDStr, 10, 64)
+	if err != nil {
+		return ctx.Error(NewError(ErrKeyInvalidIdentifier, fmt.Errorf("invalid user id: %w", err)), http.StatusBadRequest)
+	}
+
+	// Get active subscription for the user
+	sub, err := e.billingService.GetActiveSubscription(reqCtx, uint(userID))
+	if err != nil {
+		e.Logger().Error("failed to get active subscription",
+			zap.Uint("user_id", uint(userID)),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeySubscriptionCheckFailed, fmt.Errorf("failed to get active subscription: %w", err)), http.StatusInternalServerError)
+	}
+
+	if sub == nil {
+		return ctx.Error(NewError(ErrKeyNoActiveSubscription, fmt.Errorf("no active subscription found")), http.StatusNotFound)
+	}
+
+	// Check if there's a scheduled cancellation
+	if sub.WillCancelAt == nil {
+		return ctx.Error(NewError(ErrKeyNoActiveSubscription, fmt.Errorf("no scheduled cancellation found")), http.StatusNotFound)
+	}
+
+	// Get the gateway for this subscription
+	gateway, err := e.billingService.GetGateway(reqCtx, sub.GatewayType)
+	if err != nil {
+		e.Logger().Error("failed to get payment gateway",
+			zap.Uint("user_id", uint(userID)),
+			zap.String("gateway_type", sub.GatewayType),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("failed to get payment gateway")), http.StatusInternalServerError)
+	}
+
+	// Check if gateway supports admin backend cancellation via AdminOperations
+	manager, ok := gateway.(pluginCore.SubscriptionManager)
+	if ok {
+		capabilities, capErr := manager.GetManagementInfo(reqCtx, uint(userID))
+		if capErr == nil {
+			supported, exists := capabilities.AdminOperations[pluginCore.OperationCancel]
+			if !exists || !supported {
+				return ctx.Error(NewError(ErrKeyManagementOperationFailed,
+					fmt.Errorf("gateway does not support admin backend cancellation")), http.StatusBadRequest)
+			}
+		}
+	}
+
+	// Gateway supports admin cancellation - get executor
+	executor, ok := gateway.(pluginCore.SubscriptionExecutor)
+	if !ok {
+		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway does not implement SubscriptionExecutor")), http.StatusInternalServerError)
+	}
+
+	// Abort the scheduled cancellation
+	if err := executor.AbortCancellation(reqCtx, uint(userID)); err != nil {
+		e.Logger().Error("failed to abort scheduled cancellation",
+			zap.Uint("user_id", uint(userID)),
+			zap.String("gateway_type", sub.GatewayType),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("failed to abort cancellation: %w", err)), http.StatusInternalServerError)
+	}
+
+	// Return success response
+	result := &pluginCore.ManagementResult{
+		Action:   pluginCore.ActionAPIRequired,
+		Status:   "aborted",
+		CanAbort: false,
+	}
+	response := dto.ManagementResultResponse{}
+	if err := response.FromModel(result); err != nil {
+		return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("failed to build response: %w", err)), http.StatusInternalServerError)
+	}
+
+	return httputil.EncodeResponse(ctx, result, &response)
 }
 
 // Helper methods for price line plan management

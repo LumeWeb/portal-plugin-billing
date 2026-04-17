@@ -225,6 +225,27 @@ func (e *APIExtension) Configure(gRouter router.Router, accessSvc core.AccessSer
 			router.WithMiddlewares(authMw, accessMw),
 			router.WithCors(),
 		),
+		// Abort scheduled cancellation endpoint
+		router.NewRoute(http.MethodPost, pluginCore.AbortCancelEndpointPath, e.handleAbortCancellationOperation,
+			router.WithSwagger(
+				router.WithSummary("Abort scheduled cancellation"),
+				router.WithDescription("Cancels a scheduled subscription cancellation, restoring the subscription to active status"),
+				router.WithTags("Billing"),
+				router.WithSuccessResponse(http.StatusOK, "Scheduled cancellation aborted successfully",
+					router.WithJSONContent(dto.ManagementResultResponse{})),
+				router.WithErrorResponses(
+					router.DefineSwaggerErrorResponses(
+						router.DefineSwaggerErrorResponse(http.StatusUnauthorized, "Authentication required"),
+						router.DefineSwaggerErrorResponse(http.StatusNotFound, "No active subscription or no scheduled cancellation found"),
+						router.DefineSwaggerErrorResponse(http.StatusBadRequest, "Abort is not supported by this gateway"),
+						router.DefineSwaggerErrorResponse(http.StatusInternalServerError, "Failed to abort cancellation"),
+					),
+				),
+			),
+			router.WithAccess(core.ACCESS_USER_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
+			router.WithCors(),
+		),
 		// Predefined change-plan operation endpoint
 		router.NewRoute(http.MethodPost, pluginCore.ChangePlanEndpointPath, e.handleChangePlanOperation,
 			router.WithSwagger(
@@ -883,7 +904,8 @@ func (e *APIExtension) handleCancelOperation(c echo.Context) error {
 			return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway does not support subscription execution")), http.StatusInternalServerError)
 		}
 
-		if err := executor.ExecuteCancel(c.Request().Context(), userID); err != nil {
+		cancelResult, err := executor.ExecuteCancel(c.Request().Context(), userID)
+		if err != nil {
 			e.Logger().Error("failed to execute cancellation",
 				zap.Uint("user_id", userID),
 				zap.String("gateway_type", sub.GatewayType),
@@ -891,9 +913,17 @@ func (e *APIExtension) handleCancelOperation(c echo.Context) error {
 			return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("failed to cancel subscription: %w", err)), http.StatusInternalServerError)
 		}
 
-		return c.JSON(http.StatusOK, dto.ManagementResultResponse{
-			Action: pluginCore.ActionShowUI,
-		})
+		result := &pluginCore.ManagementResult{
+			Action:        pluginCore.ActionShowUI,
+			Status:        string(cancelResult.Status),
+			EffectiveTime: cancelResult.EffectiveAt,
+			CanAbort:      cancelResult.CanAbort,
+		}
+		response := dto.ManagementResultResponse{}
+		if err := response.FromModel(result); err != nil {
+			return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("failed to build response: %w", err)), http.StatusInternalServerError)
+		}
+		return httputil.EncodeResponse(ctx, result, &response)
 	}
 
 	// Portal mode: return redirect URL
@@ -911,6 +941,72 @@ func (e *APIExtension) handleCancelOperation(c echo.Context) error {
 		e.Logger().Error("failed to build cancellation response",
 			zap.Uint("user_id", userID),
 			zap.Error(err))
+		return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("failed to build response: %w", err)), http.StatusInternalServerError)
+	}
+
+	return httputil.EncodeResponse(ctx, result, &response)
+}
+
+// handleAbortCancellationOperation aborts a scheduled cancellation
+// This endpoint is called when a user wants to revert a scheduled cancellation
+func (e *APIExtension) handleAbortCancellationOperation(c echo.Context) error {
+	ctx := httputil.Context(c)
+	userID, ok := e.getUser(ctx)
+	if !ok {
+		return ctx.Error(NewError(ErrKeyUnauthorized, fmt.Errorf("failed to get user ID")), http.StatusUnauthorized)
+	}
+
+	// Get active subscription to determine gateway
+	sub, err := e.billingService.GetActiveSubscription(c.Request().Context(), userID)
+	if err != nil {
+		e.Logger().Error("failed to check subscription status",
+			zap.Uint("user_id", userID),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeySubscriptionCheckFailed, fmt.Errorf("failed to check subscription status")), http.StatusInternalServerError)
+	}
+
+	if sub == nil {
+		return ctx.Error(NewError(ErrKeyNoActiveSubscription, fmt.Errorf("no active subscription found")), http.StatusNotFound)
+	}
+
+	// Check if there's a scheduled cancellation
+	if sub.WillCancelAt == nil {
+		return ctx.Error(NewError(ErrKeyNoActiveSubscription, fmt.Errorf("no scheduled cancellation found")), http.StatusNotFound)
+	}
+
+	// Get the gateway for this subscription
+	gateway, err := e.billingService.GetGateway(c.Request().Context(), sub.GatewayType)
+	if err != nil {
+		e.Logger().Error("failed to get payment gateway",
+			zap.Uint("user_id", userID),
+			zap.String("gateway_type", sub.GatewayType),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("failed to get payment gateway")), http.StatusInternalServerError)
+	}
+
+	// Check if gateway implements SubscriptionExecutor (required for abort)
+	executor, ok := gateway.(pluginCore.SubscriptionExecutor)
+	if !ok {
+		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway does not support subscription execution")), http.StatusInternalServerError)
+	}
+
+	// Abort the scheduled cancellation
+	if err := executor.AbortCancellation(c.Request().Context(), userID); err != nil {
+		e.Logger().Error("failed to abort scheduled cancellation",
+			zap.Uint("user_id", userID),
+			zap.String("gateway_type", sub.GatewayType),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("failed to abort cancellation: %w", err)), http.StatusInternalServerError)
+	}
+
+	// Return success response
+	result := &pluginCore.ManagementResult{
+		Action:   pluginCore.ActionShowUI,
+		Status:   "aborted",
+		CanAbort: false,
+	}
+	response := dto.ManagementResultResponse{}
+	if err := response.FromModel(result); err != nil {
 		return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("failed to build response: %w", err)), http.StatusInternalServerError)
 	}
 

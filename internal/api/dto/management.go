@@ -17,8 +17,9 @@ var (
 
 // ManagementCapabilitiesResponse represents the subscription management capabilities of a gateway
 type ManagementCapabilitiesResponse struct {
-	ManagementMode string            `json:"management_mode"`
-	Operations     map[string]bool   `json:"operations"`
+	ManagementMode  string          `json:"management_mode"`
+	Operations      map[string]bool `json:"operations"`
+	AdminOperations map[string]bool `json:"admin_operations"`
 }
 
 // FromModel converts ManagementCapabilities to response DTO
@@ -30,10 +31,16 @@ func (r *ManagementCapabilitiesResponse) FromModel(capabilities *pluginCore.Mana
 	// Copy management mode
 	r.ManagementMode = string(capabilities.ManagementMode)
 
-	// Convert operations map
+	// Convert user operations map
 	r.Operations = make(map[string]bool)
 	for op, supported := range capabilities.Operations {
 		r.Operations[string(op)] = supported
+	}
+
+	// Convert admin operations map
+	r.AdminOperations = make(map[string]bool)
+	for op, supported := range capabilities.AdminOperations {
+		r.AdminOperations[string(op)] = supported
 	}
 
 	return nil
@@ -95,6 +102,8 @@ type ManagementResultResponse struct {
 	RequiresConfirmation bool                         `json:"requires_confirmation"`
 	ConfirmationMessage  string                       `json:"confirmation_message,omitempty"`
 	EffectiveTime        *time.Time                   `json:"effective_time,omitempty"`
+	Status               string                       `json:"status"`            // "scheduled" | "immediate" | "portal" | "completed"
+	CanAbort             bool                         `json:"can_abort"`         // Whether cancellation can be aborted
 }
 
 // APIEndpointInfoResponse represents an API endpoint for management operations
@@ -115,6 +124,8 @@ func (r *ManagementResultResponse) FromModel(result *pluginCore.ManagementResult
 	r.RequiresConfirmation = result.RequiresConfirmation
 	r.ConfirmationMessage = result.ConfirmationMessage
 	r.EffectiveTime = result.EffectiveTime
+	r.Status = result.Status
+	r.CanAbort = result.CanAbort
 
 	// Populate APIEndpoint if present
 	if result.APIEndpoint != nil {
