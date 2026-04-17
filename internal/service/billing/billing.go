@@ -581,7 +581,7 @@ func (s *BillingServiceDefault) ListSubscribers(ctx context.Context, filters []q
 
 // UpdateSubscriberPlan updates a subscriber's pricing plan period in the database
 // This is used for database-only plan changes when the gateway doesn't support backend plan changes
-func (s *BillingServiceDefault) UpdateSubscriberPlan(ctx context.Context, userID uint, newPeriodID uint) (*pluginCore.PlanChangeResult, error) {
+func (s *BillingServiceDefault) UpdateSubscriberPlan(ctx context.Context, userID uint, gatewayType string, newPeriodID uint) (*pluginCore.PlanChangeResult, error) {
 	ctx, span := core.TraceMethod(ctx, "BillingServiceDefault.UpdateSubscriberPlan")
 	defer span.End()
 
@@ -594,10 +594,19 @@ func (s *BillingServiceDefault) UpdateSubscriberPlan(ctx context.Context, userID
 		return nil, fmt.Errorf("pricing plan period not found: %d", newPeriodID)
 	}
 
-	// Find the active subscriber for this user
+	// Get the pricing plan to validate it's active
+	plan, err := s.pricingService.GetPricingPlan(ctx, newPeriod.PricingPlanID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get pricing plan: %w", err)
+	}
+	if plan == nil || !plan.IsActive {
+		return nil, fmt.Errorf("new plan is not active")
+	}
+
+	// Find the active subscriber for this user and gateway
 	var subscriber models.Subscriber
 	err = db.RetryableComponentTransaction(s, ctx, func(tx *gorm.DB) *gorm.DB {
-		return tx.Where("user_id = ? AND is_active = ?", userID, true).First(&subscriber)
+		return tx.Where("user_id = ? AND gateway_type = ? AND is_active = ?", userID, gatewayType, true).First(&subscriber)
 	})
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
