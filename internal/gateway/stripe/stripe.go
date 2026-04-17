@@ -2824,11 +2824,8 @@ var (
 )
 
 // ExecuteCancel cancels a subscription through Stripe's API.
-// This is used by admins to cancel subscriptions directly.
-// For Stripe:
-//   - If immediate=true: uses Cancel API for immediate cancellation
-//   - If immediate=false: schedules cancellation at end of billing period via Update with CancelAtPeriodEnd=true
-// The webhook (customer.subscription.deleted) will finalize the cancellation when it takes effect.
+// Both immediate and scheduled cancellations rely on the customer.subscription.deleted
+// webhook to handle deactivation, credit, and event firing — keeping logic DRY.
 func (g *StripeGateway) ExecuteCancel(ctx context.Context, userID uint, immediate bool) (*pluginCore.CancellationResult, error) {
 	ctx, span := core.TraceMethod(ctx, "StripeGateway.ExecuteCancel")
 	defer span.End()
@@ -2854,11 +2851,12 @@ func (g *StripeGateway) ExecuteCancel(ctx context.Context, userID uint, immediat
 }
 
 // executeImmediateCancel cancels a subscription immediately using Stripe's Cancel API.
+// Stripe fires customer.subscription.deleted upon cancellation, which the webhook handler
+// processes via deactivateSubscription (deactivation, credit, events, etc.).
 func (g *StripeGateway) executeImmediateCancel(ctx context.Context, userID uint, subscriber *billingModels.Subscriber) (*pluginCore.CancellationResult, error) {
 	ctx, span := core.TraceMethod(ctx, "StripeGateway.executeImmediateCancel")
 	defer span.End()
 
-	// Cancel immediately via Stripe API
 	params := &stripe.SubscriptionCancelParams{}
 	_, err := g.stripeClient.V1Subscriptions().Cancel(ctx, subscriber.SubscriptionID, params)
 	if err != nil {
@@ -2869,30 +2867,6 @@ func (g *StripeGateway) executeImmediateCancel(ctx context.Context, userID uint,
 		return nil, fmt.Errorf("failed to cancel subscription: %w", err)
 	}
 
-	// Deactivate subscriber immediately for consistency with ATLOS gateway
-	if err := g.billing.DeactivateSubscriber(ctx, userID, GatewayID); err != nil {
-		g.logger.Error("failed to deactivate subscriber after immediate cancel",
-			zap.Uint("user_id", userID),
-			zap.Error(err))
-		return nil, fmt.Errorf("failed to deactivate subscriber: %w", err)
-	}
-
-	// Fire subscription cancelled event for consistency with ATLOS gateway
-	planID := uint(0)
-	if subscriber.PricingPlanPeriodID != nil {
-		if p, err := g.pricing.GetPricingPlanPeriod(ctx, *subscriber.PricingPlanPeriodID); err == nil && p != nil {
-			planID = p.PricingPlanID
-		}
-	}
-	evt := billingEvent.NewSubscriptionCancelledEvent(
-		ctx,
-		userID,
-		subscriber.SubscriptionID,
-		GatewayID,
-		planID,
-	)
-	core.Fire(g.coreCtx, billingEvent.EVENT_SUBSCRIPTION_CANCELLED, evt)
-
 	effectiveAt := time.Now()
 	g.logger.Info("Cancelled subscription immediately via Stripe API",
 		zap.Uint("user_id", userID),
@@ -2902,7 +2876,7 @@ func (g *StripeGateway) executeImmediateCancel(ctx context.Context, userID uint,
 	return &pluginCore.CancellationResult{
 		Status:      pluginCore.CancellationStatusImmediate,
 		EffectiveAt: &effectiveAt,
-		CanAbort:    false, // Immediate cancellation cannot be aborted
+		CanAbort:    false,
 	}, nil
 }
 
