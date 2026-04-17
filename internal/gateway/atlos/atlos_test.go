@@ -1112,3 +1112,70 @@ func createTestUser(id uint) *portalModels.User {
 		Email:     "test@example.com",
 	}
 }
+
+// ATLOS Pause/Resume Tests - ATLOS does not support pause/resume
+
+func TestAtlosGateway_GetManagementInfo_PauseResumeNotSupported(t *testing.T) {
+	ctx, _ := coreTesting.NewTestContext(t)
+	gw := New(ctx.Logger(), ctx, TestAPISecret, TestMerchantID, nil, nil, nil, nil, nil, nil)
+
+	info, err := gw.GetManagementInfo(context.Background(), TestUserID)
+	assert.NoError(t, err)
+	assert.NotNil(t, info)
+
+	// Pause and resume should not be in operations map (not supported)
+	_, hasPause := info.Operations[pluginCore.OperationPause]
+	_, hasResume := info.Operations[pluginCore.OperationResume]
+	assert.False(t, hasPause)
+	assert.False(t, hasResume)
+}
+
+func TestAtlosGateway_GetManagementURL_PauseUnsupported(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+
+		planID := uint(10)
+		mockSubscriber := &pluginCore.Subscriber{
+			UserID:              TestUserID,
+			GatewayType:         GatewayID,
+			ExternalID:          TestTransactionID,
+			SubscriptionID:      TestSubscriptionID,
+			IsActive:            true,
+			PricingPlanPeriodID: &planID,
+		}
+		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, TestUserID).Return(mockSubscriber, nil)
+
+		gw := New(ctx.Logger(), ctx, TestAPISecret, TestMerchantID, nil, nil, nil, mockBilling, nil, nil)
+		result, err := gw.GetManagementURL(context.Background(), TestUserID, pluginCore.OperationPause)
+
+		assert.NoError(tb, err)
+		assert.NotNil(tb, result)
+		assert.Equal(tb, pluginCore.ActionUnsupported, result.Action)
+		assert.Contains(tb, result.ErrorMessage, "pause")
+	})
+}
+
+func TestAtlosGateway_GetManagementURL_ResumeUnsupported(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+
+		planID := uint(11)
+		mockSubscriber := &pluginCore.Subscriber{
+			UserID:              TestUserID,
+			GatewayType:         GatewayID,
+			ExternalID:          TestTransactionID,
+			SubscriptionID:      TestSubscriptionID,
+			IsActive:            true,
+			PricingPlanPeriodID: &planID,
+		}
+		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, TestUserID).Return(mockSubscriber, nil)
+
+		gw := New(ctx.Logger(), ctx, TestAPISecret, TestMerchantID, nil, nil, nil, mockBilling, nil, nil)
+		result, err := gw.GetManagementURL(context.Background(), TestUserID, pluginCore.OperationResume)
+
+		assert.NoError(tb, err)
+		assert.NotNil(tb, result)
+		assert.Equal(tb, pluginCore.ActionUnsupported, result.Action)
+		assert.Contains(tb, result.ErrorMessage, "resume")
+	})
+}

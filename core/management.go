@@ -16,13 +16,21 @@ const (
 
 	// OperationChangePlan allows plan upgrades or downgrades
 	OperationChangePlan ManagementOperation = "change_plan"
+
+	// OperationPause pauses subscription billing and access
+	OperationPause ManagementOperation = "pause"
+
+	// OperationResume resumes a paused subscription
+	OperationResume ManagementOperation = "resume"
 )
 
 // Predefined management endpoint paths
 const (
-	CancelEndpointPath     = "/api/account/billing/cancel"
+	CancelEndpointPath      = "/api/account/billing/cancel"
 	AbortCancelEndpointPath = "/api/account/billing/cancel/abort"
-	ChangePlanEndpointPath = "/api/account/billing/change-plan"
+	ChangePlanEndpointPath  = "/api/account/billing/change-plan"
+	PauseEndpointPath       = "/api/account/billing/pause"
+	ResumeEndpointPath      = "/api/account/billing/resume"
 )
 
 // ManagementMode defines how a gateway handles subscription management
@@ -170,6 +178,14 @@ var predefinedManagementEndpoints = map[ManagementOperation]*APIEndpointInfo{
 		Method: "POST",
 		Path:   ChangePlanEndpointPath,
 	},
+	OperationPause: {
+		Method: "POST",
+		Path:   PauseEndpointPath,
+	},
+	OperationResume: {
+		Method: "POST",
+		Path:   ResumeEndpointPath,
+	},
 }
 
 // GetManagementAPIEndpoint returns the predefined API endpoint for a management operation
@@ -253,6 +269,15 @@ type SubscriptionExecutor interface {
 	// the subscription to active status. Returns an error if no scheduled
 	// cancellation exists or if the gateway doesn't support abort.
 	AbortCancellation(ctx context.Context, userID uint) error
+
+	// ExecutePause pauses the subscription through the gateway's API.
+	// The subscription remains in a paused state until resumed or cancelled.
+	// Returns an error if the gateway doesn't support pause or if pausing fails.
+	ExecutePause(ctx context.Context, userID uint) error
+
+	// ExecuteResume resumes a paused subscription through the gateway's API.
+	// Returns an error if no paused subscription exists or if resuming fails.
+	ExecuteResume(ctx context.Context, userID uint) error
 }
 
 // ManagementCapabilities describes what management operations a gateway supports

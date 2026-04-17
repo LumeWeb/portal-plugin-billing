@@ -267,6 +267,48 @@ func (e *APIExtension) Configure(gRouter router.Router, accessSvc core.AccessSer
 			router.WithMiddlewares(authMw, accessMw),
 			router.WithCors(),
 		),
+		// Predefined pause operation endpoint
+		router.NewRoute(http.MethodPost, pluginCore.PauseEndpointPath, e.handlePauseOperation,
+			router.WithSwagger(
+				router.WithSummary("Pause subscription"),
+				router.WithDescription("Executes the pause operation on the current subscription. Validates that the gateway supports pausing and returns the appropriate action"),
+				router.WithTags("Billing"),
+				router.WithSuccessResponse(http.StatusOK, "Pause operation completed successfully",
+					router.WithJSONContent(dto.ManagementResultResponse{})),
+				router.WithErrorResponses(
+					router.DefineSwaggerErrorResponses(
+						router.DefineSwaggerErrorResponse(http.StatusUnauthorized, "Authentication required"),
+						router.DefineSwaggerErrorResponse(http.StatusNotFound, "No active subscription found"),
+						router.DefineSwaggerErrorResponse(http.StatusBadRequest, "Pause is not supported by this gateway"),
+						router.DefineSwaggerErrorResponse(http.StatusInternalServerError, "Failed to process pause operation"),
+					),
+				),
+			),
+			router.WithAccess(core.ACCESS_USER_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
+			router.WithCors(),
+		),
+		// Predefined resume operation endpoint
+		router.NewRoute(http.MethodPost, pluginCore.ResumeEndpointPath, e.handleResumeOperation,
+			router.WithSwagger(
+				router.WithSummary("Resume subscription"),
+				router.WithDescription("Executes the resume operation on the current subscription. Validates that the gateway supports resuming and returns the appropriate action"),
+				router.WithTags("Billing"),
+				router.WithSuccessResponse(http.StatusOK, "Resume operation completed successfully",
+					router.WithJSONContent(dto.ManagementResultResponse{})),
+				router.WithErrorResponses(
+					router.DefineSwaggerErrorResponses(
+						router.DefineSwaggerErrorResponse(http.StatusUnauthorized, "Authentication required"),
+						router.DefineSwaggerErrorResponse(http.StatusNotFound, "No paused subscription found"),
+						router.DefineSwaggerErrorResponse(http.StatusBadRequest, "Resume is not supported by this gateway"),
+						router.DefineSwaggerErrorResponse(http.StatusInternalServerError, "Failed to process resume operation"),
+					),
+				),
+			),
+			router.WithAccess(core.ACCESS_USER_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
+			router.WithCors(),
+		),
 		// Checkout UI endpoint
 		router.NewRoute(http.MethodGet, "/api/account/billing/checkout/ui/:planId", e.handleGetCheckoutUI,
 			router.WithSwagger(
