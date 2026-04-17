@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"go.lumeweb.com/atlos-sdk"
@@ -617,7 +618,7 @@ func TestAtlosGateway_ExecuteCancel_Success(t *testing.T) {
 			PriceUSD:      10.0,
 		}
 
-		// Mock expectations - ExecuteCancel now schedules cancellation at end of billing period
+		// Mock expectations - ExecuteCancel now schedules cancellation at end of billing period (default)
 		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, userID).Return(mockSubscriber, nil)
 		mockPricing.EXPECT().GetPricingPlanPeriod(mock.Anything, periodID).Return(period, nil)
 
@@ -636,7 +637,7 @@ func TestAtlosGateway_ExecuteCancel_Success(t *testing.T) {
 		).Return(nil)
 
 		gw := New(ctx.Logger(), ctx, TestAPISecret, TestMerchantID, nil, nil, nil, mockBilling, mockPricing, nil)
-		result, err := gw.ExecuteCancel(context.Background(), userID)
+		result, err := gw.ExecuteCancel(context.Background(), userID, false) // false = scheduled cancellation
 
 		assert.NoError(t, err)
 		assert.NotNil(t, result)
@@ -653,7 +654,7 @@ func TestAtlosGateway_ExecuteCancel_NoActiveSubscription(t *testing.T) {
 		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, TestUserID).Return(nil, nil)
 
 		gw := New(ctx.Logger(), ctx, TestAPISecret, TestMerchantID, nil, nil, nil, mockBilling, nil, nil)
-		result, err := gw.ExecuteCancel(context.Background(), TestUserID)
+		result, err := gw.ExecuteCancel(context.Background(), TestUserID, false)
 
 		assert.Error(t, err)
 		assert.Nil(t, result)
@@ -677,11 +678,123 @@ func TestAtlosGateway_ExecuteCancel_WrongGateway(t *testing.T) {
 		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, TestUserID).Return(mockSubscriber, nil)
 
 		gw := New(ctx.Logger(), ctx, TestAPISecret, TestMerchantID, nil, nil, nil, mockBilling, nil, nil)
-		result, err := gw.ExecuteCancel(context.Background(), TestUserID)
+		result, err := gw.ExecuteCancel(context.Background(), TestUserID, false)
 
 		assert.Error(t, err)
 		assert.Nil(t, result)
 		assert.Contains(t, err.Error(), "no active Atlas subscription found")
+	})
+}
+
+func TestAtlosGateway_ExecuteCancel_Immediate(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+		mockPricing := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
+		mockCredit := core.GetService[*pluginCore.MockCreditService](ctx, pluginCore.CREDIT_SERVICE)
+
+		userID := uint(999)
+		periodID := uint(5)
+
+		// Set billing period dates (1 month ago to 1 month from now)
+		start := time.Now().AddDate(0, -1, 0).UTC()
+		end := time.Now().AddDate(0, 1, 0).UTC()
+
+		mockSubscriber := &pluginCore.Subscriber{
+			UserID:              userID,
+			GatewayType:         GatewayID,
+			ExternalID:          TestTransactionID,
+			SubscriptionID:      TestSubscriptionID,
+			IsActive:            true,
+			PricingPlanPeriodID: &periodID,
+			BillingPeriodStart:  &start,
+			BillingPeriodEnd:    &end,
+		}
+
+		// Pricing plan period
+		period := &billingModels.PricingPlanPeriod{
+			Model:         gorm.Model{ID: periodID},
+			PricingPlanID: 1,
+			Cadence:       "monthly",
+			PriceUSD:      10.0,
+		}
+
+		// Mock expectations - immediate cancellation
+		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, userID).Return(mockSubscriber, nil)
+		mockPricing.EXPECT().GetPricingPlanPeriod(mock.Anything, periodID).Return(period, nil)
+
+		// Expect proration credit to be issued (for unused time)
+		mockCredit.EXPECT().IssueCreditWithIdempotency(
+			mock.Anything,
+			uint64(userID),
+			pluginCore.TransactionTypeRefund,
+			mock.MatchedBy(func(amount decimal.Decimal) bool {
+				return amount.GreaterThan(decimal.Zero) // Should be positive proration
+			}),
+			pluginCore.ReferenceTypeAtlosPayment,
+			"immediate-cancel-"+TestSubscriptionID,
+			"Proration credit for unused subscription period on immediate cancellation",
+			uint64(0),
+		).Return(nil)
+
+		// Expect subscriber to be deactivated
+		mockBilling.EXPECT().DeactivateSubscriber(mock.Anything, userID, GatewayID).Return(nil)
+
+		gw := New(ctx.Logger(), ctx, TestAPISecret, TestMerchantID, nil, nil, nil, mockBilling, mockPricing, mockCredit)
+		result, err := gw.ExecuteCancel(context.Background(), userID, true) // true = immediate cancellation
+
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Equal(t, pluginCore.CancellationStatusImmediate, result.Status)
+		assert.NotNil(t, result.EffectiveAt)
+		assert.False(t, result.CanAbort) // Immediate cancellation cannot be aborted
+	})
+}
+
+func TestAtlosGateway_ExecuteCancel_Immediate_ZeroProration(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+		mockPricing := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
+		mockCredit := core.GetService[*pluginCore.MockCreditService](ctx, pluginCore.CREDIT_SERVICE)
+
+		userID := uint(999)
+		periodID := uint(5)
+
+		// Set billing period dates (at the very end of the period, minimal unused time)
+		start := time.Now().AddDate(0, 0, -30).UTC()
+		end := time.Now().Add(time.Hour).UTC()
+
+		mockSubscriber := &pluginCore.Subscriber{
+			UserID:              userID,
+			GatewayType:         GatewayID,
+			ExternalID:          TestTransactionID,
+			SubscriptionID:      TestSubscriptionID,
+			IsActive:            true,
+			PricingPlanPeriodID: &periodID,
+			BillingPeriodStart:  &start,
+			BillingPeriodEnd:    &end,
+		}
+
+		// Pricing plan period
+		period := &billingModels.PricingPlanPeriod{
+			Model:         gorm.Model{ID: periodID},
+			PricingPlanID: 1,
+			Cadence:       "monthly",
+			PriceUSD:      10.0,
+		}
+
+		// Mock expectations - immediate cancellation
+		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, userID).Return(mockSubscriber, nil)
+		mockPricing.EXPECT().GetPricingPlanPeriod(mock.Anything, periodID).Return(period, nil)
+
+		// Expect subscriber to be deactivated
+		mockBilling.EXPECT().DeactivateSubscriber(mock.Anything, userID, GatewayID).Return(nil)
+
+		gw := New(ctx.Logger(), ctx, TestAPISecret, TestMerchantID, nil, nil, nil, mockBilling, mockPricing, mockCredit)
+		result, err := gw.ExecuteCancel(context.Background(), userID, true) // true = immediate cancellation
+
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Equal(t, pluginCore.CancellationStatusImmediate, result.Status)
 	})
 }
 

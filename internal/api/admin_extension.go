@@ -1573,7 +1573,10 @@ func (e *AdminExtension) handleCancelUserSubscription(c echo.Context) error {
 		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway reports admin cancel support but does not implement SubscriptionExecutor")), http.StatusInternalServerError)
 	}
 
-	cancelResult, err := executor.ExecuteCancel(reqCtx, uint(userID))
+	// Determine if cancellation should be immediate or scheduled (default to scheduled)
+	immediate := request.Immediate != nil && *request.Immediate
+
+	cancelResult, err := executor.ExecuteCancel(reqCtx, uint(userID), immediate)
 	if err != nil {
 		e.Logger().Error("failed to cancel subscription",
 			zap.Uint("user_id", uint(userID)),

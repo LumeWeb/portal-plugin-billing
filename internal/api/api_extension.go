@@ -904,7 +904,7 @@ func (e *APIExtension) handleCancelOperation(c echo.Context) error {
 			return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway does not support subscription execution")), http.StatusInternalServerError)
 		}
 
-		cancelResult, err := executor.ExecuteCancel(c.Request().Context(), userID)
+		cancelResult, err := executor.ExecuteCancel(c.Request().Context(), userID, false) // Users get scheduled cancellation by default
 		if err != nil {
 			e.Logger().Error("failed to execute cancellation",
 				zap.Uint("user_id", userID),
