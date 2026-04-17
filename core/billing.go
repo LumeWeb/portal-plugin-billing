@@ -59,6 +59,9 @@ type BillingService interface {
 	GetRegistry(ctx context.Context) GatewayRegistry
 	// GetCheckoutUI returns checkout UI fragments for a plan
 	GetCheckoutUI(ctx context.Context, userID uint, planID uint, gatewayType string, periodID uint) (*CheckoutUIResponse, error)
+	// UpdateSubscriberPlan updates a subscriber's pricing plan period in the database
+	// This is used for database-only plan changes when the gateway doesn't support backend plan changes
+	UpdateSubscriberPlan(ctx context.Context, userID uint, gatewayType string, newPeriodID uint) (*PlanChangeResult, error)
 }
 
 // GatewayRegistry provides access to gateway information
