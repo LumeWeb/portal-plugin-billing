@@ -1242,6 +1242,21 @@ func (g *StripeGateway) handleInvoicePaid(ctx context.Context, event stripe.Even
 							zap.String("period_start", billingCycleStart.Format("2006-01-02")),
 							zap.String("period_end", billingCycleEnd.Format("2006-01-02")),
 							zap.String("amount", periodPrice.String()))
+
+						// Assign quota plan after debiting period cost
+						if period.QuotaPlanID != 0 {
+							if g.quota == nil {
+								g.logger.Error("quota service not configured, cannot assign quota plan",
+									zap.Uint("pricing_plan_period_id", planPeriodID),
+									zap.Uint("quota_plan_id", period.QuotaPlanID))
+							} else if err := g.quota.AssignUserToPlan(ctx, userID, period.QuotaPlanID); err != nil {
+								g.logger.Error("failed to assign quota plan",
+									zap.Error(err),
+									zap.Uint("user_id", userID),
+									zap.Uint("pricing_plan_period_id", planPeriodID),
+									zap.Uint("quota_plan_id", period.QuotaPlanID))
+							}
+						}
 					}
 				}
 			}
@@ -1398,11 +1413,38 @@ func (g *StripeGateway) activateSubscriptionWithPeriodID(ctx context.Context, us
 		return err
 	}
 
-	// TODO: Update to fetch PricingPlanPeriod and get QuotaPlanID from period
-	// For now, skip quota plan assignment as it requires refactoring to use PricingPlanPeriod
-	g.logger.Debug("quota plan assignment skipped - needs refactoring for PricingPlanPeriod",
-		zap.Uint("user_id", userID),
-		zap.Uint("pricing_plan_period_id", pricingPlanPeriodID))
+	// Fetch the pricing plan period to get the quota plan ID
+	period, err := g.pricing.GetPricingPlanPeriod(ctx, pricingPlanPeriodID)
+	if err != nil {
+		g.logger.Error("failed to fetch pricing plan period for quota assignment",
+			zap.Error(err),
+			zap.Uint("pricing_plan_period_id", pricingPlanPeriodID))
+		// Continue without quota assignment - but we still need to track the subscriber
+		period = nil
+	} else if period == nil {
+		g.logger.Warn("pricing plan period not found for quota assignment",
+			zap.Uint("pricing_plan_period_id", pricingPlanPeriodID))
+		// Continue without quota assignment
+		period = nil
+	}
+
+	// Assign quota plan if configured
+	if period != nil && period.QuotaPlanID != 0 {
+		if g.quota == nil {
+			g.logger.Error("quota service not configured, cannot assign quota plan",
+				zap.Uint("pricing_plan_period_id", pricingPlanPeriodID),
+				zap.Uint("quota_plan_id", period.QuotaPlanID))
+		} else {
+			if err := g.quota.AssignUserToPlan(ctx, user.ID, period.QuotaPlanID); err != nil {
+				g.logger.Error("failed to assign quota plan",
+					zap.Error(err),
+					zap.Uint("user_id", user.ID),
+					zap.Uint("pricing_plan_period_id", pricingPlanPeriodID),
+					zap.Uint("quota_plan_id", period.QuotaPlanID))
+				// Don't fail activation on quota assignment failure - user still needs access
+			}
+		}
+	}
 
 	// Track subscriber in billing service with PricingPlanPeriod ID
 	if subscription.Customer == nil {
@@ -1422,7 +1464,7 @@ func (g *StripeGateway) activateSubscriptionWithPeriodID(ctx context.Context, us
 	}
 
 	// Fetch the period to get the actual plan ID
-	period, err := g.pricing.GetPricingPlanPeriod(ctx, pricingPlanPeriodID)
+	period, err = g.pricing.GetPricingPlanPeriod(ctx, pricingPlanPeriodID)
 	if err != nil {
 		return fmt.Errorf("failed to fetch pricing plan period: %w", err)
 	}
@@ -1470,8 +1512,13 @@ func (g *StripeGateway) deactivateSubscription(ctx context.Context, userID uint,
 			}
 
 			// Remove user from their current plan
-			if err := g.quota.RemoveUserFromPlan(ctx, user.ID); err != nil {
-				return fmt.Errorf("failed to remove user from plan: %w", err)
+			if g.quota != nil {
+				if err := g.quota.RemoveUserFromPlan(ctx, user.ID); err != nil {
+					g.logger.Error("failed to remove user from plan",
+						zap.Error(err),
+						zap.Uint("user_id", user.ID))
+					// Continue with deactivation even if quota removal fails
+				}
 			}
 
 			// Check if subscription.Customer is nil before accessing it
