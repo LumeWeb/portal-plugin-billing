@@ -536,6 +536,15 @@ func (g *StripeGateway) handleSubscriptionUpdatedEvent(ctx context.Context, user
 				return nil
 			}
 
+			if subscription.Status == stripe.SubscriptionStatusCanceled {
+				g.logger.Debug("subscription is canceled in Stripe - ignoring update event",
+					zap.Uint("user_id", userID),
+					zap.String("subscription_id", subscription.ID),
+					zap.String("event_id", event.ID))
+
+				return nil
+			}
+
 			// Check if the subscription has a period
 			periodID, hasPeriod, err := findPeriodIDFromSubscription(subscription)
 			if err != nil {
