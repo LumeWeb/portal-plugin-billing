@@ -2858,9 +2858,8 @@ func (g *StripeGateway) executeImmediateCancel(ctx context.Context, userID uint,
 	ctx, span := core.TraceMethod(ctx, "StripeGateway.executeImmediateCancel")
 	defer span.End()
 
-	// Cancel immediately
+	// Cancel immediately via Stripe API
 	params := &stripe.SubscriptionCancelParams{}
-
 	_, err := g.stripeClient.V1Subscriptions().Cancel(ctx, subscriber.SubscriptionID, params)
 	if err != nil {
 		g.logger.Error("failed to cancel subscription immediately via Stripe API",
@@ -2870,9 +2869,31 @@ func (g *StripeGateway) executeImmediateCancel(ctx context.Context, userID uint,
 		return nil, fmt.Errorf("failed to cancel subscription: %w", err)
 	}
 
-	// Effective time is now
-	effectiveAt := time.Now()
+	// Deactivate subscriber immediately for consistency with ATLOS gateway
+	if err := g.billing.DeactivateSubscriber(ctx, userID, GatewayID); err != nil {
+		g.logger.Error("failed to deactivate subscriber after immediate cancel",
+			zap.Uint("user_id", userID),
+			zap.Error(err))
+		return nil, fmt.Errorf("failed to deactivate subscriber: %w", err)
+	}
 
+	// Fire subscription cancelled event for consistency with ATLOS gateway
+	planID := uint(0)
+	if subscriber.PricingPlanPeriodID != nil {
+		if p, err := g.pricing.GetPricingPlanPeriod(ctx, *subscriber.PricingPlanPeriodID); err == nil && p != nil {
+			planID = p.PricingPlanID
+		}
+	}
+	evt := billingEvent.NewSubscriptionCancelledEvent(
+		ctx,
+		userID,
+		subscriber.SubscriptionID,
+		GatewayID,
+		planID,
+	)
+	core.Fire(g.coreCtx, billingEvent.EVENT_SUBSCRIPTION_CANCELLED, evt)
+
+	effectiveAt := time.Now()
 	g.logger.Info("Cancelled subscription immediately via Stripe API",
 		zap.Uint("user_id", userID),
 		zap.String("subscription_id", subscriber.SubscriptionID),
