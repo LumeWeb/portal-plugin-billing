@@ -1772,15 +1772,22 @@ func (e *AdminExtension) handleAbortCancellation(c echo.Context) error {
 
 	// Check if gateway supports admin backend cancellation via AdminOperations
 	manager, ok := gateway.(pluginCore.SubscriptionManager)
-	if ok {
-		capabilities, capErr := manager.GetManagementInfo(reqCtx, uint(userID))
-		if capErr == nil {
-			supported, exists := capabilities.AdminOperations[pluginCore.OperationCancel]
-			if !exists || !supported {
-				return ctx.Error(NewError(ErrKeyManagementOperationFailed,
-					fmt.Errorf("gateway does not support admin backend cancellation")), http.StatusBadRequest)
-			}
-		}
+	if !ok {
+		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway does not support subscription management")), http.StatusInternalServerError)
+	}
+
+	capabilities, err := manager.GetManagementInfo(reqCtx, uint(userID))
+	if err != nil {
+		e.Logger().Error("failed to get management capabilities",
+			zap.Uint("user_id", uint(userID)),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeyManagementCapabilitiesFailed, fmt.Errorf("failed to get management capabilities: %w", err)), http.StatusInternalServerError)
+	}
+
+	supported, exists := capabilities.AdminOperations[pluginCore.OperationCancel]
+	if !exists || !supported {
+		return ctx.Error(NewError(ErrKeyManagementOperationFailed,
+			fmt.Errorf("gateway does not support admin backend cancellation")), http.StatusBadRequest)
 	}
 
 	// Gateway supports admin cancellation - get executor
@@ -1801,7 +1808,7 @@ func (e *AdminExtension) handleAbortCancellation(c echo.Context) error {
 	// Return success response
 	result := &pluginCore.ManagementResult{
 		Action:   pluginCore.ActionAPIRequired,
-		Status:   "aborted",
+		Status:   string(pluginCore.CancellationStatusAborted),
 		CanAbort: false,
 	}
 	response := dto.ManagementResultResponse{}

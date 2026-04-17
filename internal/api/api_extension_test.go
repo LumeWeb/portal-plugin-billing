@@ -1608,6 +1608,14 @@ func TestHandleAbortCancellationOperation_Success(t *testing.T) {
 		mockGateway := pluginCore.NewMockPaymentGateway(t)
 		ts.billingSvc.EXPECT().GetGateway(mock.Anything, "atlos").Return(mockGateway, nil).Once()
 
+		// Mock capability check
+		mockGateway.EXPECT().GetManagementInfo(mock.Anything, uint(1)).Return(&pluginCore.ManagementCapabilities{
+			ManagementMode: pluginCore.ModeAPI,
+			Operations: map[pluginCore.ManagementOperation]bool{
+				pluginCore.OperationCancel: true,
+			},
+		}, nil).Once()
+
 		// Mock abort cancellation
 		mockGateway.EXPECT().AbortCancellation(mock.Anything, uint(1)).Return(nil).Once()
 

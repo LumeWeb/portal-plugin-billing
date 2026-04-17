@@ -70,6 +70,8 @@ const (
 	CancellationStatusPortal CancellationStatus = "portal"
 	// CancellationStatusCompleted indicates cancellation has been fully processed
 	CancellationStatusCompleted CancellationStatus = "completed"
+	// CancellationStatusAborted indicates a scheduled cancellation was aborted
+	CancellationStatusAborted CancellationStatus = "aborted"
 )
 
 // CancellationResult contains the result of a cancellation operation

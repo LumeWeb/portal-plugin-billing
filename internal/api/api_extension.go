@@ -984,6 +984,19 @@ func (e *APIExtension) handleAbortCancellationOperation(c echo.Context) error {
 		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("failed to get payment gateway")), http.StatusInternalServerError)
 	}
 
+	// Check if gateway supports abort operation via Operations
+	manager, ok := gateway.(pluginCore.SubscriptionManager)
+	if ok {
+		capabilities, capErr := manager.GetManagementInfo(c.Request().Context(), userID)
+		if capErr == nil {
+			supported, exists := capabilities.Operations[pluginCore.OperationCancel]
+			if !exists || !supported {
+				return ctx.Error(NewError(ErrKeyManagementOperationFailed,
+					fmt.Errorf("gateway does not support cancellation operations")), http.StatusBadRequest)
+			}
+		}
+	}
+
 	// Check if gateway implements SubscriptionExecutor (required for abort)
 	executor, ok := gateway.(pluginCore.SubscriptionExecutor)
 	if !ok {
@@ -1002,7 +1015,7 @@ func (e *APIExtension) handleAbortCancellationOperation(c echo.Context) error {
 	// Return success response
 	result := &pluginCore.ManagementResult{
 		Action:   pluginCore.ActionShowUI,
-		Status:   "aborted",
+		Status:   string(pluginCore.CancellationStatusAborted),
 		CanAbort: false,
 	}
 	response := dto.ManagementResultResponse{}
