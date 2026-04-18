@@ -1124,15 +1124,16 @@ func TestStripeGateway_GetCustomerPortalURL_NoActiveSubscription(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
 
-		// Mock no active subscription
+		// Mock no active subscription and no paused subscription
 		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, uint(123)).Return((*pluginCore.Subscriber)(nil), nil)
+		mockBilling.EXPECT().GetPausedSubscription(mock.Anything, uint(123)).Return((*pluginCore.Subscriber)(nil), nil)
 
 		gw := NewWithConfig(ctx.Logger(), ctx, testConfig(), nil, nil, mockBilling, nil, nil)
 
 		url, err := gw.GetCustomerPortalURL(context.Background(), 123, "https://example.com/return")
 
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "no active stripe subscription found")
+		assert.Contains(t, err.Error(), "no active or paused stripe subscription found")
 		assert.Empty(t, url)
 	})
 }
@@ -1252,13 +1253,14 @@ func TestStripeGateway_GetCustomerPortalURL_NonStripeSubscription(t *testing.T) 
 			PricingPlanPeriodID: &planID,
 		}
 		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, uint(123)).Return(mockSubscriber, nil)
+		mockBilling.EXPECT().GetPausedSubscription(mock.Anything, uint(123)).Return((*pluginCore.Subscriber)(nil), nil)
 
 		gw := NewWithConfig(ctx.Logger(), ctx, testConfig(), nil, nil, mockBilling, nil, nil)
 
 		url, err := gw.GetCustomerPortalURL(context.Background(), 123, "https://example.com/return")
 
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "no active stripe subscription found")
+		assert.Contains(t, err.Error(), "no active or paused stripe subscription found")
 		assert.Empty(t, url)
 	})
 }
