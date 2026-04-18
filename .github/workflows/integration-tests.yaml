@@ -1,11 +1,6 @@
 name: Integration Tests
 
 on:
-  push:
-    branches:
-      - develop
-    paths:
-      - 'pkg/subscription/**'
   pull_request:
     branches:
       - develop
