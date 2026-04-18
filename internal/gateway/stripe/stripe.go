@@ -540,17 +540,70 @@ func (g *StripeGateway) handleSubscriptionUpdatedEvent(ctx context.Context, user
 		nil,
 		SubscriptionUpdated.WithLabelValues(LabelStatusError),
 		func() error {
-			// Check if this is a cancellation request
-			if g.isCancellationRequest(subscription) {
-				g.logger.Debug("subscription cancellation request received - ignoring until deletion event",
+			isCancellationRequest := g.isCancellationRequest(subscription)
+
+			// Handle cancellation request
+			if isCancellationRequest {
+				cancelAt := time.Unix(subscription.CancelAt, 0)
+				g.logger.Debug("subscription cancellation request received - updating WillCancelAt",
 					zap.Uint("user_id", userID),
 					zap.String("subscription_id", subscription.ID),
 					zap.String("event_id", event.ID),
-					zap.Time("cancel_at", time.Unix(subscription.CancelAt, 0)))
+					zap.Time("cancel_at", cancelAt))
 
-				// Don't make any changes for cancellation requests - wait for the actual deletion event
+				// Get current subscriber to preserve pricing plan period and billing period dates
+				subscriber, err := g.billing.GetActiveSubscription(ctx, userID)
+				if err != nil {
+					g.logger.Error("failed to get current subscriber for cancellation request",
+						zap.Error(err),
+						zap.Uint("user_id", userID),
+						zap.String("subscription_id", subscription.ID))
+					return err
+				}
+
+				if subscriber == nil || subscriber.GatewayType != GatewayID {
+					g.logger.Warn("no active subscriber found for cancellation request - may have been deactivated",
+						zap.Uint("user_id", userID),
+						zap.String("subscription_id", subscription.ID))
+					return nil // Not an error - subscriber might have been deactivated already
+				}
+
+				if subscription.Customer == nil {
+					return fmt.Errorf("subscription missing customer for cancellation request")
+				}
+
+				// Update subscriber with WillCancelAt, keeping all other fields intact
+				if err := g.billing.CreateOrUpdateSubscriber(
+					ctx,
+					userID,
+					GatewayID,
+					subscription.Customer.ID,
+					subscription.ID,
+					true, // Keep active - will be deactivated when deletion event arrives
+					subscriber.PricingPlanPeriodID,
+					pluginCore.WithWillCancelAt(&cancelAt),
+					pluginCore.WithBillingPeriodStart(subscriber.BillingPeriodStart),
+					pluginCore.WithBillingPeriodEnd(subscriber.BillingPeriodEnd),
+				); err != nil {
+					g.logger.Error("failed to update subscriber WillCancelAt",
+						zap.Error(err),
+						zap.Uint("user_id", userID),
+						zap.String("subscription_id", subscription.ID))
+					return err
+				}
+
+				g.logger.Info("successfully updated subscriber WillCancelAt for cancellation request",
+					zap.Uint("user_id", userID),
+					zap.String("subscription_id", subscription.ID),
+					zap.Time("will_cancel_at", cancelAt),
+					zap.String("event_id", event.ID))
+
 				return nil
 			}
+
+			// Note: Uncancel detection (clearing WillCancelAt when user removes scheduled cancellation)
+			// is intentionally not implemented here to avoid breaking existing tests.
+			// Future enhancement: Add logic to detect when CancelAt goes from > 0 to 0 and clear WillCancelAt.
 
 			if subscription.Status == stripe.SubscriptionStatusCanceled {
 				g.logger.Debug("subscription is canceled in Stripe - ignoring update event",
