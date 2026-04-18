@@ -2059,9 +2059,6 @@ func parsePlanID(c echo.Context) (uint, error) {
 // buildPriceLineDetailResponse builds a PriceLineDetailResponse and returns it via EncodeResponse
 func buildPriceLineDetailResponse(ctx httputil.RequestContext, priceLine *models.PriceLine, priceLinePlans []*models.PriceLinePlan) error {
 	var resp dto.PriceLineDetailResponse
-	if err := resp.FromModel(priceLine); err != nil {
-		return ctx.Error(NewError(ErrKeyPriceLineNotFound, fmt.Errorf("failed to encode response: %w", err)), http.StatusInternalServerError)
-	}
-	resp.SetPlans(priceLinePlans)
-	return httputil.EncodeResponse(ctx, priceLine, &resp)
+	model := &dto.PriceLineDetail{PriceLine: priceLine, Plans: priceLinePlans}
+	return httputil.EncodeResponse(ctx, model, &resp)
 }

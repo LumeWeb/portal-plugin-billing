@@ -15,7 +15,13 @@ var _ = z.Int()
 
 
 var _ httputil.DTOResponse[*models.PriceLine] = (*PriceLineResponse)(nil)
-var _ httputil.DTOResponse[*models.PriceLine] = (*PriceLineDetailResponse)(nil)
+var _ httputil.DTOResponse[*PriceLineDetail] = (*PriceLineDetailResponse)(nil)
+
+// PriceLineDetail wraps a PriceLine with its associated plans
+type PriceLineDetail struct {
+	*models.PriceLine
+	Plans []*models.PriceLinePlan
+}
 
 // PriceLineResponse represents a price line response
 type PriceLineResponse struct {
@@ -58,20 +64,24 @@ type PriceLineDetailResponse struct {
 	Plans       []PricingPlanItem   `json:"plans,omitempty"`
 }
 
-// FromModel converts a PriceLine model to PriceLineDetailResponse
-func (r *PriceLineDetailResponse) FromModel(priceline *models.PriceLine) error {
+// FromModel converts a PriceLineDetail to PriceLineDetailResponse
+func (r *PriceLineDetailResponse) FromModel(detail *PriceLineDetail) error {
 	*r = PriceLineDetailResponse{}
-	if priceline == nil {
+	if detail == nil || detail.PriceLine == nil {
 		return nil
 	}
 
-	r.ID = priceline.ID
-	r.Name = priceline.Name
-	r.Description = priceline.Description
-	r.IsActive = priceline.IsActive
-	r.IsDefault = priceline.IsDefault
-	r.CreatedAt = priceline.CreatedAt
-	r.UpdatedAt = priceline.UpdatedAt
+	pl := detail.PriceLine
+
+	r.ID = pl.ID
+	r.Name = pl.Name
+	r.Description = pl.Description
+	r.IsActive = pl.IsActive
+	r.IsDefault = pl.IsDefault
+	r.CreatedAt = pl.CreatedAt
+	r.UpdatedAt = pl.UpdatedAt
+
+	r.SetPlans(detail.Plans)
 
 	return nil
 }
