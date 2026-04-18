@@ -204,6 +204,7 @@ func TestStripeGateway_ExecuteResume_WrongGateway(t *testing.T) {
 			IsActive:       true,
 		}
 		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, userID).Return(mockSubscriber, nil)
+		mockBilling.EXPECT().GetPausedSubscription(mock.Anything, userID).Return(nil, nil)
 
 		gw := NewWithConfig(ctx.Logger(), ctx, testConfig(), nil, nil, mockBilling, nil, nil)
 
