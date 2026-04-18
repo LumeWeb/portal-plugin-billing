@@ -2620,13 +2620,19 @@ func (g *StripeGateway) GetManagementURL(ctx context.Context, userID uint, opera
 		return nil, fmt.Errorf("billing service not configured")
 	}
 
-	// Check if user has an active Stripe subscription
+	// Check if user has an active Stripe subscription (check paused for resume operation)
 	subscriber, err := g.billing.GetActiveSubscription(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get active subscription: %w", err)
 	}
+	if subscriber == nil && operation == pluginCore.OperationResume {
+		subscriber, err = g.billing.GetPausedSubscription(ctx, userID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get paused subscription: %w", err)
+		}
+	}
 	if subscriber == nil || subscriber.GatewayType != GatewayID {
-		return nil, fmt.Errorf("no active stripe subscription found for user %d", userID)
+		return nil, fmt.Errorf("no active or paused stripe subscription found for user %d", userID)
 	}
 
 	// Get customer portal URL
@@ -3219,13 +3225,19 @@ func (g *StripeGateway) ExecuteResume(ctx context.Context, userID uint) error {
 		return fmt.Errorf("billing service not configured")
 	}
 
-	// Get active subscription (will detect paused state via webhooks)
+	// Get active subscription (check paused if not found - resume operation)
 	subscriber, err := g.billing.GetActiveSubscription(ctx, userID)
 	if err != nil {
 		return fmt.Errorf("failed to get active subscription: %w", err)
 	}
+	if subscriber == nil {
+		subscriber, err = g.billing.GetPausedSubscription(ctx, userID)
+		if err != nil {
+			return fmt.Errorf("failed to get paused subscription: %w", err)
+		}
+	}
 	if subscriber == nil || subscriber.GatewayType != GatewayID {
-		return fmt.Errorf("no active stripe subscription found for user %d", userID)
+		return fmt.Errorf("no active or paused stripe subscription found for user %d", userID)
 	}
 
 	if subscriber.SubscriptionID == "" {
