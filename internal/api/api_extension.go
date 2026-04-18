@@ -252,6 +252,7 @@ func (e *APIExtension) Configure(gRouter router.Router, accessSvc core.AccessSer
 				router.WithSummary("Change subscription plan"),
 				router.WithDescription("Executes the change plan operation on the current subscription. Validates that the gateway supports plan changes and returns the appropriate action"),
 				router.WithTags("Billing"),
+				router.WithRequestBody(dto.ChangePlanRequest{}, "Plan to change to", true),
 				router.WithSuccessResponse(http.StatusOK, "Change plan operation details retrieved successfully",
 					router.WithJSONContent(dto.ManagementResultResponse{})),
 				router.WithErrorResponses(
