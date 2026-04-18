@@ -182,12 +182,13 @@ func TestStripeGateway_ExecuteResume_NoActiveSubscription(t *testing.T) {
 
 		userID := uint(123)
 		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, userID).Return(nil, nil)
+		mockBilling.EXPECT().GetPausedSubscription(mock.Anything, userID).Return(nil, nil)
 
 		gw := NewWithConfig(ctx.Logger(), ctx, testConfig(), nil, nil, mockBilling, nil, nil)
 
 		err := gw.ExecuteResume(context.Background(), userID)
 		assert.Error(tb, err)
-		assert.Contains(tb, err.Error(), "no active stripe subscription found")
+		assert.Contains(tb, err.Error(), "no active or paused stripe subscription found")
 	})
 }
 
@@ -203,12 +204,13 @@ func TestStripeGateway_ExecuteResume_WrongGateway(t *testing.T) {
 			IsActive:       true,
 		}
 		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, userID).Return(mockSubscriber, nil)
+		mockBilling.EXPECT().GetPausedSubscription(mock.Anything, userID).Return(nil, nil)
 
 		gw := NewWithConfig(ctx.Logger(), ctx, testConfig(), nil, nil, mockBilling, nil, nil)
 
 		err := gw.ExecuteResume(context.Background(), userID)
 		assert.Error(tb, err)
-		assert.Contains(tb, err.Error(), "no active stripe subscription found")
+		assert.Contains(tb, err.Error(), "no active or paused stripe subscription found")
 	})
 }
 

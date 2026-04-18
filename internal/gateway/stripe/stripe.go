@@ -2623,6 +2623,25 @@ func (g *StripeGateway) GetManagementInfo(ctx context.Context, userID uint) (*pl
 	}, nil
 }
 
+// getActiveOrPausedSubscription returns the active subscription or paused subscription
+// for a user if checkPaused is true. It validates the subscription belongs to Stripe.
+func (g *StripeGateway) getActiveOrPausedSubscription(ctx context.Context, userID uint, checkPaused bool) (*pluginCore.Subscriber, error) {
+	subscriber, err := g.billing.GetActiveSubscription(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get active subscription: %w", err)
+	}
+	if (subscriber == nil || subscriber.GatewayType != GatewayID) && checkPaused {
+		subscriber, err = g.billing.GetPausedSubscription(ctx, userID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get paused subscription: %w", err)
+		}
+	}
+	if subscriber == nil || subscriber.GatewayType != GatewayID {
+		return nil, fmt.Errorf("no active or paused stripe subscription found for user %d", userID)
+	}
+	return subscriber, nil
+}
+
 // GetManagementURL returns the appropriate action for a management operation
 // using Stripe's portal deep linking to direct users straight to the relevant action page.
 func (g *StripeGateway) GetManagementURL(ctx context.Context, userID uint, operation pluginCore.ManagementOperation) (*pluginCore.ManagementResult, error) {
@@ -2633,13 +2652,8 @@ func (g *StripeGateway) GetManagementURL(ctx context.Context, userID uint, opera
 		return nil, fmt.Errorf("billing service not configured")
 	}
 
-	// Check if user has an active Stripe subscription
-	subscriber, err := g.billing.GetActiveSubscription(ctx, userID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get active subscription: %w", err)
-	}
-	if subscriber == nil || subscriber.GatewayType != GatewayID {
-		return nil, fmt.Errorf("no active stripe subscription found for user %d", userID)
+	if _, err := g.getActiveOrPausedSubscription(ctx, userID, operation == pluginCore.OperationResume); err != nil {
+		return nil, err
 	}
 
 	// Build deep link flow data based on the requested operation
@@ -3266,13 +3280,9 @@ func (g *StripeGateway) ExecuteResume(ctx context.Context, userID uint) error {
 		return fmt.Errorf("billing service not configured")
 	}
 
-	// Get active subscription (will detect paused state via webhooks)
-	subscriber, err := g.billing.GetActiveSubscription(ctx, userID)
+	subscriber, err := g.getActiveOrPausedSubscription(ctx, userID, true)
 	if err != nil {
-		return fmt.Errorf("failed to get active subscription: %w", err)
-	}
-	if subscriber == nil || subscriber.GatewayType != GatewayID {
-		return fmt.Errorf("no active stripe subscription found for user %d", userID)
+		return err
 	}
 
 	if subscriber.SubscriptionID == "" {
