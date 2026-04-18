@@ -2652,7 +2652,8 @@ func (g *StripeGateway) GetManagementURL(ctx context.Context, userID uint, opera
 		return nil, fmt.Errorf("billing service not configured")
 	}
 
-	if _, err := g.getActiveOrPausedSubscription(ctx, userID, operation == pluginCore.OperationResume); err != nil {
+	subscriber, err := g.getActiveOrPausedSubscription(ctx, userID, operation == pluginCore.OperationResume)
+	if err != nil {
 		return nil, err
 	}
 
