@@ -1628,3 +1628,161 @@ func createTestInvoiceEvent(invoiceID string, customerID string, subscriptionID 
 	
 	return createTestEvent("invoice.paid", []byte(invoiceData))
 }
+
+func TestStripeGateway_GetManagementURL_Cancel_DeepLink(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+		mockStripeClient := &MockStripeClient{}
+
+		userID := uint(123)
+		mockSubscriber := &pluginCore.Subscriber{
+			UserID:         userID,
+			GatewayType:    "stripe",
+			ExternalID:     "cus_123",
+			SubscriptionID: "sub_abc",
+			IsActive:       true,
+		}
+		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, userID).Return(mockSubscriber, nil)
+
+		mockSession := &stripe.BillingPortalSession{
+			URL: "https://billing.stripe.com/p/session_cancel_deep",
+		}
+		mockStripeClient.BillingPortalSessionsService = &MockBillingPortalSessions{}
+		mockStripeClient.BillingPortalSessionsService.
+			On("Create", mock.Anything, mock.AnythingOfType("*stripe.BillingPortalSessionCreateParams")).
+			Run(func(args mock.Arguments) {
+				params := args.Get(1).(*stripe.BillingPortalSessionCreateParams)
+				assert.NotNil(t, params.FlowData, "flow_data should be set for cancel operation")
+				assert.Equal(t, string(stripe.BillingPortalSessionFlowTypeSubscriptionCancel), stripe.StringValue(params.FlowData.Type), "flow type should be subscription_cancel")
+				assert.NotNil(t, params.FlowData.SubscriptionCancel, "subscription_cancel config should be set")
+				assert.Equal(t, "sub_abc", stripe.StringValue(params.FlowData.SubscriptionCancel.Subscription), "subscription ID should match")
+			}).
+			Return(mockSession, nil)
+
+		gw := NewWithConfig(ctx.Logger(), ctx, testConfigWithSecrets(TestWebhookSecret, "test_api_key"), nil, nil, mockBilling, nil, nil)
+		gw.stripeClient = mockStripeClient
+
+		result, err := gw.GetManagementURL(context.Background(), userID, pluginCore.OperationCancel)
+
+		assert.NoError(t, err)
+		assert.Equal(t, pluginCore.ActionRedirect, result.Action)
+		assert.Equal(t, "https://billing.stripe.com/p/session_cancel_deep", result.URL)
+	})
+}
+
+func TestStripeGateway_GetManagementURL_ChangePlan_DeepLink(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+		mockStripeClient := &MockStripeClient{}
+
+		userID := uint(456)
+		mockSubscriber := &pluginCore.Subscriber{
+			UserID:         userID,
+			GatewayType:    "stripe",
+			ExternalID:     "cus_456",
+			SubscriptionID: "sub_xyz",
+			IsActive:       true,
+		}
+		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, userID).Return(mockSubscriber, nil)
+
+		mockSession := &stripe.BillingPortalSession{
+			URL: "https://billing.stripe.com/p/session_update_deep",
+		}
+		mockStripeClient.BillingPortalSessionsService = &MockBillingPortalSessions{}
+		mockStripeClient.BillingPortalSessionsService.
+			On("Create", mock.Anything, mock.AnythingOfType("*stripe.BillingPortalSessionCreateParams")).
+			Run(func(args mock.Arguments) {
+				params := args.Get(1).(*stripe.BillingPortalSessionCreateParams)
+				assert.NotNil(t, params.FlowData, "flow_data should be set for change_plan operation")
+				assert.Equal(t, string(stripe.BillingPortalSessionFlowTypeSubscriptionUpdate), stripe.StringValue(params.FlowData.Type), "flow type should be subscription_update")
+				assert.NotNil(t, params.FlowData.SubscriptionUpdate, "subscription_update config should be set")
+				assert.Equal(t, "sub_xyz", stripe.StringValue(params.FlowData.SubscriptionUpdate.Subscription), "subscription ID should match")
+			}).
+			Return(mockSession, nil)
+
+		gw := NewWithConfig(ctx.Logger(), ctx, testConfigWithSecrets(TestWebhookSecret, "test_api_key"), nil, nil, mockBilling, nil, nil)
+		gw.stripeClient = mockStripeClient
+
+		result, err := gw.GetManagementURL(context.Background(), userID, pluginCore.OperationChangePlan)
+
+		assert.NoError(t, err)
+		assert.Equal(t, pluginCore.ActionRedirect, result.Action)
+		assert.Equal(t, "https://billing.stripe.com/p/session_update_deep", result.URL)
+	})
+}
+
+func TestStripeGateway_GetManagementURL_Pause_GenericPortal(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+		mockStripeClient := &MockStripeClient{}
+
+		userID := uint(789)
+		mockSubscriber := &pluginCore.Subscriber{
+			UserID:         userID,
+			GatewayType:    "stripe",
+			ExternalID:     "cus_789",
+			SubscriptionID: "sub_pause",
+			IsActive:       true,
+		}
+		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, userID).Return(mockSubscriber, nil)
+
+		mockSession := &stripe.BillingPortalSession{
+			URL: "https://billing.stripe.com/p/session_generic",
+		}
+		mockStripeClient.BillingPortalSessionsService = &MockBillingPortalSessions{}
+		mockStripeClient.BillingPortalSessionsService.
+			On("Create", mock.Anything, mock.AnythingOfType("*stripe.BillingPortalSessionCreateParams")).
+			Run(func(args mock.Arguments) {
+				params := args.Get(1).(*stripe.BillingPortalSessionCreateParams)
+				assert.Nil(t, params.FlowData, "pause has no Stripe deep link type; flow_data should be nil")
+			}).
+			Return(mockSession, nil)
+
+		gw := NewWithConfig(ctx.Logger(), ctx, testConfigWithSecrets(TestWebhookSecret, "test_api_key"), nil, nil, mockBilling, nil, nil)
+		gw.stripeClient = mockStripeClient
+
+		result, err := gw.GetManagementURL(context.Background(), userID, pluginCore.OperationPause)
+
+		assert.NoError(t, err)
+		assert.Equal(t, pluginCore.ActionRedirect, result.Action)
+		assert.Equal(t, "https://billing.stripe.com/p/session_generic", result.URL)
+	})
+}
+
+func TestStripeGateway_GetManagementURL_Resume_GenericPortal(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+		mockStripeClient := &MockStripeClient{}
+
+		userID := uint(999)
+		mockSubscriber := &pluginCore.Subscriber{
+			UserID:         userID,
+			GatewayType:    "stripe",
+			ExternalID:     "cus_999",
+			SubscriptionID: "sub_resume",
+			IsActive:       true,
+		}
+		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, userID).Return(mockSubscriber, nil)
+
+		mockSession := &stripe.BillingPortalSession{
+			URL: "https://billing.stripe.com/p/session_generic",
+		}
+		mockStripeClient.BillingPortalSessionsService = &MockBillingPortalSessions{}
+		mockStripeClient.BillingPortalSessionsService.
+			On("Create", mock.Anything, mock.AnythingOfType("*stripe.BillingPortalSessionCreateParams")).
+			Run(func(args mock.Arguments) {
+				params := args.Get(1).(*stripe.BillingPortalSessionCreateParams)
+				assert.Nil(t, params.FlowData, "resume has no Stripe deep link type; flow_data should be nil")
+			}).
+			Return(mockSession, nil)
+
+		gw := NewWithConfig(ctx.Logger(), ctx, testConfigWithSecrets(TestWebhookSecret, "test_api_key"), nil, nil, mockBilling, nil, nil)
+		gw.stripeClient = mockStripeClient
+
+		result, err := gw.GetManagementURL(context.Background(), userID, pluginCore.OperationResume)
+
+		assert.NoError(t, err)
+		assert.Equal(t, pluginCore.ActionRedirect, result.Action)
+		assert.Equal(t, "https://billing.stripe.com/p/session_generic", result.URL)
+	})
+}

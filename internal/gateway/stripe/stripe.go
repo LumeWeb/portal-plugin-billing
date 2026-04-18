@@ -412,49 +412,61 @@ func (g *StripeGateway) GetCustomerPortalURL(ctx context.Context, userID uint, r
 		nil,
 		CustomerPortalCreated.WithLabelValues(LabelStatusError),
 		func() (string, error) {
-			// Get the subscriber for this user and gateway
-			subscriber, err := g.billing.GetActiveSubscription(ctx, userID)
-			if err != nil {
-				return "", fmt.Errorf("failed to get active subscription: %w", err)
-			}
-			if subscriber == nil || subscriber.GatewayType != GatewayID {
-				return "", fmt.Errorf("no active stripe subscription found for user %d", userID)
-			}
-
-			// Defensive check: ensure ExternalID is a valid Stripe customer ID
-			if subscriber.ExternalID == "" {
-				return "", fmt.Errorf("subscriber ExternalID is empty")
-			}
-			if !strings.HasPrefix(subscriber.ExternalID, CustomerIDPrefix) {
-				return "", fmt.Errorf("invalid ExternalID: must be a Stripe customer ID starting with '%s'", CustomerIDPrefix)
-			}
-
-			// Create a billing portal session
-			params := &stripe.BillingPortalSessionCreateParams{
-				Customer:  stripe.String(subscriber.ExternalID),
-				ReturnURL: stripe.String(returnUrl),
-			}
-
-			// Set portal configuration if available for the user's plan
-			if subscriber.PricingPlanPeriodID != nil && g.pricing != nil {
-				mapping, err := g.pricing.GetGatewayProductMapping(ctx, *subscriber.PricingPlanPeriodID, GatewayID)
-				if err == nil && mapping != nil && mapping.PortalConfigurationID != nil {
-					params.Configuration = stripe.String(*mapping.PortalConfigurationID)
-					g.logger.Debug("using plan-specific portal configuration",
-						zap.Uint("period_id", *subscriber.PricingPlanPeriodID),
-						zap.String("config_id", *mapping.PortalConfigurationID),
-						zap.Uint("user_id", userID))
-				}
-			}
-
-			sess, err := g.stripeClient.V1BillingPortalSessions().Create(ctx, params)
-			if err != nil {
-				return "", fmt.Errorf("failed to create billing portal session: %w", err)
-			}
-
-			return sess.URL, nil
+			return g.createPortalSession(ctx, userID, returnUrl, nil)
 		},
 	)
+}
+
+// createPortalSession creates a billing portal session with optional deep link flow data.
+// When flowData is nil, a generic portal session is created (portal homepage).
+// When flowData is provided, the session deep links directly to the specified flow action.
+func (g *StripeGateway) createPortalSession(ctx context.Context, userID uint, returnUrl string, flowData *stripe.BillingPortalSessionCreateFlowDataParams) (string, error) {
+	// Get the subscriber for this user and gateway
+	subscriber, err := g.billing.GetActiveSubscription(ctx, userID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get active subscription: %w", err)
+	}
+	if subscriber == nil || subscriber.GatewayType != GatewayID {
+		return "", fmt.Errorf("no active stripe subscription found for user %d", userID)
+	}
+
+	// Defensive check: ensure ExternalID is a valid Stripe customer ID
+	if subscriber.ExternalID == "" {
+		return "", fmt.Errorf("subscriber ExternalID is empty")
+	}
+	if !strings.HasPrefix(subscriber.ExternalID, CustomerIDPrefix) {
+		return "", fmt.Errorf("invalid ExternalID: must be a Stripe customer ID starting with '%s'", CustomerIDPrefix)
+	}
+
+	// Create a billing portal session
+	params := &stripe.BillingPortalSessionCreateParams{
+		Customer:  stripe.String(subscriber.ExternalID),
+		ReturnURL: stripe.String(returnUrl),
+	}
+
+	// Set portal configuration if available for the user's plan
+	if subscriber.PricingPlanPeriodID != nil && g.pricing != nil {
+		mapping, err := g.pricing.GetGatewayProductMapping(ctx, *subscriber.PricingPlanPeriodID, GatewayID)
+		if err == nil && mapping != nil && mapping.PortalConfigurationID != nil {
+			params.Configuration = stripe.String(*mapping.PortalConfigurationID)
+			g.logger.Debug("using plan-specific portal configuration",
+				zap.Uint("period_id", *subscriber.PricingPlanPeriodID),
+				zap.String("config_id", *mapping.PortalConfigurationID),
+				zap.Uint("user_id", userID))
+		}
+	}
+
+	// Apply deep link flow data when provided
+	if flowData != nil {
+		params.FlowData = flowData
+	}
+
+	sess, err := g.stripeClient.V1BillingPortalSessions().Create(ctx, params)
+	if err != nil {
+		return "", fmt.Errorf("failed to create billing portal session: %w", err)
+	}
+
+	return sess.URL, nil
 }
 
 func (g *StripeGateway) ValidateWebhook(ctx context.Context, signature string, payload []byte) error {
@@ -2559,6 +2571,7 @@ func (g *StripeGateway) GetManagementInfo(ctx context.Context, userID uint) (*pl
 }
 
 // GetManagementURL returns the appropriate action for a management operation
+// using Stripe's portal deep linking to direct users straight to the relevant action page.
 func (g *StripeGateway) GetManagementURL(ctx context.Context, userID uint, operation pluginCore.ManagementOperation) (*pluginCore.ManagementResult, error) {
 	ctx, span := core.TraceMethod(ctx, "StripeGateway.GetManagementURL")
 	defer span.End()
@@ -2576,17 +2589,51 @@ func (g *StripeGateway) GetManagementURL(ctx context.Context, userID uint, opera
 		return nil, fmt.Errorf("no active stripe subscription found for user %d", userID)
 	}
 
-	// Get customer portal URL
-	portalURL, err := g.GetCustomerPortalURL(ctx, userID, "")
+	// Build deep link flow data based on the requested operation
+	flowData := g.buildFlowData(operation, subscriber)
+
+	// Create a portal session with deep link flow
+	portalURL, err := g.createPortalSession(ctx, userID, "", flowData)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get customer portal URL: %w", err)
+		return nil, fmt.Errorf("failed to create portal session with deep link: %w", err)
 	}
 
-	// Return portal redirect for all supported operations
+	g.logger.Debug("created deep-linked portal session",
+		zap.String("operation", string(operation)),
+		zap.String("subscription_id", subscriber.SubscriptionID),
+		zap.Uint("user_id", userID))
+
 	return &pluginCore.ManagementResult{
 		Action: pluginCore.ActionRedirect,
 		URL:    portalURL,
 	}, nil
+}
+
+// buildFlowData maps a management operation to the corresponding Stripe portal deep link flow.
+// Returns nil for operations that have no Stripe deep link equivalent (e.g., pause/resume),
+// which results in a generic portal session.
+func (g *StripeGateway) buildFlowData(operation pluginCore.ManagementOperation, subscriber *billingModels.Subscriber) *stripe.BillingPortalSessionCreateFlowDataParams {
+	switch operation {
+	case pluginCore.OperationCancel:
+		return &stripe.BillingPortalSessionCreateFlowDataParams{
+			Type: stripe.String(string(stripe.BillingPortalSessionFlowTypeSubscriptionCancel)),
+			SubscriptionCancel: &stripe.BillingPortalSessionCreateFlowDataSubscriptionCancelParams{
+				Subscription: stripe.String(subscriber.SubscriptionID),
+			},
+		}
+
+	case pluginCore.OperationChangePlan:
+		return &stripe.BillingPortalSessionCreateFlowDataParams{
+			Type: stripe.String(string(stripe.BillingPortalSessionFlowTypeSubscriptionUpdate)),
+			SubscriptionUpdate: &stripe.BillingPortalSessionCreateFlowDataSubscriptionUpdateParams{
+				Subscription: stripe.String(subscriber.SubscriptionID),
+			},
+		}
+
+	default:
+		// Pause/resume and other unsupported operations fall back to the generic portal
+		return nil
+	}
 }
 
 // extractProrationFromInvoice extracts proration details from Stripe invoice line items
