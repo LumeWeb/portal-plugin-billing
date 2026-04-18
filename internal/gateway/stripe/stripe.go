@@ -412,7 +412,8 @@ func (g *StripeGateway) GetCustomerPortalURL(ctx context.Context, userID uint, r
 		nil,
 		CustomerPortalCreated.WithLabelValues(LabelStatusError),
 		func() (string, error) {
-			return g.createPortalSession(ctx, userID, returnUrl, nil)
+			// Support both active and paused subscriptions for customer portal access
+			return g.createPortalSession(ctx, userID, returnUrl, true, nil)
 		},
 	)
 }
@@ -420,14 +421,15 @@ func (g *StripeGateway) GetCustomerPortalURL(ctx context.Context, userID uint, r
 // createPortalSession creates a billing portal session with optional deep link flow data.
 // When flowData is nil, a generic portal session is created (portal homepage).
 // When flowData is provided, the session deep links directly to the specified flow action.
-func (g *StripeGateway) createPortalSession(ctx context.Context, userID uint, returnUrl string, flowData *stripe.BillingPortalSessionCreateFlowDataParams) (string, error) {
-	// Get the subscriber for this user and gateway
-	subscriber, err := g.billing.GetActiveSubscription(ctx, userID)
+// The checkPaused parameter determines whether to look for paused subscriptions in addition to active ones.
+func (g *StripeGateway) createPortalSession(ctx context.Context, userID uint, returnUrl string, checkPaused bool, flowData *stripe.BillingPortalSessionCreateFlowDataParams) (string, error) {
+	// Get the subscriber for this user and gateway (supports both active and paused subscriptions)
+	subscriber, err := g.getActiveOrPausedSubscription(ctx, userID, checkPaused)
 	if err != nil {
-		return "", fmt.Errorf("failed to get active subscription: %w", err)
+		return "", fmt.Errorf("failed to get subscription: %w", err)
 	}
 	if subscriber == nil || subscriber.GatewayType != GatewayID {
-		return "", fmt.Errorf("no active stripe subscription found for user %d", userID)
+		return "", fmt.Errorf("no stripe subscription found for user %d", userID)
 	}
 
 	// Defensive check: ensure ExternalID is a valid Stripe customer ID
@@ -2661,7 +2663,8 @@ func (g *StripeGateway) GetManagementURL(ctx context.Context, userID uint, opera
 	flowData := g.buildFlowData(operation, subscriber)
 
 	// Create a portal session with deep link flow
-	portalURL, err := g.createPortalSession(ctx, userID, "", flowData)
+	// Check for paused subscriptions only for OperationResume
+	portalURL, err := g.createPortalSession(ctx, userID, "", operation == pluginCore.OperationResume, flowData)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create portal session with deep link: %w", err)
 	}
