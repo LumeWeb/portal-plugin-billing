@@ -32,8 +32,11 @@ var templatesFS embed.FS
 var gatewayLogoFiles embed.FS
 
 const (
-	GatewayID        = "atlos"
+	GatewayID             = "atlos"
 	paymentButtonTemplate = "paymentButtonScript"
+
+	OrderIDPrefixRegular  = "sub"
+	OrderIDSuffixProrated = "prorated"
 )
 
 // Setup creates and configures an ATLOS gateway if merchant ID and API key are configured.
@@ -54,6 +57,51 @@ func Setup(opts pluginCore.GatewaySetupOptions, cfg config.AtlosConfig) (string,
 		logMsg = fmt.Sprintf("ATLOS gateway registered successfully (merchant_id=%s, endpoint=%s)", cfg.MerchantID, cfg.Endpoint)
 	}
 	return logMsg, gw, nil
+}
+
+// GenerateOrderID creates a standard order ID for ATLOS checkout.
+// Format: sub-{userID}-{periodID} for regular subscriptions
+// Example: sub-123-456
+func GenerateOrderID(userID uint, periodID uint) string {
+	return fmt.Sprintf("%s-%d-%d", OrderIDPrefixRegular, userID, periodID)
+}
+
+// GenerateProratedOrderID creates an order ID for prorated plan changes.
+// Format: sub-{userID}-{periodID}-prorated
+// Example: sub-123-456-prorated
+func GenerateProratedOrderID(userID uint, periodID uint) string {
+	return fmt.Sprintf("%s-%d-%d-%s", OrderIDPrefixRegular, userID, periodID, OrderIDSuffixProrated)
+}
+
+// ParseOrderID extracts userID and periodID from an order ID.
+// Supports:
+//   - New format: sub-{userID}-{periodID}
+//   - Prorated format: sub-{userID}-{periodID}-prorated
+//
+// Returns true in isProrated if the order ID has the prorated suffix.
+func ParseOrderID(orderID string) (uint, uint, bool, error) {
+	parts := strings.Split(orderID, "-")
+	if len(parts) < 3 {
+		return 0, 0, false, fmt.Errorf("invalid order ID format: expected 'sub-{userID}-{periodID}', got: %s", orderID)
+	}
+
+	if parts[0] != OrderIDPrefixRegular {
+		return 0, 0, false, fmt.Errorf("invalid order ID prefix: expected '%s', got: %s", OrderIDPrefixRegular, parts[0])
+	}
+
+	userID, err := strconv.ParseUint(parts[1], 10, 64)
+	if err != nil {
+		return 0, 0, false, fmt.Errorf("invalid user ID in order ID: %w", err)
+	}
+
+	periodID, err := strconv.ParseUint(parts[2], 10, 64)
+	if err != nil {
+		return 0, 0, false, fmt.Errorf("invalid period ID in order ID: %w", err)
+	}
+
+	isProrated := len(parts) == 4 && parts[3] == OrderIDSuffixProrated
+
+	return uint(userID), uint(periodID), isProrated, nil
 }
 
 // atlosPaymentConfigData contains configuration for ATLOS payment widget templates
@@ -985,7 +1033,7 @@ func (g *AtlosGateway) generateProratedCheckoutUI(
 	userName := fmt.Sprintf("%s %s", user.FirstName, user.LastName)
 
 	// Build button fragment with prorated amount
-	orderID := fmt.Sprintf("%d-period%d-prorated", userID, calc.NewPeriod.ID)
+	orderID := GenerateProratedOrderID(userID, calc.NewPeriod.ID)
 	buttonFragment, err := g.buildProratedButtonFragment(
 		orderID,
 		calc.NewPeriod,
@@ -1001,7 +1049,7 @@ func (g *AtlosGateway) generateProratedCheckoutUI(
 	fragments = append(fragments, buttonFragment)
 
 	response := &pluginCore.CheckoutUIResponse{
-		SessionID: fmt.Sprintf("%d-period%d-prorated", userID, calc.NewPeriod.ID),
+		SessionID: orderID,
 		ExpiresAt: time.Now().Add(1 * time.Hour),
 		Fragments: fragments,
 	}
@@ -1055,84 +1103,37 @@ func (g *AtlosGateway) HandleWebhook(ctx context.Context, payload []byte) error 
 	}
 
 	// Parse OrderId to extract userID and periodID
-	// Supports two formats:
-	// - Old format: "userID-planID" (for backward compatibility)
-	// - New format: "userID-periodN" where N is the pricing plan period ID
-	userID, periodID, isPeriodID, err := parseOrderIDWithPeriod(notification.OrderId)
+	// Format: sub-{userID}-{periodID}
+	userID, periodID, _, err := ParseOrderID(notification.OrderId)
 	if err != nil {
 		return fmt.Errorf("failed to parse order ID: %w", err)
 	}
 
-	var planID uint
+	// Get the pricing plan period and validate its plan
+	period, err := g.pricing.GetPricingPlanPeriod(ctx, periodID)
+	if err != nil {
+		return fmt.Errorf("failed to get pricing plan period: %w", err)
+	}
+	if period == nil {
+		return fmt.Errorf("pricing plan period not found")
+	}
 
-	if isPeriodID {
-		// New format: Get the pricing plan period and validate its plan
-		period, err := g.pricing.GetPricingPlanPeriod(ctx, periodID)
-		if err != nil {
-			return fmt.Errorf("failed to get pricing plan period: %w", err)
-		}
-		if period == nil {
-			return fmt.Errorf("pricing plan period not found")
-		}
-
-		planID = period.PricingPlanID
-		planModel, err := g.pricing.GetPricingPlan(ctx, planID)
-		if err != nil {
-			return fmt.Errorf("failed to get pricing plan: %w", err)
-		}
-		if planModel == nil {
-			return fmt.Errorf("pricing plan not found")
-		}
-		if !planModel.IsActive {
-			return fmt.Errorf("plan is not active")
-		}
-	} else {
-		// Old format: planID is actually the plan ID
-		planID = periodID
-		planModel, err := g.pricing.GetPricingPlan(ctx, planID)
-		if err != nil {
-			return fmt.Errorf("failed to get pricing plan: %w", err)
-		}
-		if planModel == nil {
-			return fmt.Errorf("pricing plan not found")
-		}
-		if !planModel.IsActive {
-			return fmt.Errorf("plan is not active")
-		}
+	planID := period.PricingPlanID
+	planModel, err := g.pricing.GetPricingPlan(ctx, planID)
+	if err != nil {
+		return fmt.Errorf("failed to get pricing plan: %w", err)
+	}
+	if planModel == nil {
+		return fmt.Errorf("pricing plan not found")
+	}
+	if !planModel.IsActive {
+		return fmt.Errorf("plan is not active")
 	}
 
 	// TransactionId is the external account identifier
 	// SubscriptionId is the subscription object ID for cancellation
 	externalID := notification.TransactionId
 	subscriptionID := notification.SubscriptionId
-
-	// Create or update subscriber with the period ID (new format) or plan ID (old format)
-	subscriberPlanID := periodID
-	if isPeriodID {
-		subscriberPlanID = periodID
-	} else {
-		subscriberPlanID = planID
-	}
-
-	// Get the pricing plan period to access cadence and price for billing cycle calculation
-	// This is needed for both new format (periodID) and old format (planID)
-	var period *billingModels.PricingPlanPeriod
-	if isPeriodID {
-		period, err = g.pricing.GetPricingPlanPeriod(ctx, periodID)
-	} else {
-		// For old format, get the periods for the plan and use the first one as fallback
-		periods, err := g.pricing.GetPricingPlanPeriods(ctx, planID)
-		if err != nil {
-			return fmt.Errorf("failed to get pricing plan periods: %w", err)
-		}
-		if len(periods) == 0 {
-			return fmt.Errorf("no pricing plan periods configured for plan %d", planID)
-		}
-		period = periods[0]
-	}
-	if period == nil {
-		return fmt.Errorf("pricing plan period not found")
-	}
 
 	// Check if this is a new subscription or a renewal
 	existingSub, err := g.billing.GetActiveSubscriber(ctx, userID, GatewayID)
@@ -1175,20 +1176,20 @@ func (g *AtlosGateway) HandleWebhook(ctx context.Context, payload []byte) error 
 		if err != nil {
 			g.coreCtx.Logger().Error("failed to debit credit for subscription period",
 				zap.Uint("user_id", userID),
-				zap.Uint("period_id", subscriberPlanID),
+				zap.Uint("period_id", periodID),
 				zap.Error(err))
 			return fmt.Errorf("failed to debit credit for subscription period: %w", err)
 		}
 
 		g.coreCtx.Logger().Info("subscription period debit issued successfully",
 			zap.Uint("user_id", userID),
-			zap.Uint("period_id", subscriberPlanID),
+			zap.Uint("period_id", periodID),
 			zap.String("period_start", billingCycle.StartAt.Format("2006-01-02")),
 			zap.String("period_end", billingCycle.EndAt.Format("2006-01-02")),
 			zap.String("amount", periodPrice.String()))
 	}
 
-	if err := g.billing.CreateOrUpdateSubscriber(ctx, userID, g.ID(ctx), externalID, subscriptionID, true, &subscriberPlanID,
+	if err := g.billing.CreateOrUpdateSubscriber(ctx, userID, g.ID(ctx), externalID, subscriptionID, true, &periodID,
 		pluginCore.WithBillingPeriodStart(&billingCycle.StartAt),
 		pluginCore.WithBillingPeriodEnd(&billingCycle.EndAt),
 	); err != nil {
@@ -1337,7 +1338,7 @@ func (g *AtlosGateway) GetCheckoutUI(ctx context.Context, userID uint, planID ui
 			userName := fmt.Sprintf("%s %s", user.FirstName, user.LastName)
 
 			// 6. Build a single button fragment for the specified period
-			orderID := fmt.Sprintf("%d-period%d", userID, periodID)
+			orderID := GenerateOrderID(userID, periodID)
 			buttonFragment, err := g.buildButtonFragmentForPeriod(orderID, matchedPeriod, plan.Currency, userName, user.Email)
 			if err != nil {
 				return nil, fmt.Errorf("failed to build button fragment for period %d: %w", periodID, err)
@@ -1345,7 +1346,7 @@ func (g *AtlosGateway) GetCheckoutUI(ctx context.Context, userID uint, planID ui
 			fragments = append(fragments, buttonFragment)
 
 			response := &pluginCore.CheckoutUIResponse{
-				SessionID: fmt.Sprintf("%d-period%d", userID, periodID),
+				SessionID: orderID,
 				ExpiresAt: time.Now().Add(1 * time.Hour),
 				Fragments: fragments,
 			}
@@ -1604,7 +1605,6 @@ func (g *AtlosGateway) buildProratedButtonFragment(
 	}, nil
 }
 
-// parseOrderID parses an order ID in the format "userID-planID" to extract user and plan IDs
 // GetManagementInfo returns management capabilities for operations
 func (g *AtlosGateway) GetManagementInfo(ctx context.Context, userID uint) (*pluginCore.ManagementCapabilities, error) {
 	ctx, span := core.TraceMethod(ctx, "AtlosGateway.GetManagementInfo")
@@ -1672,38 +1672,11 @@ func (g *AtlosGateway) GetManagementURL(ctx context.Context, userID uint, operat
 	}
 }
 
-// parseOrderIDWithPeriod parses an order ID and returns userID, ID, and a flag indicating if it's a period ID
-// Supports two formats:
-// - "userID-planN" where N is the plan ID (old format)
-// - "userID-periodN" where N is the period ID (new format)
-func parseOrderIDWithPeriod(orderID string) (uint, uint, bool, error) {
-	parts := strings.Split(orderID, "-")
-	if len(parts) != 2 {
-		return 0, 0, false, fmt.Errorf("invalid order ID format: expected 'userID-planN' or 'userID-periodN', got: %s", orderID)
-	}
-
-	userID, err := strconv.ParseUint(parts[0], 10, 64)
-	if err != nil {
-		return 0, 0, false, fmt.Errorf("invalid user ID in order ID: %w", err)
-	}
-
-	if strings.HasPrefix(parts[1], "period") {
-		periodID, err := strconv.ParseUint(strings.TrimPrefix(parts[1], "period"), 10, 64)
-		if err != nil {
-			return 0, 0, false, fmt.Errorf("invalid period ID in order ID: %w", err)
-		}
-		return uint(userID), uint(periodID), true, nil
-	}
-
-	if strings.HasPrefix(parts[1], "plan") {
-		planID, err := strconv.ParseUint(strings.TrimPrefix(parts[1], "plan"), 10, 64)
-		if err != nil {
-			return 0, 0, false, fmt.Errorf("invalid plan ID in order ID: %w", err)
-		}
-		return uint(userID), uint(planID), false, nil
-	}
-
-	return 0, 0, false, fmt.Errorf("invalid order ID format: expected 'userID-planN' or 'userID-periodN', got: %s", orderID)
+// parseOrderID parses an order ID and returns userID and periodID.
+// Deprecated: Use ParseOrderID instead.
+func parseOrderID(orderID string) (uint, uint, error) {
+	userID, periodID, _, err := ParseOrderID(orderID)
+	return userID, periodID, err
 }
 
 
