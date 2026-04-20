@@ -53,7 +53,7 @@ func TestAtlosGateway_ID(t *testing.T) {
 func TestAtlosGateway_SignatureHeader(t *testing.T) {
 	ctx, _ := coreTesting.NewTestContext(t)
 	gw := New(ctx, pluginConfig.AtlosConfig{APIKey: TestAPISecret, MerchantID: TestMerchantID}, nil, nil, nil, nil, nil, nil)
-	assert.Equal(t, atlos.ApiSecretHeader, gw.SignatureHeader(context.Background()))
+	assert.Equal(t, atlos.SignatureHeader, gw.SignatureHeader(context.Background()))
 }
 
 func TestAtlosGateway_GetName(t *testing.T) {

@@ -179,7 +179,7 @@ func (g *AtlosGateway) SignatureHeader(ctx context.Context) string {
 	ctx, span := core.TraceMethod(ctx, "AtlosGateway.SignatureHeader")
 	defer span.End()
 
-	return atlos.ApiSecretHeader
+	return atlos.SignatureHeader
 }
 
 // ExtractEventID extracts the event ID from a webhook payload
