@@ -122,7 +122,7 @@ func TestAtlosGateway_ExtractEventID(t *testing.T) {
 			payload: func() []byte {
 				notification := atlos.PostbackNotification{
 					TransactionId: TestTransactionID,
-					OrderId:       "123-plan1",
+					OrderId:       GenerateOrderID(123, 1),
 					Amount:        10.0,
 					Status:        100,
 				}
@@ -141,7 +141,7 @@ func TestAtlosGateway_ExtractEventID(t *testing.T) {
 			payload: func() []byte {
 				notification := atlos.PostbackNotification{
 					TransactionId: "",
-					OrderId:       "123-plan1",
+					OrderId:       GenerateOrderID(123, 1),
 					Amount:        10.0,
 					Status:        100,
 				}
@@ -180,7 +180,7 @@ func TestAtlosGateway_ExtractEventType(t *testing.T) {
 			payload: func() []byte {
 				notification := atlos.PostbackNotification{
 					TransactionId: TestTransactionID,
-					OrderId:       "123-plan1",
+					OrderId:       GenerateOrderID(123, 1),
 					Amount:        10.0,
 					Status:        100,
 				}
@@ -279,7 +279,7 @@ func TestAtlosGateway_HandleWebhook_Success(t *testing.T) {
 
 		userID := uint(456)
 		periodID := uint(2)
-		orderID := "456-period2"
+		orderID := GenerateOrderID(userID, periodID)
 
 		notification := atlos.CreateTestPostback(TestMerchantID)
 		notification.OrderId = orderID
@@ -385,21 +385,22 @@ func TestAtlosGateway_HandleWebhook_InvalidOrderID(t *testing.T) {
 	})
 }
 
-func TestAtlosGateway_HandleWebhook_PlanNotFound(t *testing.T) {
+func TestAtlosGateway_HandleWebhook_PeriodNotFound(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		mockPricing := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
 
+		periodID := uint(999)
 		notification := atlos.CreateTestPostback(TestMerchantID)
-		notification.OrderId = "123-plan999"
+		notification.OrderId = GenerateOrderID(123, periodID)
 		payload, _ := json.Marshal(notification)
 
-		mockPricing.EXPECT().GetPricingPlan(mock.Anything, uint(999)).Return(nil, nil)
+		mockPricing.EXPECT().GetPricingPlanPeriod(mock.Anything, periodID).Return(nil, nil)
 
 		gw := New(ctx, pluginConfig.AtlosConfig{APIKey: TestAPISecret, MerchantID: TestMerchantID}, nil, nil, nil, nil, mockPricing, nil)
 		err := gw.HandleWebhook(context.Background(), payload)
 
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "pricing plan not found")
+		assert.Contains(t, err.Error(), "pricing plan period not found")
 	})
 }
 
@@ -407,17 +408,25 @@ func TestAtlosGateway_HandleWebhook_PlanNotActive(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		mockPricing := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
 
-		planID := uint(3)
+		periodID := uint(3)
+		planID := uint(2)
 		notification := atlos.CreateTestPostback(TestMerchantID)
-		notification.OrderId = "123-plan3"
+		notification.OrderId = GenerateOrderID(123, periodID)
 		payload, _ := json.Marshal(notification)
 
+		period := &billingModels.PricingPlanPeriod{
+			Model: gorm.Model{ID: periodID},
+			PricingPlanID: planID,
+			Cadence:       "monthly",
+			PriceUSD:      10.0,
+		}
 		pricingPlan := &billingModels.PricingPlan{
 			Model:       gorm.Model{ID: planID},
 			Name:        "Test Plan",
 			Description: "Test Description",
 			IsActive:    false,
 		}
+		mockPricing.EXPECT().GetPricingPlanPeriod(mock.Anything, periodID).Return(period, nil)
 		mockPricing.EXPECT().GetPricingPlan(mock.Anything, planID).Return(pricingPlan, nil)
 
 		gw := New(ctx, pluginConfig.AtlosConfig{APIKey: TestAPISecret, MerchantID: TestMerchantID}, nil, nil, nil, nil, mockPricing, nil)
@@ -470,13 +479,13 @@ func TestBuildPaymentConfigData(t *testing.T) {
 	userName := "Test User"
 	userEmail := "test@example.com"
 	merchantID := "merchant_123"
-	orderID := "456-period2"
+	orderID := GenerateOrderID(456, 2)
 	postbackURL := "https://example.com/api/billing/webhook/atlos"
 	currency := "USD"
 
 	data := buildPaymentConfigData(merchantID, orderID, period, currency, userName, userEmail, postbackURL)
 
-	assert.Equal(t, "atlos-pay-btn-456-period2", data.ButtonID, "button ID should be prefixed with atlos-pay-btn- and order ID")
+	assert.Equal(t, "atlos-pay-btn-"+orderID, data.ButtonID, "button ID should be prefixed with atlos-pay-btn- and order ID")
 	assert.Equal(t, merchantID, data.MerchantID, "merchant ID should match")
 	assert.Equal(t, orderID, data.OrderID, "order ID should match")
 	assert.Equal(t, 15.99, data.Amount, "amount should match period price")
