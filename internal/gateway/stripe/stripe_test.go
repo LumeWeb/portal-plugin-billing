@@ -251,6 +251,16 @@ func setupMockServices(ctx coreTesting.TestContext) (*quotaCore.MockQuotaService
 func setupSubscriptionActivationMocks(mockQuota *quotaCore.MockQuotaService, mockUsers *coreTesting.MockUserService, mockBilling *pluginCore.MockBillingService, mockPricing *pluginCore.MockPricingService, userID uint, pricingPlanPeriodID, quotaPlanID uint) {
 	mockUsers.EXPECT().AccountExists(mock.Anything, userID).Return(true, createTestUser(userID), nil)
 
+	// Mock GetActiveSubscription for uncancel detection (returns subscriber without WillCancelAt)
+	planID := uint(1)
+	mockBilling.EXPECT().GetActiveSubscription(mock.Anything, userID).Return(&pluginCore.Subscriber{
+		UserID:              userID,
+		GatewayType:         "stripe",
+		IsActive:            true,
+		PricingPlanPeriodID: &planID,
+		WillCancelAt:        nil,
+	}, nil).Maybe()
+
 	// Mock fetching the period to get the plan ID for the event
 	pricingPlanID := uint(1)
 	period := &billingModels.PricingPlanPeriod{
@@ -276,6 +286,17 @@ func setupSubscriptionActivationMocks(mockQuota *quotaCore.MockQuotaService, moc
 // Helper function to setup mocks for subscription deactivation scenarios
 func setupSubscriptionDeactivationMocks(mockQuota *quotaCore.MockQuotaService, mockUsers *coreTesting.MockUserService, mockBilling *pluginCore.MockBillingService, userID uint) {
 	mockUsers.EXPECT().AccountExists(mock.Anything, userID).Return(true, createTestUser(userID), nil)
+
+	// Mock GetActiveSubscription for uncancel detection (returns subscriber without WillCancelAt)
+	planID := uint(1)
+	mockBilling.EXPECT().GetActiveSubscription(mock.Anything, userID).Return(&pluginCore.Subscriber{
+		UserID:              userID,
+		GatewayType:         "stripe",
+		IsActive:            true,
+		PricingPlanPeriodID: &planID,
+		WillCancelAt:        nil,
+	}, nil).Maybe()
+
 	mockQuota.EXPECT().RemoveUserFromPlan(mock.Anything, userID).Return(nil)
 	mockBilling.EXPECT().DeactivateSubscriber(mock.Anything, userID, "stripe").Return(nil)
 }
@@ -635,9 +656,94 @@ func TestStripeGateway_HandleWebhook_SubscriptionUpdated_CancellationRequest(t *
 	})
 }
 
-// Test for uncancel detection is commented out - requires more implementation
-// to avoid breaking existing tests
-// func TestStripeGateway_HandleWebhook_SubscriptionUpdated_Uncancel(t *testing.T) { ... }
+func TestStripeGateway_HandleWebhook_SubscriptionUpdated_Uncancel(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockQuota, mockUsers, mockBilling, _ := setupMockServices(ctx)
+		mockSubService := &MockSubscriptionRetriever{}
+
+		// Create subscription WITHOUT cancellation (cancel_at=0, no cancellation details)
+		planID := uint(2)
+		billingStart := time.Now().Add(-30 * 24 * time.Hour)
+		billingEnd := time.Now().Add(30 * 24 * time.Hour)
+		futureCancelAt := time.Now().Add(7 * 24 * time.Hour)
+
+		subscription := stripe.Subscription{
+			ID: TestSubscriptionID,
+			Customer: &stripe.Customer{
+				ID: TestCustomerID,
+				Metadata: map[string]string{
+					UserIDMetadataKey: "123",
+				},
+			},
+			Metadata: map[string]string{
+				UserIDMetadataKey: "123",
+			},
+			CancelAt:             0,
+			CancellationDetails:  nil,
+			CancelAtPeriodEnd:    false,
+			Items: &stripe.SubscriptionItemList{
+				Data: []*stripe.SubscriptionItem{
+					{
+						Price: &stripe.Price{
+							ID: "price_123",
+							Product: &stripe.Product{
+								ID: "prod_123",
+								Metadata: map[string]string{
+									PlanIDMetadataKey: "2",
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		rawData, _ := json.Marshal(subscription)
+		event := createTestEvent(EventTypeSubscriptionUpdated, rawData)
+		payload, _ := json.Marshal(event)
+
+		mockSubService.SetupGetSuccess(&subscription)
+
+		// Mock existing subscriber WITH WillCancelAt set (i.e., previously had cancellation scheduled)
+		existingSubscriber := &pluginCore.Subscriber{
+			UserID:              TestUserID,
+			GatewayType:         "stripe",
+			ExternalID:          TestCustomerID,
+			SubscriptionID:      TestSubscriptionID,
+			IsActive:            true,
+			PricingPlanPeriodID: &planID,
+			BillingPeriodStart:  &billingStart,
+			BillingPeriodEnd:    &billingEnd,
+			WillCancelAt:        &futureCancelAt,
+		}
+		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, TestUserID).Return(existingSubscriber, nil)
+
+		// Expect CreateOrUpdateSubscriber to be called with WithClearWillCancelAt
+		mockBilling.EXPECT().CreateOrUpdateSubscriber(
+			mock.Anything,
+			TestUserID,
+			"stripe",
+			TestCustomerID,
+			TestSubscriptionID,
+			true,
+			&planID,
+			mock.Anything, mock.Anything, mock.Anything, // variadic SubscriberOption args
+		).Return(nil)
+
+		gw := NewWithConfig(ctx.Logger(), ctx, testConfig(), mockQuota, mockUsers, mockBilling, nil, nil)
+		gw.subService = mockSubService
+		err := gw.HandleWebhook(context.Background(), payload)
+
+		assert.NoError(t, err)
+
+		// Verify that quota operations were not called
+		mockQuota.AssertNotCalled(t, "AssignUserToPlan")
+		mockQuota.AssertNotCalled(t, "RemoveUserFromPlan")
+		mockBilling.AssertNotCalled(t, "DeactivateSubscriber", mock.Anything, mock.Anything, mock.Anything)
+	})
+}
+
+
 
 func TestStripeGateway_HandleWebhook_SubscriptionUpdated_CanceledStatus(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
