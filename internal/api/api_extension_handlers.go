@@ -74,9 +74,9 @@ func (e *APIExtension) handlePauseOperation(c echo.Context) error {
 			return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("pause is not supported by this gateway")), http.StatusBadRequest)
 		}
 
-		executor, ok := gateway.(pluginCore.SubscriptionExecutor)
+		executor, ok := gateway.(pluginCore.PauseResumeExecutor)
 		if !ok {
-			return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway does not support subscription execution")), http.StatusInternalServerError)
+			return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway does not support pause/resume execution")), http.StatusInternalServerError)
 		}
 
 		if err := executor.ExecutePause(c.Request().Context(), userID); err != nil {
@@ -188,9 +188,9 @@ func (e *APIExtension) handleResumeOperation(c echo.Context) error {
 			return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("resume is not supported by this gateway")), http.StatusBadRequest)
 		}
 
-		executor, ok := gateway.(pluginCore.SubscriptionExecutor)
+		executor, ok := gateway.(pluginCore.PauseResumeExecutor)
 		if !ok {
-			return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway does not support subscription execution")), http.StatusInternalServerError)
+			return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway does not support pause/resume execution")), http.StatusInternalServerError)
 		}
 
 		if err := executor.ExecuteResume(c.Request().Context(), userID); err != nil {

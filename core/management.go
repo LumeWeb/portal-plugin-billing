@@ -236,9 +236,9 @@ type PlanChangeResult struct {
 	EffectiveDate *time.Time
 }
 
-// SubscriptionExecutor defines the interface for executing subscription operations
-// This is used by gateways that require backend API calls for management operations
-type SubscriptionExecutor interface {
+// CancellationExecutor defines the interface for subscription cancellation operations.
+// Gateways that support cancellation must implement this interface.
+type CancellationExecutor interface {
 	// ExecuteCancel cancels the subscription through the gateway's API
 	// and updates the local subscriber state.
 	// The immediate parameter determines whether to cancel immediately or schedule
@@ -246,14 +246,6 @@ type SubscriptionExecutor interface {
 	// Returns a CancellationResult indicating whether cancellation is scheduled
 	// (at end of billing period) or immediate, and whether it can be aborted.
 	ExecuteCancel(ctx context.Context, userID uint, immediate bool) (*CancellationResult, error)
-
-	// ExecutePlanChange executes a plan change operation
-	// For gateways that don't support direct plan updates (like ATLOS), this involves:
-	// - Calculating proration between old and new plans
-	// - Issuing credit for unused time in the old plan
-	// - Canceling the old subscription
-	// - Returning checkout UI for the new plan
-	ExecutePlanChange(ctx context.Context, userID uint, newPeriodID uint) (*PlanChangeResult, error)
 
 	// ReconcileCancellation handles pending subscription cancellations that were scheduled
 	// for a future date. This method is called by the cancellation reconciliation cron job
@@ -269,7 +261,23 @@ type SubscriptionExecutor interface {
 	// the subscription to active status. Returns an error if no scheduled
 	// cancellation exists or if the gateway doesn't support abort.
 	AbortCancellation(ctx context.Context, userID uint) error
+}
 
+// PlanChangeExecutor defines the interface for subscription plan change operations.
+// Gateways that support plan changes must implement this interface.
+type PlanChangeExecutor interface {
+	// ExecutePlanChange executes a plan change operation
+	// For gateways that don't support direct plan updates (like ATLOS), this involves:
+	// - Calculating proration between old and new plans
+	// - Issuing credit for unused time in the old plan
+	// - Canceling the old subscription
+	// - Returning checkout UI for the new plan
+	ExecutePlanChange(ctx context.Context, userID uint, newPeriodID uint) (*PlanChangeResult, error)
+}
+
+// PauseResumeExecutor defines the interface for subscription pause/resume operations.
+// Only gateways whose underlying payment provider supports pause/resume need implement this.
+type PauseResumeExecutor interface {
 	// ExecutePause pauses the subscription through the gateway's API.
 	// The subscription remains in a paused state until resumed or cancelled.
 	// Returns an error if the gateway doesn't support pause or if pausing fails.
@@ -278,6 +286,18 @@ type SubscriptionExecutor interface {
 	// ExecuteResume resumes a paused subscription through the gateway's API.
 	// Returns an error if no paused subscription exists or if resuming fails.
 	ExecuteResume(ctx context.Context, userID uint) error
+}
+
+// SubscriptionExecutor defines the union interface for all subscription execution operations.
+// This is used by gateways that support all operations (cancel, plan change, pause/resume).
+// Gateways that only support subsets should implement the granular interfaces directly:
+//   - CancellationExecutor for cancel/abort/reconcile
+//   - PlanChangeExecutor for plan changes
+//   - PauseResumeExecutor for pause/resume
+type SubscriptionExecutor interface {
+	CancellationExecutor
+	PlanChangeExecutor
+	PauseResumeExecutor
 }
 
 // ManagementCapabilities describes what management operations a gateway supports

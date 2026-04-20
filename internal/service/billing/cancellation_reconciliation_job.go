@@ -107,11 +107,11 @@ func (j *CancellationReconciliationJob) Run(ctx core.Context, eventCtx context.C
 
 // reconcileGatewayCancellations reconciles pending cancellations for a specific gateway
 func reconcileGatewayCancellations(ctx core.Context, gateway pluginCore.PaymentGateway, now time.Time) (int, error) {
-	// Check if gateway implements SubscriptionExecutor interface
-	executor, err := pluginCore.AsSubscriptionExecutor(gateway)
+	// Check if gateway implements CancellationExecutor interface
+	executor, err := pluginCore.AsCancellationExecutor(gateway)
 	if err != nil {
-		// Gateway doesn't implement SubscriptionExecutor, skip
-		ctx.Logger().Debug("Gateway does not implement SubscriptionExecutor, skipping",
+		// Gateway doesn't implement CancellationExecutor, skip
+		ctx.Logger().Debug("Gateway does not implement CancellationExecutor, skipping",
 			zap.String("gateway_type", gateway.ID(nil)))
 		return 0, nil
 	}

@@ -142,7 +142,9 @@ type PaymentGateway interface {
 	GatewayCapabilities
 	GatewaySync
 	SubscriptionManager
-	SubscriptionExecutor
+	CancellationExecutor
+	PlanChangeExecutor
+	PauseResumeExecutor
 }
 
 // CheckoutUIResponse represents UI fragments for checkout flows
@@ -299,7 +301,55 @@ func AsSubscriptionManager(gateway GatewayIdentity) (SubscriptionManager, error)
 	return manager, nil
 }
 
-// IsSubscriptionExecutor checks if a gateway implements the SubscriptionExecutor interface.
+// IsCancellationExecutor checks if a gateway implements the CancellationExecutor interface.
+func IsCancellationExecutor(gateway GatewayIdentity) bool {
+	_, ok := gateway.(CancellationExecutor)
+	return ok
+}
+
+// AsCancellationExecutor attempts to cast a gateway to CancellationExecutor.
+// Returns nil and an error if the gateway does not implement CancellationExecutor.
+func AsCancellationExecutor(gateway GatewayIdentity) (CancellationExecutor, error) {
+	executor, ok := gateway.(CancellationExecutor)
+	if !ok {
+		return nil, ErrGatewayNotSupported
+	}
+	return executor, nil
+}
+
+// IsPlanChangeExecutor checks if a gateway implements the PlanChangeExecutor interface.
+func IsPlanChangeExecutor(gateway GatewayIdentity) bool {
+	_, ok := gateway.(PlanChangeExecutor)
+	return ok
+}
+
+// AsPlanChangeExecutor attempts to cast a gateway to PlanChangeExecutor.
+// Returns nil and an error if the gateway does not implement PlanChangeExecutor.
+func AsPlanChangeExecutor(gateway GatewayIdentity) (PlanChangeExecutor, error) {
+	executor, ok := gateway.(PlanChangeExecutor)
+	if !ok {
+		return nil, ErrGatewayNotSupported
+	}
+	return executor, nil
+}
+
+// IsPauseResumeExecutor checks if a gateway implements the PauseResumeExecutor interface.
+func IsPauseResumeExecutor(gateway GatewayIdentity) bool {
+	_, ok := gateway.(PauseResumeExecutor)
+	return ok
+}
+
+// AsPauseResumeExecutor attempts to cast a gateway to PauseResumeExecutor.
+// Returns nil and an error if the gateway does not implement PauseResumeExecutor.
+func AsPauseResumeExecutor(gateway GatewayIdentity) (PauseResumeExecutor, error) {
+	executor, ok := gateway.(PauseResumeExecutor)
+	if !ok {
+		return nil, ErrGatewayNotSupported
+	}
+	return executor, nil
+}
+
+// IsSubscriptionExecutor checks if a gateway implements the full SubscriptionExecutor interface.
 func IsSubscriptionExecutor(gateway GatewayIdentity) bool {
 	_, ok := gateway.(SubscriptionExecutor)
 	return ok

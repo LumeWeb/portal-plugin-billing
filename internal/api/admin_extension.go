@@ -1608,9 +1608,9 @@ func (e *AdminExtension) handleCancelUserSubscription(c echo.Context) error {
 	}
 
 	// Gateway supports backend cancellation - execute it
-	executor, ok := gateway.(pluginCore.SubscriptionExecutor)
+	executor, ok := gateway.(pluginCore.CancellationExecutor)
 	if !ok {
-		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway reports admin cancel support but does not implement SubscriptionExecutor")), http.StatusInternalServerError)
+		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway reports admin cancel support but does not implement CancellationExecutor")), http.StatusInternalServerError)
 	}
 
 	// Determine if cancellation should be immediate or scheduled (default to scheduled)
@@ -1708,9 +1708,9 @@ func (e *AdminExtension) handleChangeUserPlan(c echo.Context) error {
 	}
 
 	// Gateway supports backend plan change - execute it
-	executor, ok := gateway.(pluginCore.SubscriptionExecutor)
+	executor, ok := gateway.(pluginCore.PlanChangeExecutor)
 	if !ok {
-		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway reports admin plan change support but does not implement SubscriptionExecutor")), http.StatusInternalServerError)
+		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway reports admin plan change support but does not implement PlanChangeExecutor")), http.StatusInternalServerError)
 	}
 
 	result, err := executor.ExecutePlanChange(reqCtx, uint(userID), request.PeriodID)
@@ -1792,9 +1792,9 @@ func (e *AdminExtension) handlePauseUserSubscription(c echo.Context) error {
 	}
 
 	// Gateway supports backend pause - execute it
-	executor, ok := gateway.(pluginCore.SubscriptionExecutor)
+	executor, ok := gateway.(pluginCore.PauseResumeExecutor)
 	if !ok {
-		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway reports admin pause support but does not implement SubscriptionExecutor")), http.StatusInternalServerError)
+		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway reports admin pause support but does not implement PauseResumeExecutor")), http.StatusInternalServerError)
 	}
 
 	if err := executor.ExecutePause(reqCtx, uint(userID)); err != nil {
@@ -1878,9 +1878,9 @@ func (e *AdminExtension) handleResumeUserSubscription(c echo.Context) error {
 	}
 
 	// Gateway supports backend resume - execute it
-	executor, ok := gateway.(pluginCore.SubscriptionExecutor)
+	executor, ok := gateway.(pluginCore.PauseResumeExecutor)
 	if !ok {
-		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway reports admin resume support but does not implement SubscriptionExecutor")), http.StatusInternalServerError)
+		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway reports admin resume support but does not implement PauseResumeExecutor")), http.StatusInternalServerError)
 	}
 
 	if err := executor.ExecuteResume(reqCtx, uint(userID)); err != nil {
@@ -2006,9 +2006,9 @@ func (e *AdminExtension) handleAbortCancellation(c echo.Context) error {
 	}
 
 	// Gateway supports admin cancellation - get executor
-	executor, ok := gateway.(pluginCore.SubscriptionExecutor)
+	executor, ok := gateway.(pluginCore.CancellationExecutor)
 	if !ok {
-		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway does not implement SubscriptionExecutor")), http.StatusInternalServerError)
+		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway does not implement CancellationExecutor")), http.StatusInternalServerError)
 	}
 
 	// Abort the scheduled cancellation

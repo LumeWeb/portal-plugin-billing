@@ -15,6 +15,9 @@ packages:
       GatewayCapabilities: {}
       GatewaySync: {}
       PaymentGateway: {}
+      CancellationExecutor: {}
+      PlanChangeExecutor: {}
+      PauseResumeExecutor: {}
       SubscriptionExecutor: {}
       SubscriptionManager: {}
   go.lumeweb.com/portal-plugin-billing/internal/service/pricing:
