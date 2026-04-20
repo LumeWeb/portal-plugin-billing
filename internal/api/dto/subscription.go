@@ -18,6 +18,7 @@ type SubscriptionStatusResponse struct {
 	IsSubscribed        bool       `json:"is_subscribed"`
 	GatewayType         string     `json:"gateway_type,omitempty"`
 	PricingPlanPeriodID *uint      `json:"pricing_plan_period_id,omitempty"`
+	WillCancelAt        *time.Time `json:"will_cancel_at,omitempty"`
 	CreatedAt           *time.Time `json:"created_at,omitempty"`
 	UpdatedAt           *time.Time `json:"updated_at,omitempty"`
 }
@@ -37,6 +38,7 @@ func (r *SubscriptionStatusResponse) FromModel(subscriber *pluginCore.Subscriber
 	r.IsSubscribed = true
 	r.GatewayType = subscriber.GatewayType
 	r.PricingPlanPeriodID = subscriber.PricingPlanPeriodID
+	r.WillCancelAt = subscriber.WillCancelAt
 	r.CreatedAt = &subscriber.CreatedAt
 	r.UpdatedAt = &subscriber.UpdatedAt
 
