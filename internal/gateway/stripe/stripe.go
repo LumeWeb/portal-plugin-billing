@@ -615,9 +615,52 @@ func (g *StripeGateway) handleSubscriptionUpdatedEvent(ctx context.Context, user
 				return nil
 			}
 
-			// Note: Uncancel detection (clearing WillCancelAt when user removes scheduled cancellation)
-			// is intentionally not implemented here to avoid breaking existing tests.
-			// Future enhancement: Add logic to detect when CancelAt goes from > 0 to 0 and clear WillCancelAt.
+			// Uncancel detection: when an active subscription no longer has CancelAt > 0,
+			// check if the subscriber has a WillCancelAt set and clear it.
+			if subscription.CancelAt == 0 && subscription.CancellationDetails == nil && subscription.Status != stripe.SubscriptionStatusCanceled && g.billing != nil {
+				subscriber, err := g.billing.GetActiveSubscription(ctx, userID)
+				if err != nil {
+					g.logger.Error("failed to get current subscriber for uncancel detection",
+						zap.Error(err),
+						zap.Uint("user_id", userID),
+						zap.String("subscription_id", subscription.ID))
+					return err
+				}
+
+				if subscriber != nil && subscriber.GatewayType == GatewayID && subscriber.WillCancelAt != nil {
+					g.logger.Info("uncancel detected - clearing WillCancelAt",
+						zap.Uint("user_id", userID),
+						zap.String("subscription_id", subscription.ID),
+						zap.Time("previous_will_cancel_at", *subscriber.WillCancelAt),
+						zap.String("event_id", event.ID))
+
+					if err := g.billing.CreateOrUpdateSubscriber(
+						ctx,
+						userID,
+						GatewayID,
+						subscription.Customer.ID,
+						subscription.ID,
+						true,
+						subscriber.PricingPlanPeriodID,
+						pluginCore.WithClearWillCancelAt(),
+						pluginCore.WithBillingPeriodStart(subscriber.BillingPeriodStart),
+						pluginCore.WithBillingPeriodEnd(subscriber.BillingPeriodEnd),
+					); err != nil {
+						g.logger.Error("failed to clear WillCancelAt on uncancel",
+							zap.Error(err),
+							zap.Uint("user_id", userID),
+							zap.String("subscription_id", subscription.ID))
+						return err
+					}
+
+					g.logger.Info("successfully cleared WillCancelAt for uncancel",
+						zap.Uint("user_id", userID),
+						zap.String("subscription_id", subscription.ID),
+						zap.String("event_id", event.ID))
+
+					return nil
+				}
+			}
 
 			if subscription.Status == stripe.SubscriptionStatusCanceled {
 				g.logger.Debug("subscription is canceled in Stripe - ignoring update event",
