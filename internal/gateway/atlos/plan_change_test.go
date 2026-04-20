@@ -26,7 +26,7 @@ func TestCalculatePlanChangeProration_UpgradeWithPayment(t *testing.T) {
 
 		gateway := &AtlosGateway{
 			coreCtx:  ctx,
-			logger:  ctx.Logger(),
+
 			pricing: mockPricing,
 			billing: mockBilling,
 		}
@@ -94,7 +94,7 @@ func TestCalculatePlanChangeProration_UpgradeWithCredit(t *testing.T) {
 
 		gateway := &AtlosGateway{
 			coreCtx:  ctx,
-			logger:  ctx.Logger(),
+
 			pricing: mockPricing,
 			billing: mockBilling,
 		}
@@ -157,7 +157,7 @@ func TestCalculatePlanChangeProration_ZeroAmount(t *testing.T) {
 
 		gateway := &AtlosGateway{
 			coreCtx:  ctx,
-			logger:  ctx.Logger(),
+
 			pricing: mockPricing,
 			billing: mockBilling,
 		}
@@ -218,7 +218,7 @@ func TestCalculatePlanChangeProration_InvalidNewPeriod(t *testing.T) {
 
 		gateway := &AtlosGateway{
 			coreCtx:  ctx,
-			logger:  ctx.Logger(),
+
 			pricing: mockPricing,
 		}
 		userID := uint(1)
@@ -240,7 +240,7 @@ func TestCalculatePlanChangeProration_InactivePlan(t *testing.T) {
 
 		gateway := &AtlosGateway{
 			coreCtx:  ctx,
-			logger:  ctx.Logger(),
+
 			pricing: mockPricing,
 		}
 		userID := uint(1)
@@ -278,7 +278,7 @@ func TestExecutePlanChange_ProratedFlow(t *testing.T) {
 
 		gateway := &AtlosGateway{
 			coreCtx:  ctx,
-			logger:  ctx.Logger(),
+
 			pricing: mockPricing,
 			billing: mockBilling,
 			users:   mockUsers,
@@ -317,7 +317,7 @@ func TestExecutePlanChange_CreditOnlyFlow(t *testing.T) {
 
 		gateway := &AtlosGateway{
 			coreCtx:  ctx,
-			logger:  ctx.Logger(),
+
 			pricing: mockPricing,
 			billing: mockBilling,
 			credit:  mockCredit,

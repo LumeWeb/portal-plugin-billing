@@ -18,6 +18,7 @@ type StripeConfig struct {
 type AtlosConfig struct {
 	MerchantID string `config:"merchant_id"`
 	APIKey     string `config:"api_key"`
+	Endpoint   string `config:"endpoint"`
 }
 
 func (s StripeConfig) Schema() z.ZogSchema {
@@ -42,6 +43,7 @@ func (s AtlosConfig) Schema() z.ZogSchema {
 	return z.Struct(z.Shape{
 		"MerchantID": z.String().Required(),
 		"APIKey":     z.String().Required(),
+		"Endpoint":   z.String().Optional(),
 	})
 }
 
@@ -49,6 +51,7 @@ func (s AtlosConfig) Defaults() map[string]any {
 	return map[string]any{
 		"MerchantID": "",
 		"APIKey":     "",
+		"Endpoint":   "",
 	}
 }
 

@@ -14,6 +14,7 @@ import (
 	"github.com/shopspring/decimal"
 	"go.lumeweb.com/atlos-sdk"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
+	"go.lumeweb.com/portal-plugin-billing/internal/config"
 	billingEvent "go.lumeweb.com/portal-plugin-billing/internal/event"
 	billingModels "go.lumeweb.com/portal-plugin-billing/internal/db/models"
 	"go.lumeweb.com/portal-plugin-billing/internal/gateway"
@@ -37,17 +38,22 @@ const (
 
 // Setup creates and configures an ATLOS gateway if merchant ID and API key are configured.
 // Returns a log message (empty if not configured), the gateway instance (nil if not configured), and an error.
-func Setup(opts pluginCore.GatewaySetupOptions, apiSecret string, merchantID string) (string, pluginCore.GatewayIdentity, error) {
-	if merchantID == "" {
+func Setup(opts pluginCore.GatewaySetupOptions, cfg config.AtlosConfig) (string, pluginCore.GatewayIdentity, error) {
+	if cfg.MerchantID == "" {
 		return "", nil, nil
 	}
 
-	if apiSecret == "" {
+	if cfg.APIKey == "" {
 		return "", nil, nil
 	}
 
-	gw := New(opts.Logger, opts.Ctx, apiSecret, merchantID, opts.HTTP, opts.Quota, opts.User, opts.BillingSvc, opts.PricingSvc, opts.CreditSvc)
-	return fmt.Sprintf("ATLOS gateway registered successfully (merchant_id=%s)", merchantID), gw, nil
+	gw := New(opts.Ctx, cfg, opts.HTTP, opts.Quota, opts.User, opts.BillingSvc, opts.PricingSvc, opts.CreditSvc)
+
+	logMsg := fmt.Sprintf("ATLOS gateway registered successfully (merchant_id=%s)", cfg.MerchantID)
+	if cfg.Endpoint != "" {
+		logMsg = fmt.Sprintf("ATLOS gateway registered successfully (merchant_id=%s, endpoint=%s)", cfg.MerchantID, cfg.Endpoint)
+	}
+	return logMsg, gw, nil
 }
 
 // atlosPaymentConfigData contains configuration for ATLOS payment widget templates
@@ -91,24 +97,20 @@ const (
 
 // AtlosGateway implements the PaymentGateway interface for ATLOS payment widget
 type AtlosGateway struct {
-	logger     *core.Logger
-	coreCtx    core.Context
-	apiSecret  string
-	merchantID string
-	http       core.HTTPService
-	quota      quotaCore.QuotaService
-	users      core.UserService
-	billing    pluginCore.BillingService
-	pricing    pluginCore.PricingService
-	credit     pluginCore.CreditService
+	coreCtx core.Context
+	config  config.AtlosConfig
+	http    core.HTTPService
+	quota   quotaCore.QuotaService
+	users   core.UserService
+	billing pluginCore.BillingService
+	pricing pluginCore.PricingService
+	credit  pluginCore.CreditService
 }
 
 // New creates a new AtlosGateway instance
 func New(
-	logger *core.Logger,
 	coreCtx core.Context,
-	apiSecret string,
-	merchantID string,
+	cfg config.AtlosConfig,
 	http core.HTTPService,
 	quota quotaCore.QuotaService,
 	users core.UserService,
@@ -117,16 +119,14 @@ func New(
 	credit pluginCore.CreditService,
 ) *AtlosGateway {
 	return &AtlosGateway{
-		logger:     logger,
-		coreCtx:    coreCtx,
-		apiSecret:  apiSecret,
-		merchantID: merchantID,
-		http:       http,
-		quota:      quota,
-		users:      users,
-		billing:    billing,
-		pricing:    pricing,
-		credit:     credit,
+		coreCtx: coreCtx,
+		config:  cfg,
+		http:    http,
+		quota:   quota,
+		users:   users,
+		billing: billing,
+		pricing: pricing,
+		credit:  credit,
 	}
 }
 
@@ -135,12 +135,20 @@ func (g *AtlosGateway) SetQuota(quota quotaCore.QuotaService) {
 	g.quota = quota
 }
 
+func (g *AtlosGateway) newAtlosClient() (*atlos.Client, error) {
+	opts := make([]atlos.ClientOption, 0, 1)
+	if g.config.Endpoint != "" {
+		opts = append(opts, atlos.WithEndpoint(g.config.Endpoint))
+	}
+	return atlos.NewClient(g.config.APIKey, opts...)
+}
+
 // cancelSubscription cancels a subscription in ATLOS
 // Provides centralized error handling for ATLOS cancellation operations
 func (g *AtlosGateway) cancelSubscription(ctx context.Context, subscriptionID string, operation string) error {
-	client, err := atlos.NewClient(g.apiSecret)
+	client, err := g.newAtlosClient()
 	if err != nil {
-		g.logger.Warn("Failed to create ATLOS client for cancellation",
+		g.coreCtx.Logger().Warn("Failed to create ATLOS client for cancellation",
 			zap.Error(err),
 			zap.String("subscription_id", subscriptionID),
 			zap.String("operation", operation))
@@ -149,7 +157,7 @@ func (g *AtlosGateway) cancelSubscription(ctx context.Context, subscriptionID st
 	if err := client.Cancel(ctx, atlos.CancelPostRequest{
 		SubscriptionId: &subscriptionID,
 	}); err != nil {
-		g.logger.Error("Failed to cancel subscription in ATLOS",
+		g.coreCtx.Logger().Error("Failed to cancel subscription in ATLOS",
 			zap.Error(err),
 			zap.String("subscription_id", subscriptionID),
 			zap.String("operation", operation))
@@ -315,14 +323,14 @@ func (g *AtlosGateway) executeImmediateCancel(ctx context.Context, userID uint, 
 			0,
 		)
 		if err != nil {
-			g.logger.Error("failed to issue proration credit for immediate cancellation",
+			g.coreCtx.Logger().Error("failed to issue proration credit for immediate cancellation",
 				zap.Error(err),
 				zap.Uint("user_id", userID),
 				zap.String("subscription_id", subscriber.SubscriptionID))
 			// Continue with deactivation even if credit issuance fails
 		}
 
-		g.logger.Info("Proration credit issued for immediate cancellation",
+		g.coreCtx.Logger().Info("Proration credit issued for immediate cancellation",
 			zap.Uint("user_id", userID),
 			zap.String("prorated_amount", proratedValue.String()),
 			zap.String("subscription_id", subscriber.SubscriptionID))
@@ -350,7 +358,7 @@ func (g *AtlosGateway) executeImmediateCancel(ctx context.Context, userID uint, 
 	)
 	core.Fire(g.coreCtx, billingEvent.EVENT_SUBSCRIPTION_CANCELLED, evt)
 
-	g.logger.Info("Subscription cancelled immediately",
+	g.coreCtx.Logger().Info("Subscription cancelled immediately",
 		zap.Uint("user_id", userID),
 		zap.String("subscription_id", subscriber.SubscriptionID),
 		zap.Time("effective_at", now))
@@ -377,7 +385,7 @@ func (g *AtlosGateway) executeScheduledCancel(ctx context.Context, userID uint, 
 	// Schedule cancellation at the end of the billing period
 	cancelAt := *subscriber.BillingPeriodEnd
 
-	g.logger.Info("Scheduling subscription cancellation at end of billing period",
+	g.coreCtx.Logger().Info("Scheduling subscription cancellation at end of billing period",
 		zap.Uint("user_id", userID),
 		zap.String("subscription_id", subscriber.SubscriptionID),
 		zap.Time("cancel_at", cancelAt),
@@ -433,14 +441,14 @@ func (g *AtlosGateway) ReconcileCancellation(ctx context.Context, userID uint) e
 
 	now := time.Now().UTC()
 	if subscriber.WillCancelAt.After(now) {
-		g.logger.Debug("Scheduled cancellation date is in the future, skipping",
+		g.coreCtx.Logger().Debug("Scheduled cancellation date is in the future, skipping",
 			zap.Uint("user_id", userID),
 			zap.Time("will_cancel_at", *subscriber.WillCancelAt),
 			zap.Time("now", now))
 		return nil
 	}
 
-	g.logger.Info("Reconciling scheduled cancellation",
+	g.coreCtx.Logger().Info("Reconciling scheduled cancellation",
 		zap.Uint("user_id", userID),
 		zap.String("subscription_id", subscriber.SubscriptionID),
 		zap.Time("will_cancel_at", *subscriber.WillCancelAt))
@@ -491,7 +499,7 @@ func (g *AtlosGateway) ReconcileCancellation(ctx context.Context, userID uint) e
 			return fmt.Errorf("failed to issue proration credit: %w", err)
 		}
 
-		g.logger.Info("Proration credit issued for scheduled cancellation",
+		g.coreCtx.Logger().Info("Proration credit issued for scheduled cancellation",
 			zap.Uint("user_id", userID),
 			zap.String("prorated_amount", proratedValue.String()),
 			zap.String("subscription_id", subscriber.SubscriptionID))
@@ -525,7 +533,7 @@ func (g *AtlosGateway) ReconcileCancellation(ctx context.Context, userID uint) e
 	)
 	core.Fire(g.coreCtx, billingEvent.EVENT_SUBSCRIPTION_CANCELLED, evt)
 
-	g.logger.Info("Reconciled scheduled cancellation successfully",
+	g.coreCtx.Logger().Info("Reconciled scheduled cancellation successfully",
 		zap.Uint("user_id", userID),
 		zap.String("subscription_id", subscriber.SubscriptionID))
 
@@ -553,7 +561,7 @@ func (g *AtlosGateway) AbortCancellation(ctx context.Context, userID uint) error
 		return fmt.Errorf("no scheduled cancellation found for user %d", userID)
 	}
 
-	g.logger.Info("Aborting scheduled cancellation",
+	g.coreCtx.Logger().Info("Aborting scheduled cancellation",
 		zap.Uint("user_id", userID),
 		zap.String("subscription_id", subscriber.SubscriptionID),
 		zap.Time("was_scheduled_for", *subscriber.WillCancelAt))
@@ -575,7 +583,7 @@ func (g *AtlosGateway) AbortCancellation(ctx context.Context, userID uint) error
 		return fmt.Errorf("failed to abort scheduled cancellation: %w", err)
 	}
 
-	g.logger.Info("Successfully aborted scheduled cancellation",
+	g.coreCtx.Logger().Info("Successfully aborted scheduled cancellation",
 		zap.Uint("user_id", userID),
 		zap.String("subscription_id", subscriber.SubscriptionID))
 
@@ -635,7 +643,7 @@ func (g *AtlosGateway) ExecutePlanChange(
 			return nil, fmt.Errorf("failed to deactivate old subscriber: %w", err)
 		}
 
-		g.logger.Debug("Old subscription deactivated for prorated plan change",
+		g.coreCtx.Logger().Debug("Old subscription deactivated for prorated plan change",
 			zap.Uint("user_id", userID),
 			zap.String("subscription_id", calc.CurrentSub.SubscriptionID),
 			zap.String("net_amount_due", calc.NetAmountDue.String()))
@@ -751,7 +759,7 @@ func (g *AtlosGateway) calculatePlanChangeProration(
 		actionType = PlanChangeActionCheckoutRequired
 	}
 
-	g.logger.Debug("Plan change proration calculated",
+	g.coreCtx.Logger().Debug("Plan change proration calculated",
 		zap.Uint("user_id", userID),
 		zap.Uint("old_plan_id", oldPeriod.PricingPlanID),
 		zap.Uint("old_period_id", *currentSub.PricingPlanPeriodID),
@@ -798,7 +806,7 @@ func (g *AtlosGateway) handleCreditOnlyPlanChange(
 		if err != nil {
 			return nil, fmt.Errorf("failed to issue net credit: %w", err)
 		}
-		g.logger.Debug("Net credit issued for plan change",
+		g.coreCtx.Logger().Debug("Net credit issued for plan change",
 			zap.Uint("user_id", userID),
 			zap.String("credit_amount", calc.CreditToIssue.String()))
 	}
@@ -834,7 +842,7 @@ func (g *AtlosGateway) handleCreditOnlyPlanChange(
 		return nil, fmt.Errorf("failed to activate new subscription: %w", err)
 	}
 
-	g.logger.Debug("Credit-only plan change completed",
+	g.coreCtx.Logger().Debug("Credit-only plan change completed",
 		zap.Uint("user_id", userID),
 		zap.String("credit_issued", calc.CreditToIssue.String()),
 		zap.Uint("new_period_id", calc.NewPeriod.ID))
@@ -909,7 +917,7 @@ func (g *AtlosGateway) handleZeroAmountPlanChange(
 		return nil, fmt.Errorf("failed to activate new subscription: %w", err)
 	}
 
-	g.logger.Debug("Zero-amount plan change completed",
+	g.coreCtx.Logger().Debug("Zero-amount plan change completed",
 		zap.Uint("user_id", userID),
 		zap.Uint("new_period_id", calc.NewPeriod.ID))
 
@@ -991,7 +999,7 @@ func (g *AtlosGateway) generateProratedCheckoutUI(
 		Fragments: fragments,
 	}
 
-	g.logger.Debug("Prorated checkout UI created",
+	g.coreCtx.Logger().Debug("Prorated checkout UI created",
 		zap.Uint("user_id", userID),
 		zap.Uint("period_id", calc.NewPeriod.ID),
 		zap.String("net_amount_due", calc.NetAmountDue.String()))
@@ -1013,7 +1021,7 @@ func (g *AtlosGateway) ValidateWebhook(ctx context.Context, signature string, pa
 		return fmt.Errorf("failed to parse postback notification: %w", err)
 	}
 
-	valid, err := notification.VerifySignature(g.apiSecret, signature)
+	valid, err := notification.VerifySignature(g.config.APIKey, signature)
 	if err != nil {
 		return fmt.Errorf("signature verification failed: %w", err)
 	}
@@ -1158,14 +1166,14 @@ func (g *AtlosGateway) HandleWebhook(ctx context.Context, payload []byte) error 
 			0, // createdBy: 0 for system
 		)
 		if err != nil {
-			g.logger.Error("failed to debit credit for subscription period",
+			g.coreCtx.Logger().Error("failed to debit credit for subscription period",
 				zap.Uint("user_id", userID),
 				zap.Uint("period_id", subscriberPlanID),
 				zap.Error(err))
 			return fmt.Errorf("failed to debit credit for subscription period: %w", err)
 		}
 
-		g.logger.Info("subscription period debit issued successfully",
+		g.coreCtx.Logger().Info("subscription period debit issued successfully",
 			zap.Uint("user_id", userID),
 			zap.Uint("period_id", subscriberPlanID),
 			zap.String("period_start", billingCycle.StartAt.Format("2006-01-02")),
@@ -1181,7 +1189,7 @@ func (g *AtlosGateway) HandleWebhook(ctx context.Context, payload []byte) error 
 	}
 
 	if g.credit != nil && notification.PaidAmount > 0 {
-		g.logger.Debug("atlos payment has paid amount (USD) - credit integration available",
+		g.coreCtx.Logger().Debug("atlos payment has paid amount (USD) - credit integration available",
 			zap.Uint("user_id", userID),
 			zap.String("transaction_id", notification.TransactionId),
 			zap.Float64("paid_amount", notification.PaidAmount),
@@ -1190,7 +1198,7 @@ func (g *AtlosGateway) HandleWebhook(ctx context.Context, payload []byte) error 
 		amountStr := strconv.FormatFloat(notification.PaidAmount, 'f', -1, 64)
 		amount, err := decimal.NewFromString(amountStr)
 		if err != nil {
-			g.logger.Error("failed to convert ATLOS PaidAmount to decimal",
+			g.coreCtx.Logger().Error("failed to convert ATLOS PaidAmount to decimal",
 				zap.Uint("user_id", userID),
 				zap.String("transaction_id", notification.TransactionId),
 				zap.Float64("paid_amount", notification.PaidAmount),
@@ -1212,13 +1220,13 @@ func (g *AtlosGateway) HandleWebhook(ctx context.Context, payload []byte) error 
 			return fmt.Errorf("failed to issue ATLOS payment credit: %w", err)
 		}
 
-		g.logger.Info("ATLOS payment credit issued successfully",
+		g.coreCtx.Logger().Info("ATLOS payment credit issued successfully",
 			zap.Uint("user_id", userID),
 			zap.String("transaction_id", notification.TransactionId),
 			zap.String("amount", amount.String()))
 	}
 
-	g.logger.Debug("ATLOS payment webhook processed successfully",
+	g.coreCtx.Logger().Debug("ATLOS payment webhook processed successfully",
 		zap.Uint("user_id", userID),
 		zap.Uint("plan_id", planID),
 		zap.String("transaction_id", notification.TransactionId),
@@ -1335,7 +1343,7 @@ func (g *AtlosGateway) GetCheckoutUI(ctx context.Context, userID uint, planID ui
 				Fragments: fragments,
 			}
 
-			g.logger.Debug("ATLOS checkout UI fragments created",
+			g.coreCtx.Logger().Debug("ATLOS checkout UI fragments created",
 				zap.Uint("user_id", userID),
 				zap.Uint("plan_id", planID),
 				zap.Uint("period_id", periodID),
@@ -1507,7 +1515,7 @@ func (g *AtlosGateway) buildButtonFragment(orderID string, amount float64, curre
 
 // getMerchantID retrieves the ATLOS merchant ID from configuration
 func (g *AtlosGateway) getMerchantID() string {
-	return g.merchantID
+	return g.config.MerchantID
 }
 
 // getPostbackURL returns the postback URL for payment notifications

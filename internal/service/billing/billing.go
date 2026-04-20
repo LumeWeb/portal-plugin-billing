@@ -128,7 +128,7 @@ func (s *BillingServiceDefault) getGatewaySetups(opts pluginCore.GatewaySetupOpt
 		{
 			name: "atlos",
 			fn: func() (string, pluginCore.GatewayIdentity, error) {
-				return atlos.Setup(opts, s.config.Atlos.APIKey, s.config.Atlos.MerchantID)
+				return atlos.Setup(opts, s.config.Atlos)
 			},
 		},
 	}
