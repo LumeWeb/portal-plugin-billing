@@ -95,6 +95,13 @@ const (
 	PlanChangeActionZeroAmount       PlanChangeActionType = "zero_amount"
 )
 
+// Compile-time interface checks for AtlosGateway.
+// AtlosGateway supports cancellation and plan changes but NOT pause/resume.
+var (
+	_ pluginCore.CancellationExecutor = (*AtlosGateway)(nil)
+	_ pluginCore.PlanChangeExecutor   = (*AtlosGateway)(nil)
+)
+
 // AtlosGateway implements the PaymentGateway interface for ATLOS payment widget
 type AtlosGateway struct {
 	coreCtx core.Context

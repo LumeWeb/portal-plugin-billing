@@ -942,9 +942,9 @@ func (e *APIExtension) handleCancelOperation(c echo.Context) error {
 			return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("cancellation is not supported by this gateway")), http.StatusBadRequest)
 		}
 
-		executor, ok := gateway.(pluginCore.SubscriptionExecutor)
+		executor, ok := gateway.(pluginCore.CancellationExecutor)
 		if !ok {
-			return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway does not support subscription execution")), http.StatusInternalServerError)
+			return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway does not support cancellation execution")), http.StatusInternalServerError)
 		}
 
 		cancelResult, err := executor.ExecuteCancel(c.Request().Context(), userID, false) // Users get scheduled cancellation by default
@@ -1040,10 +1040,10 @@ func (e *APIExtension) handleAbortCancellationOperation(c echo.Context) error {
 		}
 	}
 
-	// Check if gateway implements SubscriptionExecutor (required for abort)
-	executor, ok := gateway.(pluginCore.SubscriptionExecutor)
+	// Check if gateway implements CancellationExecutor (required for abort)
+	executor, ok := gateway.(pluginCore.CancellationExecutor)
 	if !ok {
-		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway does not support subscription execution")), http.StatusInternalServerError)
+		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway does not support cancellation execution")), http.StatusInternalServerError)
 	}
 
 	// Abort the scheduled cancellation
@@ -1133,9 +1133,9 @@ func (e *APIExtension) handleChangePlanOperation(c echo.Context) error {
 			return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("plan change is not supported by this gateway")), http.StatusBadRequest)
 		}
 
-		executor, ok := gateway.(pluginCore.SubscriptionExecutor)
+		executor, ok := gateway.(pluginCore.PlanChangeExecutor)
 		if !ok {
-			return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway does not support subscription execution")), http.StatusInternalServerError)
+			return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway does not support plan change execution")), http.StatusInternalServerError)
 		}
 
 		result, err := executor.ExecutePlanChange(c.Request().Context(), userID, request.PeriodID)
