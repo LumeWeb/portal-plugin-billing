@@ -15,7 +15,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/stripe/stripe-go/v83 v83.2.1
 	github.com/tkuchiki/faketime v0.1.1
-	go.lumeweb.com/atlos-sdk v0.1.0
+	go.lumeweb.com/atlos-sdk v0.1.1
 	go.lumeweb.com/httputil v0.5.4
 	go.lumeweb.com/portal v0.4.2-0.20260421172245-d26d96359381
 	go.lumeweb.com/portal-middleware v0.3.7

@@ -704,6 +704,8 @@ go.etcd.io/etcd/client/v3 v3.6.10 h1:J598zJ+C/ZPvImypmq5waj84+bovePrlZERHklf34y0
 go.etcd.io/etcd/client/v3 v3.6.10/go.mod h1:iHhUDUcEwaKs1YFq3MgmI9U4zhTVasp/vgdVbFf1RS8=
 go.lumeweb.com/atlos-sdk v0.1.0 h1:jtVw5S51TDl9FJThMJ/OJfoBn4n1S+Qwb3Jp+uYehzs=
 go.lumeweb.com/atlos-sdk v0.1.0/go.mod h1:TyifnBJB+PnYhWGldjppLZvRmUgW0NmLRpHtoNDZoHo=
+go.lumeweb.com/atlos-sdk v0.1.1 h1:CdEyuFrUMgUXWyuHr/BR0O74sQf2dLDPx6R6lH1ZqFk=
+go.lumeweb.com/atlos-sdk v0.1.1/go.mod h1:/rkj4ua0WI5eq2ya7VVTcKQZykgVn0gNS16wimD5gSM=
 go.lumeweb.com/configmanager v0.3.28 h1:KI2aZqPLkDfk+4IEr2wGuk1XkDaKC4Rj8x+nMG81M9U=
 go.lumeweb.com/configmanager v0.3.28/go.mod h1:RALN4cn+GAtr+wMJnovY5eKQf5G1+XZl+ZUtk1ie9Co=
 go.lumeweb.com/event/v2 v2.1.0 h1:pVWRzrHAkjhXa+owzhDTtaxBHbnxrsIpDHFZwEUxKoY=
