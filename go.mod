@@ -17,7 +17,7 @@ require (
 	github.com/tkuchiki/faketime v0.1.1
 	go.lumeweb.com/atlos-sdk v0.1.0
 	go.lumeweb.com/httputil v0.5.4
-	go.lumeweb.com/portal v0.4.2-0.20260420223621-03986b0ec77e
+	go.lumeweb.com/portal v0.4.2-0.20260421172245-d26d96359381
 	go.lumeweb.com/portal-middleware v0.3.7
 	go.lumeweb.com/portal-plugin-quota v0.0.0-20260407174945-e2b2217206a8
 	go.lumeweb.com/portal-router v0.6.13
@@ -79,7 +79,7 @@ require (
 	github.com/ghodss/yaml v1.0.0 // indirect
 	github.com/glebarez/go-sqlite v1.22.0 // indirect
 	github.com/glebarez/sqlite v1.11.0 // indirect
-	github.com/go-co-op/gocron/v2 v2.21.0 // indirect
+	github.com/go-co-op/gocron/v2 v2.21.1 // indirect
 	github.com/go-faster/city v1.0.1 // indirect
 	github.com/go-faster/errors v0.7.1 // indirect
 	github.com/go-gorm/caches/v4 v4.0.5 // indirect
