@@ -364,6 +364,14 @@ func (g *AtlosGateway) executeImmediateCancel(ctx context.Context, userID uint, 
 		Cadence: subscription.Cadence(period.Cadence),
 	}
 
+	// Clamp proration time to billing cycle boundaries
+	if now.After(cycle.EndAt) {
+		now = cycle.EndAt
+	}
+	if now.Before(cycle.StartAt) {
+		now = cycle.StartAt
+	}
+
 	proratedValue := subscription.UnusedPeriodValue(oldPrice, cycle, now)
 
 	if g.credit != nil && proratedValue.GreaterThan(decimal.Zero) {
@@ -535,6 +543,14 @@ func (g *AtlosGateway) ReconcileCancellation(ctx context.Context, userID uint) e
 		StartAt: *subscriber.WillCancelAt,
 		EndAt:   *subscriber.BillingPeriodEnd,
 		Cadence: subscription.Cadence(period.Cadence),
+	}
+
+	// Clamp proration time to cycle boundaries
+	if now.After(cycle.EndAt) {
+		now = cycle.EndAt
+	}
+	if now.Before(cycle.StartAt) {
+		now = cycle.StartAt
 	}
 
 	proratedValue := subscription.UnusedPeriodValue(oldPrice, cycle, now)
@@ -786,9 +802,33 @@ func (g *AtlosGateway) calculatePlanChangeProration(
 		Cadence: subscription.Cadence(oldPeriod.Cadence),
 	}
 
+	// Clamp proration timestamp to be within the billing cycle.
+	// This handles edge cases where MySQL TIMESTAMP precision loss (nanosecond→microsecond
+	// truncation) or timezone conversion (loc=Local in DSN) can cause time.Now().UTC()
+	// to appear after BillingPeriodEnd despite the cycle being freshly created.
+	prorationTime := time.Now().UTC()
+	if prorationTime.After(oldCycle.EndAt) {
+		g.coreCtx.Logger().Warn("proration time exceeds billing cycle end, clamping",
+			zap.Uint("user_id", userID),
+			zap.Time("proration_time", prorationTime),
+			zap.Time("cycle_end", oldCycle.EndAt),
+			zap.Duration("excess", prorationTime.Sub(oldCycle.EndAt)),
+		)
+		prorationTime = oldCycle.EndAt
+	}
+	if prorationTime.Before(oldCycle.StartAt) {
+		g.coreCtx.Logger().Warn("proration time precedes billing cycle start, clamping",
+			zap.Uint("user_id", userID),
+			zap.Time("proration_time", prorationTime),
+			zap.Time("cycle_start", oldCycle.StartAt),
+			zap.Duration("deficit", oldCycle.StartAt.Sub(prorationTime)),
+		)
+		prorationTime = oldCycle.StartAt
+	}
+
 	prorationResult, err := subscription.ProratedChange(
 		oldPrice, newPrice, oldCycle,
-		time.Now().UTC(),
+		prorationTime,
 		subscription.ProrationBehaviorCreateProrations,
 	)
 	if err != nil {
