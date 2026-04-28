@@ -161,6 +161,7 @@ func (e *APIExtension) Configure(gRouter router.Router, accessSvc core.AccessSer
 			),
 			router.WithAccess(core.ACCESS_USER_ROLE),
 			router.WithMiddlewares(authMw, accessMw),
+			router.WithCors(),
 		),
 		// Subscription management capabilities endpoint
 		router.NewRoute(http.MethodGet, "/api/account/billing/management/capabilities", e.handleGetManagementCapabilities,
@@ -398,7 +399,9 @@ func (e *APIExtension) Configure(gRouter router.Router, accessSvc core.AccessSer
 						router.DefineSwaggerErrorResponse(http.StatusInternalServerError, "Gateway registry not initialized"),
 					),
 				),
-			)),
+			),
+			router.WithCors(),
+		),
 		router.NewRoute(http.MethodGet, "/api/billing/gateways/:id/logo", e.handleGetGatewayLogo,
 			router.WithSwagger(
 				router.WithSummary("Get Gateway Logo"),
@@ -411,7 +414,9 @@ func (e *APIExtension) Configure(gRouter router.Router, accessSvc core.AccessSer
 						router.DefineSwaggerErrorResponse(http.StatusNotFound, "Gateway logo not found"),
 					),
 				),
-			)),
+			),
+			router.WithCors(),
+		),
 		router.NewRoute(http.MethodGet, "/api/billing/plans", e.handleListPricingPlans,
 			router.WithSwagger(
 				router.WithSummary("List Pricing Plans"),
@@ -426,6 +431,7 @@ func (e *APIExtension) Configure(gRouter router.Router, accessSvc core.AccessSer
 				),
 			),
 			router.WithMiddlewares(pricingAuthMw),
+			router.WithCors(),
 		),
 	)
 

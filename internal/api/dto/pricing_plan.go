@@ -95,16 +95,40 @@ func (r *PricingPlanResponse) SetPricingPeriods(periods []*models.PricingPlanPer
 	}
 }
 
+// PublicPricingPlanPeriodDTO represents a pricing plan period for public/user-facing API
+// This excludes internal fields like is_active, created_at, updated_at, and pricing_plan_id
+type PublicPricingPlanPeriodDTO struct {
+	ID          uint    `json:"id"`
+	Cadence     string  `json:"cadence"`
+	PriceUSD    float64 `json:"price_usd"`
+	QuotaPlanID uint    `json:"quota_plan_id"`
+	RollingDays *int    `json:"rolling_days,omitempty"`
+}
+
+// FromModel converts a PricingPlanPeriod model to PublicPricingPlanPeriodDTO
+func (r *PublicPricingPlanPeriodDTO) FromModel(period *models.PricingPlanPeriod) error {
+	*r = PublicPricingPlanPeriodDTO{}
+	if period == nil {
+		return nil
+	}
+
+	r.ID = period.ID
+	r.Cadence = period.Cadence
+	r.PriceUSD = period.PriceUSD
+	r.QuotaPlanID = period.QuotaPlanID
+	r.RollingDays = period.RollingDays
+
+	return nil
+}
+
 // PublicPricingPlanResponse represents a pricing plan response for public/user-facing API
 // This excludes internal fields like is_active and is_public
 type PublicPricingPlanResponse struct {
-	ID             uint                       `json:"id"`
-	Name           string                     `json:"name"`
-	Description    string                     `json:"description"`
-	Currency       string                     `json:"currency"`
-	PricingPeriods []PricingPlanPeriodDTO     `json:"pricing_periods"`
-	CreatedAt      time.Time                  `json:"created_at"`
-	UpdatedAt      time.Time                  `json:"updated_at"`
+	ID             uint                        `json:"id"`
+	Name           string                      `json:"name"`
+	Description    string                      `json:"description"`
+	Currency       string                      `json:"currency"`
+	PricingPeriods []PublicPricingPlanPeriodDTO `json:"pricing_periods"`
 }
 
 // FromModel converts a PricingPlan model to PublicPricingPlanResponse
@@ -118,26 +142,20 @@ func (r *PublicPricingPlanResponse) FromModel(plan *models.PricingPlan) error {
 	r.Name = plan.Name
 	r.Description = plan.Description
 	r.Currency = plan.Currency
-	r.CreatedAt = plan.CreatedAt
-	r.UpdatedAt = plan.UpdatedAt
 
 	return nil
 }
 
 // SetPricingPeriods sets the pricing periods on the response
 func (r *PublicPricingPlanResponse) SetPricingPeriods(periods []*models.PricingPlanPeriod) {
-	r.PricingPeriods = make([]PricingPlanPeriodDTO, len(periods))
+	r.PricingPeriods = make([]PublicPricingPlanPeriodDTO, len(periods))
 	for i, period := range periods {
-		r.PricingPeriods[i] = PricingPlanPeriodDTO{
-			ID:            period.ID,
-			PricingPlanID: period.PricingPlanID,
-			Cadence:       period.Cadence,
-			PriceUSD:      period.PriceUSD,
-			QuotaPlanID:   period.QuotaPlanID,
-			RollingDays:   period.RollingDays,
-			IsActive:      period.DeletedAt.Time.IsZero(),
-			CreatedAt:     period.CreatedAt,
-			UpdatedAt:     period.UpdatedAt,
+		r.PricingPeriods[i] = PublicPricingPlanPeriodDTO{
+			ID:          period.ID,
+			Cadence:     period.Cadence,
+			PriceUSD:    period.PriceUSD,
+			QuotaPlanID: period.QuotaPlanID,
+			RollingDays: period.RollingDays,
 		}
 	}
 }
