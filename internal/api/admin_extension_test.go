@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -29,6 +30,7 @@ import (
 // adminTestSetup holds common test dependencies
 type adminTestSetup struct {
 	pricingSvc *pluginCore.MockPricingService
+	userSvc    *coreTesting.MockUserService
 	router     http.Handler
 }
 
@@ -36,8 +38,34 @@ type adminTestSetup struct {
 func setupAdminTest(ctx coreTesting.TestContext) *adminTestSetup {
 	return &adminTestSetup{
 		pricingSvc: core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE),
+		userSvc:    core.GetService[*coreTesting.MockUserService](ctx, core.USER_SERVICE),
 		router:     ctx.Router(),
 	}
+}
+
+// createAuthenticatedRequest creates an authenticated HTTP request with a valid JWT token
+// It also sets up the AccountExists mock expectation which is required by auth middleware
+func (ts *adminTestSetup) createAuthenticatedRequest(ctx coreTesting.TestContext, method, url string, body []byte, userID string) (*http.Request, error) {
+	// Create a test user ID (default to 1 if not specified)
+	userIDUint := uint(1)
+	if userID != "" {
+		if id, err := strconv.ParseUint(userID, 10, 32); err == nil {
+			userIDUint = uint(id)
+		}
+	}
+
+	// Setup mock expectation for AccountExists validation (required by auth middleware)
+	ts.userSvc.EXPECT().AccountExists(mock.Anything, userIDUint).Return(true, nil, nil).Once()
+
+	// Generate a JWT token directly without setting up LoginPassword expectations
+	// The CreateTestLoginToken function creates a valid JWT token for testing
+	userIDStr := strconv.Itoa(int(userIDUint))
+	token := coreTesting.CreateTestLoginToken(ctx.T(), ctx, userIDStr)
+
+	req := ctx.NewAPIRequest(method, url, body)
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	return req, nil
 }
 
 // createMockPricingPlan creates a mock pricing plan with the given parameters
@@ -69,8 +97,9 @@ func TestAdminHandleSyncPricingPlan_Success(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		ts := setupAdminTest(ctx)
 
-		// Create request
-		req := ctx.NewAPIRequest("POST", "/api/billing/plans/123/sync", nil)
+		// Create authenticated request
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/billing/plans/123/sync", nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -81,7 +110,7 @@ func TestAdminHandleSyncPricingPlan_Success(t *testing.T) {
 
 		// Parse response
 		var response map[string]interface{}
-		err := json.Unmarshal(w.Body.Bytes(), &response)
+		err = json.Unmarshal(w.Body.Bytes(), &response)
 		assert.NoError(tb, err)
 
 		assert.Equal(tb, "queued", response["status"])
@@ -94,8 +123,9 @@ func TestAdminHandleSyncPricingPlan_InvalidID(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		ts := setupAdminTest(ctx)
 
-		// Create request with invalid ID
-		req := ctx.NewAPIRequest("POST", "/api/billing/plans/invalid/sync", nil)
+		// Create authenticated request with invalid ID
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/billing/plans/invalid/sync", nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -147,7 +177,8 @@ func TestAdminHandleCreatePricingPlan_Success(t *testing.T) {
 		}).Once()
 
 		// Create request
-		req := ctx.NewAPIRequest("POST", "/api/billing/pricing-plans", bodyBytes)
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/billing/pricing-plans", bodyBytes, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -158,7 +189,7 @@ func TestAdminHandleCreatePricingPlan_Success(t *testing.T) {
 
 		// Parse response
 		var response dto.PricingPlanResponse
-		err := json.Unmarshal(w.Body.Bytes(), &response)
+		err = json.Unmarshal(w.Body.Bytes(), &response)
 		assert.NoError(tb, err)
 
 		assert.Equal(tb, "Test Plan", response.Name)
@@ -181,7 +212,8 @@ func TestAdminHandleCreatePricingPlan_ValidationError(t *testing.T) {
 		bodyBytes, _ := json.Marshal(requestBody)
 
 		// Create request
-		req := ctx.NewAPIRequest("POST", "/api/billing/pricing-plans", bodyBytes)
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/billing/pricing-plans", bodyBytes, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -224,7 +256,8 @@ func TestAdminHandleUpdatePricingPlan_Success(t *testing.T) {
 		ts.pricingSvc.EXPECT().UpdatePricingPlan(mock.Anything, uint(1), mock.AnythingOfType("*models.PricingPlan")).Return(nil).Once()
 
 		// Create request
-		req := ctx.NewAPIRequest("PUT", "/api/billing/pricing-plans/1", bodyBytes)
+		req, err := ts.createAuthenticatedRequest(ctx, "PUT", "/api/billing/pricing-plans/1", bodyBytes, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -235,7 +268,7 @@ func TestAdminHandleUpdatePricingPlan_Success(t *testing.T) {
 
 		// Parse response
 		var response dto.PricingPlanResponse
-		err := json.Unmarshal(w.Body.Bytes(), &response)
+		err = json.Unmarshal(w.Body.Bytes(), &response)
 		assert.NoError(tb, err)
 
 		assert.Equal(tb, "Updated Plan", response.Name)
@@ -258,7 +291,8 @@ func TestAdminHandleUpdatePricingPlan_InvalidID(t *testing.T) {
 		bodyBytes, _ := json.Marshal(requestBody)
 
 		// Create request with invalid ID
-		req := ctx.NewAPIRequest("PUT", "/api/billing/pricing-plans/invalid", bodyBytes)
+		req, err := ts.createAuthenticatedRequest(ctx, "PUT", "/api/billing/pricing-plans/invalid", bodyBytes, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -286,7 +320,8 @@ func TestAdminHandleUpdatePricingPlan_ValidationError(t *testing.T) {
 		ts.pricingSvc.EXPECT().UpdatePricingPlan(mock.Anything, uint(1), mock.AnythingOfType("*models.PricingPlan")).Return(nil).Once()
 
 		// Create request
-		req := ctx.NewAPIRequest("PUT", "/api/billing/pricing-plans/1", bodyBytes)
+		req, err := ts.createAuthenticatedRequest(ctx, "PUT", "/api/billing/pricing-plans/1", bodyBytes, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -307,7 +342,8 @@ func TestAdminHandleDeletePricingPlan_Success(t *testing.T) {
 		ts.pricingSvc.EXPECT().DeletePricingPlan(mock.Anything, uint(1)).Return(nil).Once()
 
 		// Create request
-		req := ctx.NewAPIRequest("DELETE", "/api/billing/pricing-plans/1", nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "DELETE", "/api/billing/pricing-plans/1", nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -323,7 +359,8 @@ func TestAdminHandleDeletePricingPlan_InvalidID(t *testing.T) {
 		ts := setupAdminTest(ctx)
 
 		// Create request with invalid ID
-		req := ctx.NewAPIRequest("DELETE", "/api/billing/pricing-plans/invalid", nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "DELETE", "/api/billing/pricing-plans/invalid", nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -381,7 +418,8 @@ func TestAdminHandleCreatePricingPlan_WithMultipleCadences(t *testing.T) {
 		}).Once()
 
 		// Create request
-		req := ctx.NewAPIRequest("POST", "/api/billing/pricing-plans", bodyBytes)
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/billing/pricing-plans", bodyBytes, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -392,7 +430,7 @@ func TestAdminHandleCreatePricingPlan_WithMultipleCadences(t *testing.T) {
 
 		// Parse response
 		var response dto.PricingPlanResponse
-		err := json.Unmarshal(w.Body.Bytes(), &response)
+		err = json.Unmarshal(w.Body.Bytes(), &response)
 		assert.NoError(tb, err)
 
 		assert.Equal(tb, "Full Flex Plan", response.Name)
@@ -429,7 +467,8 @@ func TestAdminHandleCreatePricingPlan_WithWeeklyCadence(t *testing.T) {
 		}).Once()
 
 		// Create request
-		req := ctx.NewAPIRequest("POST", "/api/billing/pricing-plans", bodyBytes)
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/billing/pricing-plans", bodyBytes, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -439,7 +478,7 @@ func TestAdminHandleCreatePricingPlan_WithWeeklyCadence(t *testing.T) {
 		assert.Equal(tb, http.StatusCreated, w.Code)
 
 		var response dto.PricingPlanResponse
-		err := json.Unmarshal(w.Body.Bytes(), &response)
+		err = json.Unmarshal(w.Body.Bytes(), &response)
 		assert.NoError(tb, err)
 
 		assert.Equal(tb, "Weekly Plan", response.Name)
@@ -477,7 +516,8 @@ func TestAdminHandleCreatePricingPlan_WithRollingDays(t *testing.T) {
 		}).Once()
 
 		// Create request
-		req := ctx.NewAPIRequest("POST", "/api/billing/pricing-plans", bodyBytes)
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/billing/pricing-plans", bodyBytes, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -487,7 +527,7 @@ func TestAdminHandleCreatePricingPlan_WithRollingDays(t *testing.T) {
 		assert.Equal(tb, http.StatusCreated, w.Code)
 
 		var response dto.PricingPlanResponse
-		err := json.Unmarshal(w.Body.Bytes(), &response)
+		err = json.Unmarshal(w.Body.Bytes(), &response)
 		assert.NoError(tb, err)
 
 		assert.Equal(tb, "Rolling Plan", response.Name)
@@ -512,7 +552,8 @@ func TestAdminHandleListPricingPlans_FilterByPeriod(t *testing.T) {
 			Return(plans, int64(1), nil).Once()
 
 		// Create request with filter (this would need to be implemented in the handler)
-		req := ctx.NewAPIRequest("GET", "/api/billing/pricing-plans", nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "GET", "/api/billing/pricing-plans", nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -522,7 +563,7 @@ func TestAdminHandleListPricingPlans_FilterByPeriod(t *testing.T) {
 		assert.Equal(tb, http.StatusOK, w.Code)
 
 		var response queryutil.Response[[]dto.PricingPlanResponse]
-		err := json.Unmarshal(w.Body.Bytes(), &response)
+		err = json.Unmarshal(w.Body.Bytes(), &response)
 		assert.NoError(tb, err)
 		assert.Len(tb, response.Data, 1)
 	}, getAdminAPITestOptions())
@@ -552,7 +593,8 @@ func TestAdminHandleCreatePricingPlan_NoPeriods(t *testing.T) {
 		}).Once()
 
 		// Create request
-		req := ctx.NewAPIRequest("POST", "/api/billing/pricing-plans", bodyBytes)
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/billing/pricing-plans", bodyBytes, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -593,7 +635,8 @@ func TestAdminHandleCreatePricingPlan_InvalidCadence(t *testing.T) {
 		}).Once()
 
 		// Create request
-		req := ctx.NewAPIRequest("POST", "/api/billing/pricing-plans", bodyBytes)
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/billing/pricing-plans", bodyBytes, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -641,7 +684,8 @@ func TestAdminHandleCreatePricingPlan_DuplicateCadence(t *testing.T) {
 		}).Once()
 
 		// Create request
-		req := ctx.NewAPIRequest("POST", "/api/billing/pricing-plans", bodyBytes)
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/billing/pricing-plans", bodyBytes, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -691,7 +735,8 @@ func TestAdminHandleCreatePricingPlan_WithPriceLineID(t *testing.T) {
 		ts.pricingSvc.EXPECT().AddPlanToPriceLine(mock.Anything, uint(1), uint(1), 0).Return(nil).Once()
 
 		// Create request
-		req := ctx.NewAPIRequest("POST", "/api/billing/pricing-plans", bodyBytes)
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/billing/pricing-plans", bodyBytes, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -743,7 +788,8 @@ func TestAdminHandleCreatePricingPlan_WithPriceLineID_AutoPosition(t *testing.T)
 		ts.pricingSvc.EXPECT().AddPlanToPriceLine(mock.Anything, uint(1), uint(1), 2).Return(nil).Once()
 
 		// Create request
-		req := ctx.NewAPIRequest("POST", "/api/billing/pricing-plans", bodyBytes)
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/billing/pricing-plans", bodyBytes, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -771,7 +817,8 @@ func TestAdminHandleListPricingPlans_Success(t *testing.T) {
 			Return(plans, int64(2), nil).Once()
 
 		// Create request
-		req := ctx.NewAPIRequest("GET", "/api/billing/pricing-plans", nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "GET", "/api/billing/pricing-plans", nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -782,7 +829,7 @@ func TestAdminHandleListPricingPlans_Success(t *testing.T) {
 
 		// Parse response
 		var response queryutil.Response[[]dto.PricingPlanResponse]
-		err := json.Unmarshal(w.Body.Bytes(), &response)
+		err = json.Unmarshal(w.Body.Bytes(), &response)
 		assert.NoError(tb, err)
 		assert.Len(tb, response.Data, 2)
 	}, getAdminAPITestOptions())
@@ -802,7 +849,8 @@ func TestAdminHandleListPricingPlans_WithFilters(t *testing.T) {
 			Return(plans, int64(1), nil).Once()
 
 		// Create request with filters
-		req := ctx.NewAPIRequest("GET", "/api/billing/pricing-plans?filter[name]=Active", nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "GET", "/api/billing/pricing-plans?filter[name]=Active", nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -813,7 +861,7 @@ func TestAdminHandleListPricingPlans_WithFilters(t *testing.T) {
 
 		// Parse response
 		var response queryutil.Response[[]dto.PricingPlanResponse]
-		err := json.Unmarshal(w.Body.Bytes(), &response)
+		err = json.Unmarshal(w.Body.Bytes(), &response)
 		assert.NoError(tb, err)
 		assert.Len(tb, response.Data, 1)
 	}, getAdminAPITestOptions())
@@ -842,7 +890,8 @@ func TestAdminHandleCreatePriceLine_Success(t *testing.T) {
 		}).Once()
 
 		// Create request
-		req := ctx.NewAPIRequest("POST", "/api/billing/price-lines", bodyBytes)
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/billing/price-lines", bodyBytes, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -853,7 +902,7 @@ func TestAdminHandleCreatePriceLine_Success(t *testing.T) {
 
 		// Parse response
 		var response dto.PriceLineResponse
-		err := json.Unmarshal(w.Body.Bytes(), &response)
+		err = json.Unmarshal(w.Body.Bytes(), &response)
 		assert.NoError(tb, err)
 
 		assert.Equal(tb, "Test Price Line", response.Name)
@@ -873,7 +922,8 @@ func TestAdminHandleCreatePriceLine_ValidationError(t *testing.T) {
 		bodyBytes, _ := json.Marshal(requestBody)
 
 		// Create request
-		req := ctx.NewAPIRequest("POST", "/api/billing/price-lines", bodyBytes)
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/billing/price-lines", bodyBytes, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -904,7 +954,8 @@ func TestAdminHandleUpdatePriceLine_Success(t *testing.T) {
 		ts.pricingSvc.EXPECT().UpdatePriceLine(mock.Anything, uint(1), mock.AnythingOfType("*models.PriceLine")).Return(nil).Once()
 
 		// Create request
-		req := ctx.NewAPIRequest("PUT", "/api/billing/price-lines/1", bodyBytes)
+		req, err := ts.createAuthenticatedRequest(ctx, "PUT", "/api/billing/price-lines/1", bodyBytes, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -915,7 +966,7 @@ func TestAdminHandleUpdatePriceLine_Success(t *testing.T) {
 
 		// Parse response
 		var response dto.PriceLineResponse
-		err := json.Unmarshal(w.Body.Bytes(), &response)
+		err = json.Unmarshal(w.Body.Bytes(), &response)
 		assert.NoError(tb, err)
 
 		assert.Equal(tb, "Updated Price Line", response.Name)
@@ -936,7 +987,8 @@ func TestAdminHandleUpdatePriceLine_InvalidID(t *testing.T) {
 		bodyBytes, _ := json.Marshal(requestBody)
 
 		// Create request with invalid ID
-		req := ctx.NewAPIRequest("PUT", "/api/billing/price-lines/invalid", bodyBytes)
+		req, err := ts.createAuthenticatedRequest(ctx, "PUT", "/api/billing/price-lines/invalid", bodyBytes, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -962,7 +1014,8 @@ func TestAdminHandleUpdatePriceLine_ValidationError(t *testing.T) {
 		ts.pricingSvc.EXPECT().UpdatePriceLine(mock.Anything, uint(1), mock.AnythingOfType("*models.PriceLine")).Return(nil).Once()
 
 		// Create request
-		req := ctx.NewAPIRequest("PUT", "/api/billing/price-lines/1", bodyBytes)
+		req, err := ts.createAuthenticatedRequest(ctx, "PUT", "/api/billing/price-lines/1", bodyBytes, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -983,7 +1036,8 @@ func TestAdminHandleDeletePriceLine_Success(t *testing.T) {
 		ts.pricingSvc.EXPECT().DeletePriceLine(mock.Anything, uint(1)).Return(nil).Once()
 
 		// Create request
-		req := ctx.NewAPIRequest("DELETE", "/api/billing/price-lines/1", nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "DELETE", "/api/billing/price-lines/1", nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -999,7 +1053,8 @@ func TestAdminHandleDeletePriceLine_InvalidID(t *testing.T) {
 		ts := setupAdminTest(ctx)
 
 		// Create request with invalid ID
-		req := ctx.NewAPIRequest("DELETE", "/api/billing/price-lines/invalid", nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "DELETE", "/api/billing/price-lines/invalid", nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -1027,7 +1082,8 @@ func TestAdminHandleListPriceLines_Success(t *testing.T) {
 			Return(lines, int64(2), nil).Once()
 
 		// Create request
-		req := ctx.NewAPIRequest("GET", "/api/billing/price-lines", nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "GET", "/api/billing/price-lines", nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -1038,7 +1094,7 @@ func TestAdminHandleListPriceLines_Success(t *testing.T) {
 
 		// Parse response
 		var response queryutil.Response[[]dto.PriceLineResponse]
-		err := json.Unmarshal(w.Body.Bytes(), &response)
+		err = json.Unmarshal(w.Body.Bytes(), &response)
 		assert.NoError(tb, err)
 		assert.Len(tb, response.Data, 2)
 	}, getAdminAPITestOptions())
@@ -1058,7 +1114,8 @@ func TestAdminHandleListPriceLines_WithFilters(t *testing.T) {
 			Return(lines, int64(1), nil).Once()
 
 		// Create request with filters
-		req := ctx.NewAPIRequest("GET", "/api/billing/price-lines?filter[name]=Default", nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "GET", "/api/billing/price-lines?filter[name]=Default", nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -1069,7 +1126,7 @@ func TestAdminHandleListPriceLines_WithFilters(t *testing.T) {
 
 		// Parse response
 		var response queryutil.Response[[]dto.PriceLineResponse]
-		err := json.Unmarshal(w.Body.Bytes(), &response)
+		err = json.Unmarshal(w.Body.Bytes(), &response)
 		assert.NoError(tb, err)
 		assert.Len(tb, response.Data, 1)
 	}, getAdminAPITestOptions())
@@ -1087,7 +1144,8 @@ func TestAdminHandleListPriceLines_EmptyResults(t *testing.T) {
 			Return(lines, int64(0), nil).Once()
 
 		// Create request
-		req := ctx.NewAPIRequest("GET", "/api/billing/price-lines", nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "GET", "/api/billing/price-lines", nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -1098,7 +1156,7 @@ func TestAdminHandleListPriceLines_EmptyResults(t *testing.T) {
 
 		// Parse response
 		var response queryutil.Response[[]dto.PriceLineResponse]
-		err := json.Unmarshal(w.Body.Bytes(), &response)
+		err = json.Unmarshal(w.Body.Bytes(), &response)
 		assert.NoError(tb, err)
 		assert.Len(tb, response.Data, 0)
 	}, getAdminAPITestOptions())
@@ -1122,7 +1180,8 @@ func TestAdminHandleGetPriceLine_Success(t *testing.T) {
 			Return([]*internalModels.PriceLinePlan{}, nil).Once()
 
 		// Create request
-		req := ctx.NewAPIRequest("GET", "/api/billing/price-lines/1", nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "GET", "/api/billing/price-lines/1", nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -1133,7 +1192,7 @@ func TestAdminHandleGetPriceLine_Success(t *testing.T) {
 
 		// Parse response
 		var response dto.PriceLineDetailResponse
-		err := json.Unmarshal(w.Body.Bytes(), &response)
+		err = json.Unmarshal(w.Body.Bytes(), &response)
 		assert.NoError(tb, err)
 		assert.Equal(tb, "Test Price Line", response.Name)
 		assert.Equal(tb, "Test description", response.Description)
@@ -1151,7 +1210,8 @@ func TestAdminHandleGetPriceLine_NotFound(t *testing.T) {
 			Return(nil, fmt.Errorf("price line not found")).Once()
 
 		// Create request
-		req := ctx.NewAPIRequest("GET", "/api/billing/price-lines/999", nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "GET", "/api/billing/price-lines/999", nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -1167,7 +1227,8 @@ func TestAdminHandleGetPriceLine_InvalidID(t *testing.T) {
 		ts := setupAdminTest(ctx)
 
 		// Create request with invalid ID
-		req := ctx.NewAPIRequest("GET", "/api/billing/price-lines/invalid", nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "GET", "/api/billing/price-lines/invalid", nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -1194,7 +1255,8 @@ func TestAdminHandleGetPriceLine_GetPriceLinePlansFailed(t *testing.T) {
 			Return(nil, errors.New("database connection failed")).Once()
 
 		// Create request
-		req := ctx.NewAPIRequest("GET", "/api/billing/price-lines/1", nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "GET", "/api/billing/price-lines/1", nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -1227,7 +1289,8 @@ func TestAdminHandleAddPlanToPriceLine_Success(t *testing.T) {
 			"position": 0,
 		}
 		bodyBytes, _ := json.Marshal(requestBody)
-		req := ctx.NewAPIRequest("POST", "/api/billing/price-lines/1/plan", bodyBytes)
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/billing/price-lines/1/plan", bodyBytes, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -1251,7 +1314,8 @@ func TestAdminHandleAddPlanToPriceLine_PriceLineNotFound(t *testing.T) {
 			"position": 0,
 		}
 		bodyBytes, _ := json.Marshal(requestBody)
-		req := ctx.NewAPIRequest("POST", "/api/billing/price-lines/999/plan", bodyBytes)
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/billing/price-lines/999/plan", bodyBytes, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -1277,7 +1341,8 @@ func TestAdminHandleAddPlanToPriceLine_PlanNotFound(t *testing.T) {
 			"position": 0,
 		}
 		bodyBytes, _ := json.Marshal(requestBody)
-		req := ctx.NewAPIRequest("POST", "/api/billing/price-lines/1/plan", bodyBytes)
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/billing/price-lines/1/plan", bodyBytes, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -1298,7 +1363,8 @@ func TestAdminHandleAddPlanToPriceLine_InvalidID(t *testing.T) {
 			"position": 0,
 		}
 		bodyBytes, _ := json.Marshal(requestBody)
-		req := ctx.NewAPIRequest("POST", "/api/billing/price-lines/invalid/plan", bodyBytes)
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/billing/price-lines/invalid/plan", bodyBytes, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -1329,7 +1395,8 @@ func TestAdminHandleAddPlanToPriceLine_GetPriceLinePlansFailed(t *testing.T) {
 			"position": 0,
 		}
 		bodyBytes, _ := json.Marshal(requestBody)
-		req := ctx.NewAPIRequest("POST", "/api/billing/price-lines/1/plan", bodyBytes)
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/billing/price-lines/1/plan", bodyBytes, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -1359,7 +1426,8 @@ func TestAdminHandleUpdatePlanPosition_Success(t *testing.T) {
 			"position": 2,
 		}
 		bodyBytes, _ := json.Marshal(requestBody)
-		req := ctx.NewAPIRequest("PUT", "/api/billing/price-lines/1/plans/1", bodyBytes)
+		req, err := ts.createAuthenticatedRequest(ctx, "PUT", "/api/billing/price-lines/1/plans/1", bodyBytes, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -1382,7 +1450,8 @@ func TestAdminHandleUpdatePlanPosition_PriceLineNotFound(t *testing.T) {
 			"position": 2,
 		}
 		bodyBytes, _ := json.Marshal(requestBody)
-		req := ctx.NewAPIRequest("PUT", "/api/billing/price-lines/999/plans/1", bodyBytes)
+		req, err := ts.createAuthenticatedRequest(ctx, "PUT", "/api/billing/price-lines/999/plans/1", bodyBytes, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -1402,7 +1471,8 @@ func TestAdminHandleUpdatePlanPosition_InvalidPriceLineID(t *testing.T) {
 			"position": 2,
 		}
 		bodyBytes, _ := json.Marshal(requestBody)
-		req := ctx.NewAPIRequest("PUT", "/api/billing/price-lines/invalid/plans/1", bodyBytes)
+		req, err := ts.createAuthenticatedRequest(ctx, "PUT", "/api/billing/price-lines/invalid/plans/1", bodyBytes, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -1422,7 +1492,8 @@ func TestAdminHandleUpdatePlanPosition_InvalidPlanID(t *testing.T) {
 			"position": 2,
 		}
 		bodyBytes, _ := json.Marshal(requestBody)
-		req := ctx.NewAPIRequest("PUT", "/api/billing/price-lines/1/plans/invalid", bodyBytes)
+		req, err := ts.createAuthenticatedRequest(ctx, "PUT", "/api/billing/price-lines/1/plans/invalid", bodyBytes, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -1450,7 +1521,8 @@ func TestAdminHandleUpdatePlanPosition_GetPriceLinePlansFailed(t *testing.T) {
 			"position": 2,
 		}
 		bodyBytes, _ := json.Marshal(requestBody)
-		req := ctx.NewAPIRequest("PUT", "/api/billing/price-lines/1/plans/1", bodyBytes)
+		req, err := ts.createAuthenticatedRequest(ctx, "PUT", "/api/billing/price-lines/1/plans/1", bodyBytes, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -1471,7 +1543,8 @@ func TestAdminHandleRemovePlanFromPriceLine_Success(t *testing.T) {
 		ts.pricingSvc.EXPECT().RemovePlanFromPriceLine(mock.Anything, uint(1), uint(1)).Return(nil).Once()
 
 		// Create request
-		req := ctx.NewAPIRequest("DELETE", "/api/billing/price-lines/1/plans/1", nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "DELETE", "/api/billing/price-lines/1/plans/1", nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -1487,7 +1560,8 @@ func TestAdminHandleRemovePlanFromPriceLine_InvalidPriceLineID(t *testing.T) {
 		ts := setupAdminTest(ctx)
 
 		// Create request with invalid price line ID
-		req := ctx.NewAPIRequest("DELETE", "/api/billing/price-lines/invalid/plans/1", nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "DELETE", "/api/billing/price-lines/invalid/plans/1", nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -1503,7 +1577,8 @@ func TestAdminHandleRemovePlanFromPriceLine_InvalidPlanID(t *testing.T) {
 		ts := setupAdminTest(ctx)
 
 		// Create request with invalid plan ID
-		req := ctx.NewAPIRequest("DELETE", "/api/billing/price-lines/1/plans/invalid", nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "DELETE", "/api/billing/price-lines/1/plans/invalid", nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -1537,6 +1612,7 @@ func createMockCredit(id uuid.UUID, userID uint64, amount decimal.Decimal, trans
 // TestAdminHandleCreateCredit_Success tests creating a credit with valid data
 func TestAdminHandleCreateCredit_Success(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
 		creditSvc := core.GetService[*pluginCore.MockCreditService](ctx, pluginCore.CREDIT_SERVICE)
 		router := ctx.Router()
 
@@ -1566,7 +1642,8 @@ func TestAdminHandleCreateCredit_Success(t *testing.T) {
 		}).Once()
 
 		// Create request
-		req := ctx.NewAPIRequest("POST", "/api/billing/credits", bodyBytes)
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/billing/credits", bodyBytes, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -1577,7 +1654,7 @@ func TestAdminHandleCreateCredit_Success(t *testing.T) {
 
 		// Parse response
 		var response dto.CreditResponse
-		err := json.Unmarshal(w.Body.Bytes(), &response)
+		err = json.Unmarshal(w.Body.Bytes(), &response)
 		assert.NoError(tb, err)
 
 		assert.Equal(tb, userID, response.UserID)
@@ -1590,6 +1667,7 @@ func TestAdminHandleCreateCredit_Success(t *testing.T) {
 // TestAdminHandleCreateCredit_InvalidUserID tests creating a credit with invalid user_id
 func TestAdminHandleCreateCredit_InvalidUserID(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
 		router := ctx.Router()
 
 		// Create request body with invalid user_id
@@ -1603,7 +1681,8 @@ func TestAdminHandleCreateCredit_InvalidUserID(t *testing.T) {
 		bodyBytes, _ := json.Marshal(requestBody)
 
 		// Create request
-		req := ctx.NewAPIRequest("POST", "/api/billing/credits", bodyBytes)
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/billing/credits", bodyBytes, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -1617,6 +1696,7 @@ func TestAdminHandleCreateCredit_InvalidUserID(t *testing.T) {
 // TestAdminHandleCreateCredit_InvalidCreditType tests creating a credit with invalid type
 func TestAdminHandleCreateCredit_InvalidCreditType(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
 		router := ctx.Router()
 
 		// Create request body with empty transaction_type
@@ -1630,7 +1710,8 @@ func TestAdminHandleCreateCredit_InvalidCreditType(t *testing.T) {
 		bodyBytes, _ := json.Marshal(requestBody)
 
 		// Create request
-		req := ctx.NewAPIRequest("POST", "/api/billing/credits", bodyBytes)
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/billing/credits", bodyBytes, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -1644,6 +1725,7 @@ func TestAdminHandleCreateCredit_InvalidCreditType(t *testing.T) {
 // TestAdminHandleCreateCredit_InvalidDirection tests creating a credit with invalid direction
 func TestAdminHandleCreateCredit_InvalidDirection(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
 		router := ctx.Router()
 
 		// Create request body with invalid direction
@@ -1657,7 +1739,8 @@ func TestAdminHandleCreateCredit_InvalidDirection(t *testing.T) {
 		bodyBytes, _ := json.Marshal(requestBody)
 
 		// Create request
-		req := ctx.NewAPIRequest("POST", "/api/billing/credits", bodyBytes)
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/billing/credits", bodyBytes, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -1671,6 +1754,7 @@ func TestAdminHandleCreateCredit_InvalidDirection(t *testing.T) {
 // TestAdminHandleCreateCredit_InvalidAmount tests creating a credit with invalid amount
 func TestAdminHandleCreateCredit_InvalidAmount(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
 		router := ctx.Router()
 
 		// Create request body with empty amount
@@ -1684,7 +1768,8 @@ func TestAdminHandleCreateCredit_InvalidAmount(t *testing.T) {
 		bodyBytes, _ := json.Marshal(requestBody)
 
 		// Create request
-		req := ctx.NewAPIRequest("POST", "/api/billing/credits", bodyBytes)
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/billing/credits", bodyBytes, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -1698,6 +1783,7 @@ func TestAdminHandleCreateCredit_InvalidAmount(t *testing.T) {
 // TestAdminHandleGetCredit_Success tests retrieving an existing credit
 func TestAdminHandleGetCredit_Success(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
 		creditSvc := core.GetService[*pluginCore.MockCreditService](ctx, pluginCore.CREDIT_SERVICE)
 		router := ctx.Router()
 
@@ -1710,7 +1796,8 @@ func TestAdminHandleGetCredit_Success(t *testing.T) {
 		creditSvc.EXPECT().GetCredit(mock.Anything, creditID).Return(credit, nil).Once()
 
 		// Create request
-		req := ctx.NewAPIRequest("GET", "/api/billing/credits/"+creditID.String(), nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "GET", "/api/billing/credits/"+creditID.String(), nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -1721,7 +1808,7 @@ func TestAdminHandleGetCredit_Success(t *testing.T) {
 
 		// Parse response
 		var response dto.CreditResponse
-		err := json.Unmarshal(w.Body.Bytes(), &response)
+		err = json.Unmarshal(w.Body.Bytes(), &response)
 		assert.NoError(tb, err)
 
 		assert.Equal(tb, creditID, response.ID)
@@ -1733,6 +1820,7 @@ func TestAdminHandleGetCredit_Success(t *testing.T) {
 // TestAdminHandleGetCredit_NotFound tests retrieving a non-existent credit
 func TestAdminHandleGetCredit_NotFound(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
 		creditSvc := core.GetService[*pluginCore.MockCreditService](ctx, pluginCore.CREDIT_SERVICE)
 		router := ctx.Router()
 
@@ -1742,7 +1830,8 @@ func TestAdminHandleGetCredit_NotFound(t *testing.T) {
 		creditSvc.EXPECT().GetCredit(mock.Anything, creditID).Return(nil, nil).Once()
 
 		// Create request
-		req := ctx.NewAPIRequest("GET", "/api/billing/credits/"+creditID.String(), nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "GET", "/api/billing/credits/"+creditID.String(), nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -1756,6 +1845,7 @@ func TestAdminHandleGetCredit_NotFound(t *testing.T) {
 // TestAdminHandleListCredits_Success tests listing credits with pagination
 func TestAdminHandleListCredits_Success(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
 		creditSvc := core.GetService[*pluginCore.MockCreditService](ctx, pluginCore.CREDIT_SERVICE)
 		router := ctx.Router()
 
@@ -1764,7 +1854,8 @@ func TestAdminHandleListCredits_Success(t *testing.T) {
 			Return([]ledger.Credit{}, int64(0), nil).Times(1)
 
 		// Create request
-		req := ctx.NewAPIRequest("GET", "/api/billing/credits", nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "GET", "/api/billing/credits", nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -1775,7 +1866,7 @@ func TestAdminHandleListCredits_Success(t *testing.T) {
 
 		// Parse response
 		var response queryutil.Response[*[]dto.CreditResponse]
-		err := json.Unmarshal(w.Body.Bytes(), &response)
+		err = json.Unmarshal(w.Body.Bytes(), &response)
 		assert.NoError(tb, err)
 	}, getAdminAPITestOptions())
 }
@@ -1783,6 +1874,7 @@ func TestAdminHandleListCredits_Success(t *testing.T) {
 // TestAdminHandleListCredits_WithFilters tests listing credits with filters
 func TestAdminHandleListCredits_WithFilters(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
 		creditSvc := core.GetService[*pluginCore.MockCreditService](ctx, pluginCore.CREDIT_SERVICE)
 		router := ctx.Router()
 
@@ -1791,7 +1883,8 @@ func TestAdminHandleListCredits_WithFilters(t *testing.T) {
 			Return([]ledger.Credit{}, int64(0), nil).Times(1)
 
 		// Create request with filters
-		req := ctx.NewAPIRequest("GET", "/api/billing/credits?filter[user_id]=12345", nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "GET", "/api/billing/credits?filter[user_id]=12345", nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -1805,6 +1898,7 @@ func TestAdminHandleListCredits_WithFilters(t *testing.T) {
 // TestAdminHandleDeleteCredit_Success tests soft deleting a credit
 func TestAdminHandleDeleteCredit_Success(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
 		creditSvc := core.GetService[*pluginCore.MockCreditService](ctx, pluginCore.CREDIT_SERVICE)
 		router := ctx.Router()
 
@@ -1814,7 +1908,8 @@ func TestAdminHandleDeleteCredit_Success(t *testing.T) {
 		creditSvc.EXPECT().SoftDeleteCredit(mock.Anything, creditID).Return(nil).Once()
 
 		// Create request
-		req := ctx.NewAPIRequest("DELETE", "/api/billing/credits/"+creditID.String(), nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "DELETE", "/api/billing/credits/"+creditID.String(), nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -1828,6 +1923,7 @@ func TestAdminHandleDeleteCredit_Success(t *testing.T) {
 // TestAdminHandleDeleteCredit_NotFound tests deleting a non-existent credit
 func TestAdminHandleDeleteCredit_NotFound_Not404DueToServiceError(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
 		creditSvc := core.GetService[*pluginCore.MockCreditService](ctx, pluginCore.CREDIT_SERVICE)
 		router := ctx.Router()
 
@@ -1837,7 +1933,8 @@ func TestAdminHandleDeleteCredit_NotFound_Not404DueToServiceError(t *testing.T) 
 		creditSvc.EXPECT().SoftDeleteCredit(mock.Anything, creditID).Return(errors.New("credit not found")).Once()
 
 		// Create request
-		req := ctx.NewAPIRequest("DELETE", "/api/billing/credits/"+creditID.String(), nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "DELETE", "/api/billing/credits/"+creditID.String(), nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -1851,6 +1948,7 @@ func TestAdminHandleDeleteCredit_NotFound_Not404DueToServiceError(t *testing.T) 
 // TestAdminHandleRestoreCredit_Success tests restoring a deleted credit
 func TestAdminHandleRestoreCredit_Success(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
 		creditSvc := core.GetService[*pluginCore.MockCreditService](ctx, pluginCore.CREDIT_SERVICE)
 		router := ctx.Router()
 
@@ -1864,7 +1962,8 @@ func TestAdminHandleRestoreCredit_Success(t *testing.T) {
 		creditSvc.EXPECT().GetCredit(mock.Anything, creditID).Return(credit, nil).Once()
 
 		// Create request
-		req := ctx.NewAPIRequest("POST", fmt.Sprintf("/api/billing/credits/%s/restore", creditID.String()), nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", fmt.Sprintf("/api/billing/credits/%s/restore", creditID.String()), nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -1878,6 +1977,7 @@ func TestAdminHandleRestoreCredit_Success(t *testing.T) {
 // TestAdminHandleRestoreCredit_NotFound tests restoring a non-existent credit
 func TestAdminHandleRestoreCredit_NotFound(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
 		creditSvc := core.GetService[*pluginCore.MockCreditService](ctx, pluginCore.CREDIT_SERVICE)
 		router := ctx.Router()
 
@@ -1887,7 +1987,8 @@ func TestAdminHandleRestoreCredit_NotFound(t *testing.T) {
 		creditSvc.EXPECT().RestoreCredit(mock.Anything, creditID).Return(gorm.ErrRecordNotFound).Once()
 
 		// Create request
-		req := ctx.NewAPIRequest("POST", fmt.Sprintf("/api/billing/credits/%s/restore", creditID.String()), nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", fmt.Sprintf("/api/billing/credits/%s/restore", creditID.String()), nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -1901,6 +2002,7 @@ func TestAdminHandleRestoreCredit_NotFound(t *testing.T) {
 // TestAdminHandleListDeletedCredits_Success tests listing deleted credits for a user
 func TestAdminHandleListDeletedCredits_Success(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
 		creditSvc := core.GetService[*pluginCore.MockCreditService](ctx, pluginCore.CREDIT_SERVICE)
 		router := ctx.Router()
 
@@ -1915,7 +2017,8 @@ func TestAdminHandleListDeletedCredits_Success(t *testing.T) {
 		creditSvc.EXPECT().ListCredits(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(credits, int64(len(credits)), nil).Once()
 
 		// Create request
-		req := ctx.NewAPIRequest("GET", "/api/billing/users/"+fmt.Sprintf("%d", userID)+"/deleted-credits", nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "GET", "/api/billing/users/"+fmt.Sprintf("%d", userID)+"/deleted-credits", nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -1926,7 +2029,7 @@ func TestAdminHandleListDeletedCredits_Success(t *testing.T) {
 
 		// Parse response
 		var response queryutil.Response[*[]dto.CreditResponse]
-		err := json.Unmarshal(w.Body.Bytes(), &response)
+		err = json.Unmarshal(w.Body.Bytes(), &response)
 		assert.NoError(tb, err)
 		assert.Len(tb, *response.Data, 1)
 	}, getAdminAPITestOptions())
@@ -1935,6 +2038,7 @@ func TestAdminHandleListDeletedCredits_Success(t *testing.T) {
 // TestAdminHandleListDeletedCredits_EmptyList tests listing deleted credits for user with no deleted credits
 func TestAdminHandleListDeletedCredits_EmptyList(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
 		creditSvc := core.GetService[*pluginCore.MockCreditService](ctx, pluginCore.CREDIT_SERVICE)
 		router := ctx.Router()
 
@@ -1947,7 +2051,8 @@ func TestAdminHandleListDeletedCredits_EmptyList(t *testing.T) {
 		creditSvc.EXPECT().ListCredits(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(credits, int64(len(credits)), nil).Once()
 
 		// Create request
-		req := ctx.NewAPIRequest("GET", "/api/billing/users/"+fmt.Sprintf("%d", userID)+"/deleted-credits", nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "GET", "/api/billing/users/"+fmt.Sprintf("%d", userID)+"/deleted-credits", nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -1958,7 +2063,7 @@ func TestAdminHandleListDeletedCredits_EmptyList(t *testing.T) {
 
 		// Parse response
 		var response queryutil.Response[*[]dto.CreditResponse]
-		err := json.Unmarshal(w.Body.Bytes(), &response)
+		err = json.Unmarshal(w.Body.Bytes(), &response)
 		assert.NoError(tb, err)
 		assert.Len(tb, *response.Data, 0)
 	}, getAdminAPITestOptions())
@@ -1967,6 +2072,7 @@ func TestAdminHandleListDeletedCredits_EmptyList(t *testing.T) {
 // TestAdminHandleGetUserBalance_Success tests getting user balance
 func TestAdminHandleGetUserBalance_Success(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
 		creditSvc := core.GetService[*pluginCore.MockCreditService](ctx, pluginCore.CREDIT_SERVICE)
 		router := ctx.Router()
 
@@ -1977,7 +2083,8 @@ func TestAdminHandleGetUserBalance_Success(t *testing.T) {
 		creditSvc.EXPECT().GetUserBalance(mock.Anything, userID).Return(balance, nil).Once()
 
 		// Create request
-		req := ctx.NewAPIRequest("GET", "/api/billing/users/12345/balance", nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "GET", "/api/billing/users/12345/balance", nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -1988,7 +2095,7 @@ func TestAdminHandleGetUserBalance_Success(t *testing.T) {
 
 		// Parse response
 		var response dto.BalanceResponse
-		err := json.Unmarshal(w.Body.Bytes(), &response)
+		err = json.Unmarshal(w.Body.Bytes(), &response)
 		assert.NoError(tb, err)
 
 		assert.Equal(tb, userID, response.UserID)
@@ -1999,6 +2106,7 @@ func TestAdminHandleGetUserBalance_Success(t *testing.T) {
 // TestAdminHandleGetUserBalance_NotFound tests getting balance for non-existent user
 func TestAdminHandleGetUserBalance_NotFound(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
 		creditSvc := core.GetService[*pluginCore.MockCreditService](ctx, pluginCore.CREDIT_SERVICE)
 		router := ctx.Router()
 
@@ -2008,7 +2116,8 @@ func TestAdminHandleGetUserBalance_NotFound(t *testing.T) {
 		creditSvc.EXPECT().GetUserBalance(mock.Anything, userID).Return(decimal.Zero, errors.New("user not found")).Once()
 
 		// Create request
-		req := ctx.NewAPIRequest("GET", "/api/billing/users/12345/balance", nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "GET", "/api/billing/users/12345/balance", nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -2022,6 +2131,7 @@ func TestAdminHandleGetUserBalance_NotFound(t *testing.T) {
 // TestAdminHandlePurgeCredits_Success tests purging old credits
 func TestAdminHandlePurgeCredits_Success(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
 		creditSvc := core.GetService[*pluginCore.MockCreditService](ctx, pluginCore.CREDIT_SERVICE)
 		router := ctx.Router()
 
@@ -2035,7 +2145,8 @@ func TestAdminHandlePurgeCredits_Success(t *testing.T) {
 		creditSvc.EXPECT().PurgeDeletedCredits(mock.Anything, mock.AnythingOfType("time.Duration")).Return(5, nil).Once()
 
 		// Create request
-		req := ctx.NewAPIRequest("POST", "/api/billing/credits/purge", bodyBytes)
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/billing/credits/purge", bodyBytes, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -2046,7 +2157,7 @@ func TestAdminHandlePurgeCredits_Success(t *testing.T) {
 
 		// Parse response
 		var response map[string]interface{}
-		err := json.Unmarshal(w.Body.Bytes(), &response)
+		err = json.Unmarshal(w.Body.Bytes(), &response)
 		assert.NoError(tb, err)
 
 		assert.Equal(tb, float64(5), response["purged_count"])
@@ -2056,6 +2167,7 @@ func TestAdminHandlePurgeCredits_Success(t *testing.T) {
 // TestAdminHandlePurgeCredits_InvalidDuration tests purging with invalid duration format
 func TestAdminHandlePurgeCredits_InvalidDuration(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
 		router := ctx.Router()
 
 		// Create request body with invalid duration
@@ -2065,7 +2177,8 @@ func TestAdminHandlePurgeCredits_InvalidDuration(t *testing.T) {
 		bodyBytes, _ := json.Marshal(requestBody)
 
 		// Create request
-		req := ctx.NewAPIRequest("POST", "/api/billing/credits/purge", bodyBytes)
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/billing/credits/purge", bodyBytes, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -2082,6 +2195,7 @@ func TestAdminHandlePurgeCredits_InvalidDuration(t *testing.T) {
 
 func TestAdminExtension_CreatePricingPlanPeriod_Success(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
 		pricingSvc := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
 		router := ctx.Router()
 
@@ -2109,7 +2223,8 @@ func TestAdminExtension_CreatePricingPlanPeriod_Success(t *testing.T) {
 			"quota_plan_id":   123,
 		}
 		bodyBytes, _ := json.Marshal(requestBody)
-		req := ctx.NewAPIRequest("POST", "/api/billing/pricing-plan-periods", bodyBytes)
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/billing/pricing-plan-periods", bodyBytes, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		router.ServeHTTP(w, req)
@@ -2117,7 +2232,7 @@ func TestAdminExtension_CreatePricingPlanPeriod_Success(t *testing.T) {
 		assert.Equal(t, http.StatusCreated, w.Code)
 
 		var resp dto.PricingPlanPeriodDTO
-		err := json.Unmarshal(w.Body.Bytes(), &resp)
+		err = json.Unmarshal(w.Body.Bytes(), &resp)
 		assert.NoError(t, err)
 		assert.Equal(t, uint(100), resp.ID)
 		assert.Equal(t, "monthly", resp.Cadence)
@@ -2141,6 +2256,7 @@ func TestAdminExtension_CreatePricingPlanPeriod_Validation_RollingDays(t *testin
 
 	// Now test via the API endpoint
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
 		_ = core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
 		router := ctx.Router()
 
@@ -2152,7 +2268,8 @@ func TestAdminExtension_CreatePricingPlanPeriod_Validation_RollingDays(t *testin
 			"quota_plan_id": 123,
 			"rolling_days": 30
 		}`
-		req := ctx.NewAPIRequest("POST", "/api/billing/pricing-plan-periods", []byte(requestBody))
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/billing/pricing-plan-periods", []byte(requestBody), "1")
+		require.NoError(t, err)
 		w := httptest.NewRecorder()
 
 		// The validation should happen at DTO level and return 400
@@ -2165,7 +2282,7 @@ func TestAdminExtension_CreatePricingPlanPeriod_Validation_RollingDays(t *testin
 
 		// Verify the error message is correct regardless of status code
 		var resp map[string]interface{}
-		err := json.Unmarshal(w.Body.Bytes(), &resp)
+		err = json.Unmarshal(w.Body.Bytes(), &resp)
 		assert.NoError(t, err)
 		assert.Contains(t, resp["error"], "rolling_days can only be set for 'rolling' cadence")
 	}, getAdminAPITestOptions())
@@ -2173,6 +2290,7 @@ func TestAdminExtension_CreatePricingPlanPeriod_Validation_RollingDays(t *testin
 
 func TestAdminExtension_UpdatePricingPlanPeriod_Success(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
 		pricingSvc := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
 		router := ctx.Router()
 
@@ -2202,7 +2320,8 @@ func TestAdminExtension_UpdatePricingPlanPeriod_Success(t *testing.T) {
 			"price_usd": 19.99,
 		}
 		bodyBytes, _ := json.Marshal(requestBody)
-		req := ctx.NewAPIRequest("PUT", "/api/billing/pricing-plan-periods/100", bodyBytes)
+		req, err := ts.createAuthenticatedRequest(ctx, "PUT", "/api/billing/pricing-plan-periods/100", bodyBytes, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		router.ServeHTTP(w, req)
@@ -2210,7 +2329,7 @@ func TestAdminExtension_UpdatePricingPlanPeriod_Success(t *testing.T) {
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		var resp dto.PricingPlanPeriodDTO
-		err := json.Unmarshal(w.Body.Bytes(), &resp)
+		err = json.Unmarshal(w.Body.Bytes(), &resp)
 		assert.NoError(t, err)
 		assert.Equal(t, uint(100), resp.ID)
 		assert.Equal(t, 19.99, resp.PriceUSD)
@@ -2219,6 +2338,7 @@ func TestAdminExtension_UpdatePricingPlanPeriod_Success(t *testing.T) {
 
 func TestAdminExtension_DeletePricingPlanPeriod_Success(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
 		pricingSvc := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
 		router := ctx.Router()
 
@@ -2227,7 +2347,8 @@ func TestAdminExtension_DeletePricingPlanPeriod_Success(t *testing.T) {
 			Return(nil).
 			Once()
 
-		req := ctx.NewAPIRequest("DELETE", "/api/billing/pricing-plan-periods/100", nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "DELETE", "/api/billing/pricing-plan-periods/100", nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		router.ServeHTTP(w, req)
@@ -2238,6 +2359,7 @@ func TestAdminExtension_DeletePricingPlanPeriod_Success(t *testing.T) {
 
 func TestAdminExtension_GetPricingPlanPeriod_Success(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
 		pricingSvc := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
 		router := ctx.Router()
 
@@ -2256,7 +2378,8 @@ func TestAdminExtension_GetPricingPlanPeriod_Success(t *testing.T) {
 			Return(period, nil).
 			Once()
 
-		req := ctx.NewAPIRequest("GET", "/api/billing/pricing-plan-periods/100", nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "GET", "/api/billing/pricing-plan-periods/100", nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		router.ServeHTTP(w, req)
@@ -2264,7 +2387,7 @@ func TestAdminExtension_GetPricingPlanPeriod_Success(t *testing.T) {
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		var resp dto.PricingPlanPeriodDTO
-		err := json.Unmarshal(w.Body.Bytes(), &resp)
+		err = json.Unmarshal(w.Body.Bytes(), &resp)
 		assert.NoError(t, err)
 		assert.Equal(t, uint(100), resp.ID)
 		assert.Equal(t, "yearly", resp.Cadence)
@@ -2275,6 +2398,7 @@ func TestAdminExtension_GetPricingPlanPeriod_Success(t *testing.T) {
 
 func TestAdminExtension_ListPricingPlanPeriods_Success(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
 		pricingSvc := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
 		router := ctx.Router()
 
@@ -2302,7 +2426,8 @@ func TestAdminExtension_ListPricingPlanPeriods_Success(t *testing.T) {
 			Return(periods, int64(2), nil).
 			Once()
 
-		req := ctx.NewAPIRequest("GET", "/api/billing/pricing-plan-periods", nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "GET", "/api/billing/pricing-plan-periods", nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		router.ServeHTTP(w, req)
@@ -2310,7 +2435,7 @@ func TestAdminExtension_ListPricingPlanPeriods_Success(t *testing.T) {
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		var resp map[string]interface{}
-		err := json.Unmarshal(w.Body.Bytes(), &resp)
+		err = json.Unmarshal(w.Body.Bytes(), &resp)
 		assert.NoError(t, err)
 		assert.Contains(t, resp, "data")
 	}, getAdminAPITestOptions())
@@ -2318,6 +2443,7 @@ func TestAdminExtension_ListPricingPlanPeriods_Success(t *testing.T) {
 
 func TestAdminExtension_ListPricingPlanPeriods_WithFilter(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
 		pricingSvc := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
 		router := ctx.Router()
 
@@ -2342,7 +2468,8 @@ func TestAdminExtension_ListPricingPlanPeriods_WithFilter(t *testing.T) {
 			Return(periods, int64(1), nil).
 			Once()
 
-		req := ctx.NewAPIRequest("GET", "/api/billing/pricing-plan-periods?filter[pricing_plan_id]=1", nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "GET", "/api/billing/pricing-plan-periods?filter[pricing_plan_id]=1", nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		router.ServeHTTP(w, req)
@@ -2470,6 +2597,7 @@ func intPtr(i int) *int {
 // TestAdminHandleListSubscribers_Success tests listing all subscribers
 func TestAdminHandleListSubscribers_Success(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
 		billingSvc := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
 		router := ctx.Router()
 
@@ -2478,7 +2606,8 @@ func TestAdminHandleListSubscribers_Success(t *testing.T) {
 			Return([]pluginCore.Subscriber{}, int64(0), nil).Times(1)
 
 		// Create request
-		req := ctx.NewAPIRequest("GET", "/api/billing/subscribers", nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "GET", "/api/billing/subscribers", nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -2489,7 +2618,7 @@ func TestAdminHandleListSubscribers_Success(t *testing.T) {
 
 		// Parse response
 		var response queryutil.Response[*[]dto.SubscriberItem]
-		err := json.Unmarshal(w.Body.Bytes(), &response)
+		err = json.Unmarshal(w.Body.Bytes(), &response)
 		assert.NoError(tb, err)
 	}, getAdminAPITestOptions())
 }
@@ -2497,6 +2626,7 @@ func TestAdminHandleListSubscribers_Success(t *testing.T) {
 // TestAdminHandleGetSubscriber_Success tests retrieving a specific subscriber
 func TestAdminHandleGetSubscriber_Success(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
 		billingSvc := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
 		router := ctx.Router()
 
@@ -2514,7 +2644,8 @@ func TestAdminHandleGetSubscriber_Success(t *testing.T) {
 			Return(&subscriber, nil).
 			Once()
 
-		req := ctx.NewAPIRequest("GET", "/api/billing/subscribers/1", nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "GET", "/api/billing/subscribers/1", nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		router.ServeHTTP(w, req)
@@ -2526,6 +2657,7 @@ func TestAdminHandleGetSubscriber_Success(t *testing.T) {
 // TestAdminHandleGetSubscriber_NotFound tests retrieving a non-existent subscriber
 func TestAdminHandleGetSubscriber_NotFound(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
 		billingSvc := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
 		router := ctx.Router()
 
@@ -2534,7 +2666,8 @@ func TestAdminHandleGetSubscriber_NotFound(t *testing.T) {
 			Return(nil, nil).
 			Once()
 
-		req := ctx.NewAPIRequest("GET", "/api/billing/subscribers/999", nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "GET", "/api/billing/subscribers/999", nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		router.ServeHTTP(w, req)
@@ -2546,10 +2679,12 @@ func TestAdminHandleGetSubscriber_NotFound(t *testing.T) {
 // TestAdminHandleGetSubscriber_InvalidID tests retrieving with invalid ID
 func TestAdminHandleGetSubscriber_InvalidID(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
 		router := ctx.Router()
 
 		// Create request with invalid ID
-		req := ctx.NewAPIRequest("GET", "/api/billing/subscribers/invalid", nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "GET", "/api/billing/subscribers/invalid", nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -2563,6 +2698,7 @@ func TestAdminHandleGetSubscriber_InvalidID(t *testing.T) {
 // TestAdminHandleGetUserSubscribers_Success tests retrieving subscribers for a specific user
 func TestAdminHandleGetUserSubscribers_Success(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
 		billingSvc := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
 		router := ctx.Router()
 
@@ -2582,7 +2718,8 @@ func TestAdminHandleGetUserSubscribers_Success(t *testing.T) {
 			Return(subscribers, nil).
 			Once()
 
-		req := ctx.NewAPIRequest("GET", "/api/billing/users/123/subscribers", nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "GET", "/api/billing/users/123/subscribers", nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		router.ServeHTTP(w, req)
@@ -2590,7 +2727,7 @@ func TestAdminHandleGetUserSubscribers_Success(t *testing.T) {
 		assert.Equal(tb, http.StatusOK, w.Code)
 
 		var response queryutil.Response[*[]dto.SubscriberItem]
-		err := json.Unmarshal(w.Body.Bytes(), &response)
+		err = json.Unmarshal(w.Body.Bytes(), &response)
 		assert.NoError(t, err)
 		assert.Len(tb, *response.Data, 1)
 	}, getAdminAPITestOptions())
@@ -2599,6 +2736,7 @@ func TestAdminHandleGetUserSubscribers_Success(t *testing.T) {
 // TestAdminHandleGetUserSubscribers_EmptyResults tests retrieving subscribers for user with no subscriptions
 func TestAdminHandleGetUserSubscribers_EmptyResults(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
 		billingSvc := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
 		router := ctx.Router()
 
@@ -2607,7 +2745,8 @@ func TestAdminHandleGetUserSubscribers_EmptyResults(t *testing.T) {
 			Return([]pluginCore.Subscriber{}, nil).
 			Once()
 
-		req := ctx.NewAPIRequest("GET", "/api/billing/users/999/subscribers", nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "GET", "/api/billing/users/999/subscribers", nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		router.ServeHTTP(w, req)
@@ -2615,7 +2754,7 @@ func TestAdminHandleGetUserSubscribers_EmptyResults(t *testing.T) {
 		assert.Equal(tb, http.StatusOK, w.Code)
 
 		var response queryutil.Response[*[]dto.SubscriberItem]
-		err := json.Unmarshal(w.Body.Bytes(), &response)
+		err = json.Unmarshal(w.Body.Bytes(), &response)
 		assert.NoError(t, err)
 		assert.Len(tb, *response.Data, 0)
 	}, getAdminAPITestOptions())
@@ -2624,10 +2763,12 @@ func TestAdminHandleGetUserSubscribers_EmptyResults(t *testing.T) {
 // TestAdminHandleGetUserSubscribers_InvalidID tests retrieving subscribers with invalid user ID
 func TestAdminHandleGetUserSubscribers_InvalidID(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
 		router := ctx.Router()
 
 		// Create request with invalid user ID
-		req := ctx.NewAPIRequest("GET", "/api/billing/users/invalid/subscribers", nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "GET", "/api/billing/users/invalid/subscribers", nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -2641,6 +2782,7 @@ func TestAdminHandleGetUserSubscribers_InvalidID(t *testing.T) {
 // TestAdminHandleCancelUserSubscription_DatabaseMode_Success tests canceling subscription in database-only mode
 func TestAdminHandleCancelUserSubscription_DatabaseMode_Success(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
 		billingSvc := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
 		router := ctx.Router()
 
@@ -2667,7 +2809,8 @@ func TestAdminHandleCancelUserSubscription_DatabaseMode_Success(t *testing.T) {
 		bodyBytes, _ := json.Marshal(requestBody)
 
 		// Create request
-		req := ctx.NewAPIRequest("POST", "/api/billing/users/123/subscriptions/cancel", bodyBytes)
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/billing/users/123/subscriptions/cancel", bodyBytes, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -2681,6 +2824,7 @@ func TestAdminHandleCancelUserSubscription_DatabaseMode_Success(t *testing.T) {
 // TestAdminHandleCancelUserSubscription_NoActiveSubscription tests canceling when user has no active subscription
 func TestAdminHandleCancelUserSubscription_NoActiveSubscription(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
 		billingSvc := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
 		router := ctx.Router()
 
@@ -2694,7 +2838,8 @@ func TestAdminHandleCancelUserSubscription_NoActiveSubscription(t *testing.T) {
 		bodyBytes, _ := json.Marshal(requestBody)
 
 		// Create request
-		req := ctx.NewAPIRequest("POST", "/api/billing/users/123/subscriptions/cancel", bodyBytes)
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/billing/users/123/subscriptions/cancel", bodyBytes, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -2708,6 +2853,7 @@ func TestAdminHandleCancelUserSubscription_NoActiveSubscription(t *testing.T) {
 // TestAdminHandleCancelUserSubscription_InvalidUserID tests canceling with invalid user ID
 func TestAdminHandleCancelUserSubscription_InvalidUserID(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
 		router := ctx.Router()
 
 		// Create request body
@@ -2717,7 +2863,8 @@ func TestAdminHandleCancelUserSubscription_InvalidUserID(t *testing.T) {
 		bodyBytes, _ := json.Marshal(requestBody)
 
 		// Create request with invalid user ID
-		req := ctx.NewAPIRequest("POST", "/api/billing/users/invalid/subscriptions/cancel", bodyBytes)
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/billing/users/invalid/subscriptions/cancel", bodyBytes, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -2731,6 +2878,7 @@ func TestAdminHandleCancelUserSubscription_InvalidUserID(t *testing.T) {
 // TestAdminHandleAbortCancellation_Success tests aborting a scheduled cancellation
 func TestAdminHandleAbortCancellation_Success(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
 		billingSvc := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
 		mockGateway := pluginCore.NewMockPaymentGateway(t)
 		router := ctx.Router()
@@ -2758,7 +2906,8 @@ func TestAdminHandleAbortCancellation_Success(t *testing.T) {
 		mockGateway.EXPECT().AbortCancellation(mock.Anything, uint(123)).Return(nil).Once()
 
 		// Create request
-		req := ctx.NewAPIRequest("POST", "/api/billing/users/123/subscriptions/cancel/abort", nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/billing/users/123/subscriptions/cancel/abort", nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -2768,7 +2917,7 @@ func TestAdminHandleAbortCancellation_Success(t *testing.T) {
 		assert.Equal(tb, http.StatusOK, w.Code)
 
 		var response dto.ManagementResultResponse
-		err := json.Unmarshal(w.Body.Bytes(), &response)
+		err = json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(tb, err)
 		assert.Equal(tb, "aborted", response.Status)
 		assert.False(tb, response.CanAbort)
@@ -2778,6 +2927,7 @@ func TestAdminHandleAbortCancellation_Success(t *testing.T) {
 // TestAdminHandleAbortCancellation_NoScheduledCancellation tests aborting when no cancellation is scheduled
 func TestAdminHandleAbortCancellation_NoScheduledCancellation(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
 		billingSvc := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
 		router := ctx.Router()
 
@@ -2795,7 +2945,8 @@ func TestAdminHandleAbortCancellation_NoScheduledCancellation(t *testing.T) {
 		billingSvc.EXPECT().GetActiveSubscription(mock.Anything, uint(123)).Return(subscriber, nil).Once()
 
 		// Create request
-		req := ctx.NewAPIRequest("POST", "/api/billing/users/123/subscriptions/cancel/abort", nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/billing/users/123/subscriptions/cancel/abort", nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -2809,13 +2960,15 @@ func TestAdminHandleAbortCancellation_NoScheduledCancellation(t *testing.T) {
 // TestAdminHandleAbortCancellation_NoActiveSubscription tests aborting when user has no active subscription
 func TestAdminHandleAbortCancellation_NoActiveSubscription(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
 		billingSvc := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
 		router := ctx.Router()
 
 		billingSvc.EXPECT().GetActiveSubscription(mock.Anything, uint(123)).Return(nil, nil).Once()
 
 		// Create request
-		req := ctx.NewAPIRequest("POST", "/api/billing/users/123/subscriptions/cancel/abort", nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/billing/users/123/subscriptions/cancel/abort", nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -2829,6 +2982,7 @@ func TestAdminHandleAbortCancellation_NoActiveSubscription(t *testing.T) {
 // TestAdminHandleListGatewaySubscribers_Success tests listing subscribers for a specific gateway
 func TestAdminHandleListGatewaySubscribers_Success(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
 		billingSvc := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
 		router := ctx.Router()
 
@@ -2848,7 +3002,8 @@ func TestAdminHandleListGatewaySubscribers_Success(t *testing.T) {
 			Return(subscribers, nil).
 			Once()
 
-		req := ctx.NewAPIRequest("GET", "/api/billing/gateways/stripe/subscribers", nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "GET", "/api/billing/gateways/stripe/subscribers", nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		router.ServeHTTP(w, req)
@@ -2856,7 +3011,7 @@ func TestAdminHandleListGatewaySubscribers_Success(t *testing.T) {
 		assert.Equal(tb, http.StatusOK, w.Code)
 
 		var response queryutil.Response[*[]dto.SubscriberItem]
-		err := json.Unmarshal(w.Body.Bytes(), &response)
+		err = json.Unmarshal(w.Body.Bytes(), &response)
 		assert.NoError(t, err)
 		assert.Len(tb, *response.Data, 1)
 	}, getAdminAPITestOptions())
@@ -2865,6 +3020,7 @@ func TestAdminHandleListGatewaySubscribers_Success(t *testing.T) {
 // TestAdminHandleListGatewaySubscribers_InvalidGatewayID tests listing subscribers with numeric gateway ID
 func TestAdminHandleListGatewaySubscribers_InvalidGatewayID(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
 		billingSvc := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
 		router := ctx.Router()
 
@@ -2875,7 +3031,8 @@ func TestAdminHandleListGatewaySubscribers_InvalidGatewayID(t *testing.T) {
 			Once()
 
 		// Create request with numeric gateway ID
-		req := ctx.NewAPIRequest("GET", "/api/billing/gateways/123/subscribers", nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "GET", "/api/billing/gateways/123/subscribers", nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -2885,7 +3042,7 @@ func TestAdminHandleListGatewaySubscribers_InvalidGatewayID(t *testing.T) {
 		assert.Equal(tb, http.StatusOK, w.Code)
 
 		var response queryutil.Response[*[]dto.SubscriberItem]
-		err := json.Unmarshal(w.Body.Bytes(), &response)
+		err = json.Unmarshal(w.Body.Bytes(), &response)
 		assert.NoError(t, err)
 		assert.Empty(tb, *response.Data)
 	}, getAdminAPITestOptions())
@@ -2918,6 +3075,7 @@ func TestAdminCancelSubscriptionRequest_Schema_DatabaseMode(t *testing.T) {
 // TestAdminHandlePauseUserSubscription_Success tests successful pause via gateway
 func TestAdminHandlePauseUserSubscription_Success(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
 		billingSvc := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
 		router := ctx.Router()
 
@@ -2945,7 +3103,8 @@ func TestAdminHandlePauseUserSubscription_Success(t *testing.T) {
 		mockGateway.EXPECT().GetManagementInfo(mock.Anything, uint(123)).Return(capabilities, nil).Once()
 		mockGateway.EXPECT().ExecutePause(mock.Anything, uint(123)).Return(nil).Once()
 
-		req := ctx.NewAPIRequest("POST", "/api/billing/users/123/subscriptions/pause", nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/billing/users/123/subscriptions/pause", nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		router.ServeHTTP(w, req)
@@ -2953,7 +3112,7 @@ func TestAdminHandlePauseUserSubscription_Success(t *testing.T) {
 		assert.Equal(tb, http.StatusOK, w.Code)
 
 		var response dto.ManagementResultResponse
-		err := json.Unmarshal(w.Body.Bytes(), &response)
+		err = json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(tb, err)
 		assert.Equal(tb, pluginCore.ActionAPIRequired, response.Action)
 		assert.Equal(tb, "paused", response.Status)
@@ -2963,6 +3122,7 @@ func TestAdminHandlePauseUserSubscription_Success(t *testing.T) {
 // TestAdminHandlePauseUserSubscription_NotSupported tests pause when gateway doesn't support it
 func TestAdminHandlePauseUserSubscription_NotSupported(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
 		billingSvc := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
 		router := ctx.Router()
 
@@ -2988,7 +3148,8 @@ func TestAdminHandlePauseUserSubscription_NotSupported(t *testing.T) {
 		}
 		mockGateway.EXPECT().GetManagementInfo(mock.Anything, uint(123)).Return(capabilities, nil).Once()
 
-		req := ctx.NewAPIRequest("POST", "/api/billing/users/123/subscriptions/pause", nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/billing/users/123/subscriptions/pause", nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		router.ServeHTTP(w, req)
@@ -2996,7 +3157,7 @@ func TestAdminHandlePauseUserSubscription_NotSupported(t *testing.T) {
 		assert.Equal(tb, http.StatusBadRequest, w.Code)
 
 		var errResponse map[string]any
-		err := json.Unmarshal(w.Body.Bytes(), &errResponse)
+		err = json.Unmarshal(w.Body.Bytes(), &errResponse)
 		require.NoError(tb, err)
 		assert.Contains(tb, errResponse["error"], "does not support")
 	}, getAdminAPITestOptions())
@@ -3005,12 +3166,14 @@ func TestAdminHandlePauseUserSubscription_NotSupported(t *testing.T) {
 // TestAdminHandlePauseUserSubscription_NoActiveSubscription tests pause with no subscription
 func TestAdminHandlePauseUserSubscription_NoActiveSubscription(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
 		billingSvc := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
 		router := ctx.Router()
 
 		billingSvc.EXPECT().GetActiveSubscription(mock.Anything, uint(123)).Return(nil, nil).Once()
 
-		req := ctx.NewAPIRequest("POST", "/api/billing/users/123/subscriptions/pause", nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/billing/users/123/subscriptions/pause", nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		router.ServeHTTP(w, req)
@@ -3022,6 +3185,7 @@ func TestAdminHandlePauseUserSubscription_NoActiveSubscription(t *testing.T) {
 // TestAdminHandleResumeUserSubscription_Success tests successful resume via gateway
 func TestAdminHandleResumeUserSubscription_Success(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
 		billingSvc := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
 		router := ctx.Router()
 
@@ -3049,7 +3213,8 @@ func TestAdminHandleResumeUserSubscription_Success(t *testing.T) {
 		mockGateway.EXPECT().GetManagementInfo(mock.Anything, uint(123)).Return(capabilities, nil).Once()
 		mockGateway.EXPECT().ExecuteResume(mock.Anything, uint(123)).Return(nil).Once()
 
-		req := ctx.NewAPIRequest("POST", "/api/billing/users/123/subscriptions/resume", nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/billing/users/123/subscriptions/resume", nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		router.ServeHTTP(w, req)
@@ -3057,7 +3222,7 @@ func TestAdminHandleResumeUserSubscription_Success(t *testing.T) {
 		assert.Equal(tb, http.StatusOK, w.Code)
 
 		var response dto.ManagementResultResponse
-		err := json.Unmarshal(w.Body.Bytes(), &response)
+		err = json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(tb, err)
 		assert.Equal(tb, pluginCore.ActionAPIRequired, response.Action)
 		assert.Equal(tb, "resumed", response.Status)
@@ -3067,6 +3232,7 @@ func TestAdminHandleResumeUserSubscription_Success(t *testing.T) {
 // TestAdminHandleResumeUserSubscription_NotSupported tests resume when gateway doesn't support it
 func TestAdminHandleResumeUserSubscription_NotSupported(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
 		billingSvc := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
 		router := ctx.Router()
 
@@ -3092,7 +3258,8 @@ func TestAdminHandleResumeUserSubscription_NotSupported(t *testing.T) {
 		}
 		mockGateway.EXPECT().GetManagementInfo(mock.Anything, uint(123)).Return(capabilities, nil).Once()
 
-		req := ctx.NewAPIRequest("POST", "/api/billing/users/123/subscriptions/resume", nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/billing/users/123/subscriptions/resume", nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		router.ServeHTTP(w, req)
@@ -3100,7 +3267,7 @@ func TestAdminHandleResumeUserSubscription_NotSupported(t *testing.T) {
 		assert.Equal(tb, http.StatusBadRequest, w.Code)
 
 		var errResponse map[string]any
-		err := json.Unmarshal(w.Body.Bytes(), &errResponse)
+		err = json.Unmarshal(w.Body.Bytes(), &errResponse)
 		require.NoError(tb, err)
 		assert.Contains(tb, errResponse["error"], "does not support")
 	}, getAdminAPITestOptions())
@@ -3109,12 +3276,14 @@ func TestAdminHandleResumeUserSubscription_NotSupported(t *testing.T) {
 // TestAdminHandleResumeUserSubscription_NoActiveSubscription tests resume with no subscription
 func TestAdminHandleResumeUserSubscription_NoActiveSubscription(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
 		billingSvc := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
 		router := ctx.Router()
 
 		billingSvc.EXPECT().GetActiveSubscription(mock.Anything, uint(123)).Return(nil, nil).Once()
 
-		req := ctx.NewAPIRequest("POST", "/api/billing/users/123/subscriptions/resume", nil)
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/billing/users/123/subscriptions/resume", nil, "1")
+		require.NoError(tb, err)
 		w := httptest.NewRecorder()
 
 		router.ServeHTTP(w, req)

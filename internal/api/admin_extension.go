@@ -12,6 +12,8 @@ import (
 	"github.com/samber/lo"
 	"github.com/shopspring/decimal"
 	"go.lumeweb.com/httputil"
+	"go.lumeweb.com/portal-middleware/auth/jwt"
+	"go.lumeweb.com/portal-middleware/middleware"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
 	"go.lumeweb.com/portal-plugin-billing/internal/api/dto"
 	_ "go.lumeweb.com/portal-plugin-billing/internal/api/dto"
@@ -76,7 +78,12 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 	schemaProvider := queryutil.NewSchemaProvider()
 	creditItemSchema := schemaProvider.ForType(&dto.CreditItem{})
 	subscriberItemSchema := schemaProvider.ForType(&dto.SubscriberItem{})
-	// Define admin billing routes
+
+	// Create middleware instances for admin access
+	authMw := middleware.AuthMiddleware(e.Context(), middleware.WithAuthPurpose(jwt.PurposeLogin))
+	accessMw := middleware.AccessMiddleware(e.Context())
+
+	// Define admin billing routes (all require admin authentication)
 	routes := router.DefineRoutes(
 		router.NewRoute(http.MethodPost, "/api/billing/plans/:id/sync", e.handleSyncPricingPlan,
 			router.WithSwagger(
@@ -85,7 +92,10 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 				router.WithTags("Billing Admin"),
 				router.WithPathParam("id", "Plan ID", "123"),
 				router.WithSuccessResponse(http.StatusOK, "Sync task queued"),
-			)),
+			),
+			router.WithAccess(core.ACCESS_ADMIN_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
+		),
 		router.NewRoute(http.MethodPost, "/api/billing/pricing-plans", e.handleCreatePricingPlan,
 			router.WithSwagger(
 				router.WithoutDefaultSuccessResponse(),
@@ -95,7 +105,10 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 				router.WithRequestBody(dto.PricingPlanCreateRequest{}, "Pricing plan creation request", true),
 				router.WithSuccessResponse(http.StatusCreated, "",
 					router.WithJSONContent(dto.PricingPlanResponse{})),
-			)),
+			),
+			router.WithAccess(core.ACCESS_ADMIN_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
+		),
 		router.NewRoute(http.MethodPut, "/api/billing/pricing-plans/:id", e.handleUpdatePricingPlan,
 			router.WithSwagger(
 				router.WithSummary("Update Pricing Plan"),
@@ -104,7 +117,10 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 				router.WithRequestBody(dto.PricingPlanUpdateRequest{}, "Pricing plan update request", true),
 				router.WithSuccessResponse(http.StatusOK, "",
 					router.WithJSONContent(dto.PricingPlanResponse{})),
-			)),
+			),
+			router.WithAccess(core.ACCESS_ADMIN_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
+		),
 		router.NewRoute(http.MethodDelete, "/api/billing/pricing-plans/:id", e.handleDeletePricingPlan,
 			router.WithSwagger(
 				router.WithoutDefaultSuccessResponse(),
@@ -112,7 +128,10 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 				router.WithTags("Billing Admin"),
 				router.WithPathParam("id", "Pricing Plan ID", "123"),
 				router.WithSuccessResponse(http.StatusNoContent, ""),
-			)),
+			),
+			router.WithAccess(core.ACCESS_ADMIN_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
+		),
 		router.NewRoute(http.MethodGet, "/api/billing/pricing-plans", e.handleListPricingPlans,
 			router.WithSwagger(
 				router.WithSummary("List Pricing Plans"),
@@ -120,7 +139,10 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 				router.WithTags("Billing Admin"),
 				router.WithSuccessResponse(http.StatusOK, "",
 					router.WithJSONContent(dto.PricingPlansListResponse{})),
-			)),
+			),
+			router.WithAccess(core.ACCESS_ADMIN_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
+		),
 		router.NewRoute(http.MethodPost, "/api/billing/price-lines", e.handleCreatePriceLine,
 			router.WithSwagger(
 				router.WithoutDefaultSuccessResponse(),
@@ -130,7 +152,10 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 				router.WithRequestBody(dto.PriceLineCreateRequest{}, "Price line creation request", true),
 				router.WithSuccessResponse(http.StatusCreated, "",
 					router.WithJSONContent(dto.PriceLineResponse{})),
-			)),
+			),
+			router.WithAccess(core.ACCESS_ADMIN_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
+		),
 		router.NewRoute(http.MethodPut, "/api/billing/price-lines/:id", e.handleUpdatePriceLine,
 			router.WithSwagger(
 				router.WithSummary("Update Price Line"),
@@ -139,7 +164,10 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 				router.WithRequestBody(dto.PriceLineUpdateRequest{}, "Price line update request", true),
 				router.WithSuccessResponse(http.StatusOK, "",
 					router.WithJSONContent(dto.PriceLineResponse{})),
-			)),
+			),
+			router.WithAccess(core.ACCESS_ADMIN_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
+		),
 		router.NewRoute(http.MethodDelete, "/api/billing/price-lines/:id", e.handleDeletePriceLine,
 			router.WithSwagger(
 				router.WithoutDefaultSuccessResponse(),
@@ -147,7 +175,10 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 				router.WithTags("Billing Admin"),
 				router.WithPathParam("id", "Price Line ID", "123"),
 				router.WithSuccessResponse(http.StatusNoContent, ""),
-			)),
+			),
+			router.WithAccess(core.ACCESS_ADMIN_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
+		),
 		router.NewRoute(http.MethodGet, "/api/billing/price-lines", e.handleListPriceLines,
 			router.WithSwagger(
 				router.WithSummary("List Price Lines"),
@@ -155,7 +186,10 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 				router.WithTags("Billing Admin"),
 				router.WithSuccessResponse(http.StatusOK, "",
 					router.WithJSONContent(dto.PriceLinesListResponse{})),
-			)),
+			),
+			router.WithAccess(core.ACCESS_ADMIN_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
+		),
 		router.NewRoute(http.MethodGet, "/api/billing/price-lines/:id", e.handleGetPriceLine,
 			router.WithSwagger(
 				router.WithSummary("Get Price Line"),
@@ -164,7 +198,10 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 				router.WithPathParam("id", "Price Line ID", "123"),
 				router.WithSuccessResponse(http.StatusOK, "",
 					router.WithJSONContent(dto.PriceLineDetailResponse{})),
-			)),
+			),
+			router.WithAccess(core.ACCESS_ADMIN_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
+		),
 		router.NewRoute(http.MethodPost, "/api/billing/price-lines/:id/plan", e.handleAddPlanToPriceLine,
 			router.WithSwagger(
 				router.WithoutDefaultSuccessResponse(),
@@ -175,7 +212,10 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 				router.WithRequestBody(dto.AddPlanToPriceLineRequest{}, "Plan to add with position", true),
 				router.WithSuccessResponse(http.StatusOK, "Plan added to price line",
 					router.WithJSONContent(dto.PriceLineDetailResponse{})),
-			)),
+			),
+			router.WithAccess(core.ACCESS_ADMIN_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
+		),
 		router.NewRoute(http.MethodPut, "/api/billing/price-lines/:id/plans/:planId", e.handleUpdatePlanPosition,
 			router.WithSwagger(
 				router.WithSummary("Update Plan Position"),
@@ -186,7 +226,10 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 				router.WithRequestBody(dto.UpdatePlanPositionRequest{}, "New position for the plan", true),
 				router.WithSuccessResponse(http.StatusOK, "Plan position updated",
 					router.WithJSONContent(dto.PriceLineDetailResponse{})),
-			)),
+			),
+			router.WithAccess(core.ACCESS_ADMIN_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
+		),
 		router.NewRoute(http.MethodDelete, "/api/billing/price-lines/:id/plans/:planId", e.handleRemovePlanFromPriceLine,
 			router.WithSwagger(
 				router.WithoutDefaultSuccessResponse(),
@@ -196,7 +239,10 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 				router.WithPathParam("id", "Price Line ID", "123"),
 				router.WithPathParam("planId", "Plan ID", "456"),
 				router.WithSuccessResponse(http.StatusNoContent, "Plan removed from price line"),
-			)),
+			),
+			router.WithAccess(core.ACCESS_ADMIN_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
+		),
 		router.NewRoute(http.MethodPost, "/api/billing/pricing-plan-periods", e.handleCreatePricingPlanPeriod,
 			router.WithSwagger(
 				router.WithoutDefaultSuccessResponse(),
@@ -206,7 +252,10 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 				router.WithRequestBody(dto.PricingPlanPeriodCreateRequest{}, "Pricing plan period creation request", true),
 				router.WithSuccessResponse(http.StatusCreated, "",
 					router.WithJSONContent(dto.PricingPlanPeriodDTO{})),
-			)),
+			),
+			router.WithAccess(core.ACCESS_ADMIN_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
+		),
 		router.NewRoute(http.MethodPut, "/api/billing/pricing-plan-periods/:id", e.handleUpdatePricingPlanPeriod,
 			router.WithSwagger(
 				router.WithSummary("Update Pricing Plan Period"),
@@ -216,7 +265,10 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 				router.WithRequestBody(dto.PricingPlanPeriodUpdateRequest{}, "Pricing plan period update request", true),
 				router.WithSuccessResponse(http.StatusOK, "",
 					router.WithJSONContent(dto.PricingPlanPeriodDTO{})),
-			)),
+			),
+			router.WithAccess(core.ACCESS_ADMIN_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
+		),
 		router.NewRoute(http.MethodDelete, "/api/billing/pricing-plan-periods/:id", e.handleDeletePricingPlanPeriod,
 			router.WithSwagger(
 				router.WithoutDefaultSuccessResponse(),
@@ -225,7 +277,10 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 				router.WithTags("Billing Admin"),
 				router.WithPathParam("id", "Pricing Plan Period ID", "123"),
 				router.WithSuccessResponse(http.StatusNoContent, ""),
-			)),
+			),
+			router.WithAccess(core.ACCESS_ADMIN_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
+		),
 		router.NewRoute(http.MethodGet, "/api/billing/pricing-plan-periods", e.handleListPricingPlanPeriods,
 			router.WithSwagger(
 				router.WithSummary("List Pricing Plan Periods"),
@@ -233,7 +288,10 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 				router.WithTags("Billing Admin"),
 				router.WithSuccessResponse(http.StatusOK, "",
 					router.WithJSONContent(dto.PricingPlanPeriodsListResponse{})),
-			)),
+			),
+			router.WithAccess(core.ACCESS_ADMIN_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
+		),
 		router.NewRoute(http.MethodGet, "/api/billing/pricing-plan-periods/:id", e.handleGetPricingPlanPeriod,
 			router.WithSwagger(
 				router.WithSummary("Get Pricing Plan Period"),
@@ -242,7 +300,10 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 				router.WithPathParam("id", "Pricing Plan Period ID", "123"),
 				router.WithSuccessResponse(http.StatusOK, "",
 					router.WithJSONContent(dto.PricingPlanPeriodDTO{})),
-			)),
+			),
+			router.WithAccess(core.ACCESS_ADMIN_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
+		),
 		router.NewRoute(http.MethodPost, "/api/billing/credits", e.handleCreateCredit,
 			router.WithSwagger(
 				router.WithoutDefaultSuccessResponse(),
@@ -262,7 +323,10 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 						router.DefineSwaggerErrorResponse(http.StatusInternalServerError, "Server error"),
 					),
 				),
-			)),
+			),
+			router.WithAccess(core.ACCESS_ADMIN_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
+		),
 		router.NewRoute(http.MethodGet, "/api/billing/credits/:id", e.handleGetCredit,
 			router.WithSwagger(
 				router.WithSummary("Get Credit"),
@@ -280,7 +344,10 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 						router.DefineSwaggerErrorResponse(http.StatusInternalServerError, "Server error"),
 					),
 				),
-			)),
+			),
+			router.WithAccess(core.ACCESS_ADMIN_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
+		),
 		router.NewRoute(http.MethodGet, "/api/billing/credits", e.handleListCredits,
 			router.WithSwagger(
 				router.WithSummary("List Credits"),
@@ -298,7 +365,10 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 						router.DefineSwaggerErrorResponse(http.StatusInternalServerError, "Server error"),
 					),
 				),
-			)),
+			),
+			router.WithAccess(core.ACCESS_ADMIN_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
+		),
 		router.NewRoute(http.MethodDelete, "/api/billing/credits/:id", e.handleDeleteCredit,
 			router.WithSwagger(
 				router.WithoutDefaultSuccessResponse(),
@@ -316,7 +386,10 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 						router.DefineSwaggerErrorResponse(http.StatusInternalServerError, "Server error"),
 					),
 				),
-			)),
+			),
+			router.WithAccess(core.ACCESS_ADMIN_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
+		),
 		router.NewRoute(http.MethodPost, "/api/billing/credits/:id/restore", e.handleRestoreCredit,
 			router.WithSwagger(
 				router.WithSummary("Restore Credit"),
@@ -334,7 +407,10 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 						router.DefineSwaggerErrorResponse(http.StatusInternalServerError, "Server error"),
 					),
 				),
-			)),
+			),
+			router.WithAccess(core.ACCESS_ADMIN_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
+		),
 		router.NewRoute(http.MethodGet, "/api/billing/users/:userId/deleted-credits", e.handleListDeletedCredits,
 			router.WithSwagger(
 				router.WithSummary("List Deleted Credits"),
@@ -353,7 +429,10 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 						router.DefineSwaggerErrorResponse(http.StatusInternalServerError, "Server error"),
 					),
 				),
-			)),
+			),
+			router.WithAccess(core.ACCESS_ADMIN_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
+		),
 		router.NewRoute(http.MethodGet, "/api/billing/users/:userId/balance", e.handleGetUserBalance,
 			router.WithSwagger(
 				router.WithSummary("Get User Balance"),
@@ -371,7 +450,10 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 						router.DefineSwaggerErrorResponse(http.StatusInternalServerError, "Server error"),
 					),
 				),
-			)),
+			),
+			router.WithAccess(core.ACCESS_ADMIN_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
+		),
 		router.NewRoute(http.MethodPost, "/api/billing/credits/purge", e.handlePurgeCredits,
 			router.WithSwagger(
 				router.WithSummary("Purge Credits"),
@@ -388,7 +470,10 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 						router.DefineSwaggerErrorResponse(http.StatusInternalServerError, "Server error"),
 					),
 				),
-			)),
+			),
+			router.WithAccess(core.ACCESS_ADMIN_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
+		),
 		router.NewRoute(http.MethodGet, "/api/billing/subscribers", e.handleListSubscribers,
 			router.WithSwagger(
 				router.WithSummary("List Subscribers"),
@@ -406,7 +491,10 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 						router.DefineSwaggerErrorResponse(http.StatusInternalServerError, "Server error"),
 					),
 				),
-			)),
+			),
+			router.WithAccess(core.ACCESS_ADMIN_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
+		),
 		router.NewRoute(http.MethodGet, "/api/billing/subscribers/:id", e.handleGetSubscriber,
 			router.WithSwagger(
 				router.WithSummary("Get Subscriber"),
@@ -424,7 +512,10 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 						router.DefineSwaggerErrorResponse(http.StatusInternalServerError, "Server error"),
 					),
 				),
-			)),
+			),
+			router.WithAccess(core.ACCESS_ADMIN_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
+		),
 		router.NewRoute(http.MethodGet, "/api/billing/users/:userId/subscribers", e.handleGetUserSubscribers,
 			router.WithSwagger(
 				router.WithSummary("Get User Subscribers"),
@@ -441,7 +532,10 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 						router.DefineSwaggerErrorResponse(http.StatusInternalServerError, "Server error"),
 					),
 				),
-			)),
+			),
+			router.WithAccess(core.ACCESS_ADMIN_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
+		),
 		router.NewRoute(http.MethodPost, "/api/billing/users/:userId/subscriptions/cancel", e.handleCancelUserSubscription,
 			router.WithSwagger(
 				router.WithoutDefaultSuccessResponse(),
@@ -461,7 +555,10 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 						router.DefineSwaggerErrorResponse(http.StatusInternalServerError, "Server error"),
 					),
 				),
-			)),
+			),
+			router.WithAccess(core.ACCESS_ADMIN_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
+		),
 		router.NewRoute(http.MethodPost, "/api/billing/users/:userId/subscriptions/cancel/abort", e.handleAbortCancellation,
 			router.WithSwagger(
 				router.WithoutDefaultSuccessResponse(),
@@ -480,7 +577,10 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 						router.DefineSwaggerErrorResponse(http.StatusInternalServerError, "Server error"),
 					),
 				),
-			)),
+			),
+			router.WithAccess(core.ACCESS_ADMIN_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
+		),
 		router.NewRoute(http.MethodPost, "/api/billing/users/:userId/subscriptions/pause", e.handlePauseUserSubscription,
 			router.WithSwagger(
 				router.WithoutDefaultSuccessResponse(),
@@ -499,7 +599,10 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 						router.DefineSwaggerErrorResponse(http.StatusInternalServerError, "Server error"),
 					),
 				),
-			)),
+			),
+			router.WithAccess(core.ACCESS_ADMIN_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
+		),
 		router.NewRoute(http.MethodPost, "/api/billing/users/:userId/subscriptions/resume", e.handleResumeUserSubscription,
 			router.WithSwagger(
 				router.WithoutDefaultSuccessResponse(),
@@ -518,7 +621,10 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 						router.DefineSwaggerErrorResponse(http.StatusInternalServerError, "Server error"),
 					),
 				),
-			)),
+			),
+			router.WithAccess(core.ACCESS_ADMIN_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
+		),
 		router.NewRoute(http.MethodPost, "/api/billing/users/:userId/subscriptions/change-plan", e.handleChangeUserPlan,
 			router.WithSwagger(
 				router.WithoutDefaultSuccessResponse(),
@@ -538,7 +644,10 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 						router.DefineSwaggerErrorResponse(http.StatusInternalServerError, "Server error"),
 					),
 				),
-			)),
+			),
+			router.WithAccess(core.ACCESS_ADMIN_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
+		),
 		router.NewRoute(http.MethodGet, "/api/billing/gateways/:gatewayId/subscribers", e.handleListGatewaySubscribers,
 			router.WithSwagger(
 				router.WithSummary("List Gateway Subscribers"),
@@ -555,7 +664,10 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 						router.DefineSwaggerErrorResponse(http.StatusInternalServerError, "Server error"),
 					),
 				),
-			)),
+			),
+			router.WithAccess(core.ACCESS_ADMIN_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
+		),
 	)
 
 	apiGroup := "billing"
