@@ -18,12 +18,12 @@ require (
 	github.com/tkuchiki/faketime v0.1.1
 	go.lumeweb.com/atlos-sdk v0.1.1
 	go.lumeweb.com/httputil v0.5.4
-	go.lumeweb.com/portal v0.4.2-0.20260425195212-93c16ec184b9
+	go.lumeweb.com/portal v0.4.2-0.20260428184738-7e2069e74707
 	go.lumeweb.com/portal-middleware v0.3.7
 	go.lumeweb.com/portal-plugin-quota v0.0.0-20260425220337-a342aa31f1f8
 	go.lumeweb.com/portal-router v0.6.13
 	go.lumeweb.com/queryutil v0.3.16
-	go.uber.org/zap v1.27.1
+	go.uber.org/zap v1.28.0
 	gorm.io/datatypes v1.2.7
 	gorm.io/gorm v1.31.1
 )
@@ -162,7 +162,7 @@ require (
 	github.com/prometheus/common v0.67.5 // indirect
 	github.com/prometheus/procfs v0.20.1 // indirect
 	github.com/quic-go/quic-go v0.59.0 // indirect
-	github.com/redis/go-redis/v9 v9.18.0 // indirect
+	github.com/redis/go-redis/v9 v9.19.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/robfig/cron/v3 v3.0.1 // indirect
 	github.com/rs/cors v1.11.1 // indirect
