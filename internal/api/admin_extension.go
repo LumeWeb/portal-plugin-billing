@@ -670,7 +670,7 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 		),
 	)
 
-	apiGroup := "billing"
+	apiGroup := core.GetAPI(e.TargetAPI()).Subdomain()
 	if err := router.RegisterRoutes(gRouter, accessSvc, apiGroup, routes); err != nil {
 		return err
 	}
