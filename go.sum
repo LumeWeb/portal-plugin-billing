@@ -625,6 +625,8 @@ github.com/quic-go/webtransport-go v0.10.0 h1:LqXXPOXuETY5Xe8ITdGisBzTYmUOy5eSj+
 github.com/quic-go/webtransport-go v0.10.0/go.mod h1:LeGIXr5BQKE3UsynwVBeQrU1TPrbh73MGoC6jd+V7ow=
 github.com/redis/go-redis/v9 v9.18.0 h1:pMkxYPkEbMPwRdenAzUNyFNrDgHx9U+DrBabWNfSRQs=
 github.com/redis/go-redis/v9 v9.18.0/go.mod h1:k3ufPphLU5YXwNTUcCRXGxUoF1fqxnhFQmscfkCoDA0=
+github.com/redis/go-redis/v9 v9.19.0 h1:XPVaaPSnG6RhYf7p+rmSa9zZfeVAnWsH5h3lxthOm/k=
+github.com/redis/go-redis/v9 v9.19.0/go.mod h1:v/M13XI1PVCDcm01VtPFOADfZtHf8YW3baQf57KlIkA=
 github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec h1:W09IVJc94icq4NjY3clb7Lk8O1qJ8BdBEF8z0ibU0rE=
 github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec/go.mod h1:qqbHyh8v60DhA7CoWK5oRCqLrMHRGoxYCSS9EjAz6Eo=
 github.com/rivo/uniseg v0.2.0 h1:S1pD9weZBuJdFmowNwbpi7BJ8TNftyUImj/0WQi72jY=
@@ -753,6 +755,8 @@ go.lumeweb.com/portal v0.4.2-0.20260421172245-d26d96359381 h1:sBkaBnODOuJVkQl0C7
 go.lumeweb.com/portal v0.4.2-0.20260421172245-d26d96359381/go.mod h1:+HZiKzOSTb2oIO5fpWZGYLur/dKN6fhdGbk32oss6as=
 go.lumeweb.com/portal v0.4.2-0.20260425195212-93c16ec184b9 h1:eHJKvJrBBYaXRl6Jl8ZmAqIzEM+5rKuVfL6e23bOIkI=
 go.lumeweb.com/portal v0.4.2-0.20260425195212-93c16ec184b9/go.mod h1:RnhnQEvvXfHEAk1zf5GEop0AvOLt/aWzVIcKq2gjopE=
+go.lumeweb.com/portal v0.4.2-0.20260428184738-7e2069e74707 h1:+A0XvcPD07BI9WdlZyZCnr7lsFGACIO8/Et8J5Qz6Fk=
+go.lumeweb.com/portal v0.4.2-0.20260428184738-7e2069e74707/go.mod h1:pzmRaTs+X2paeXhmy0Ty6to9D1g9EF+RgFwlfOvlux4=
 go.lumeweb.com/portal-middleware v0.3.7 h1:kq4SZq4T/uhauqHehw2JaTbNJpPpE8/EQAC3R737H7c=
 go.lumeweb.com/portal-middleware v0.3.7/go.mod h1:Yn9ZsFy5n3x2jUJ085M9B/aoZ+ANQV5QD/MAE0BpJXo=
 go.lumeweb.com/portal-plugin-quota v0.0.0-20260407174945-e2b2217206a8 h1:5DebXbqOqrJfjCqdiYo+zCzDKyaQ/YHRU3U28FYag0g=
@@ -837,6 +841,8 @@ go.uber.org/multierr v1.11.0 h1:blXXJkSxSSfBVBlC76pxqeO+LN3aDfLQo+309xJstO0=
 go.uber.org/multierr v1.11.0/go.mod h1:20+QtiLqy0Nd6FdQB9TLXag12DsQkrbs3htMFfDN80Y=
 go.uber.org/zap v1.27.1 h1:08RqriUEv8+ArZRYSTXy1LeBScaMpVSTBhCeaZYfMYc=
 go.uber.org/zap v1.27.1/go.mod h1:GB2qFLM7cTU87MWRP2mPIjqfIDnGu+VIO4V/SdhGo2E=
+go.uber.org/zap v1.28.0 h1:IZzaP1Fv73/T/pBMLk4VutPl36uNC+OSUh3JLG3FIjo=
+go.uber.org/zap v1.28.0/go.mod h1:rDLpOi171uODNm/mxFcuYWxDsqWSAVkFdX4XojSKg/Q=
 go.uber.org/zap/exp v0.3.0 h1:6JYzdifzYkGmTdRR59oYH+Ng7k49H9qVpWwNSsGJj3U=
 go.uber.org/zap/exp v0.3.0/go.mod h1:5I384qq7XGxYyByIhHm6jg5CHkGY0nsTfbDLgDDlgJQ=
 go.yaml.in/yaml/v2 v2.4.4 h1:tuyd0P+2Ont/d6e2rl3be67goVK4R6deVxCUX5vyPaQ=
