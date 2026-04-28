@@ -435,8 +435,7 @@ func (e *APIExtension) Configure(gRouter router.Router, accessSvc core.AccessSer
 		),
 	)
 
-	apiGroup := "billing"
-	if err := router.RegisterRoutes(gRouter, accessSvc, apiGroup, publicRoutes); err != nil {
+	if err := router.RegisterRoutes(gRouter, accessSvc, core.GetAPI(e.TargetAPI()).Subdomain(), publicRoutes); err != nil {
 		return err
 	}
 
