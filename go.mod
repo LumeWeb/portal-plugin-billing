@@ -23,7 +23,7 @@ require (
 	go.lumeweb.com/portal-plugin-quota v0.0.0-20260425220337-a342aa31f1f8
 	go.lumeweb.com/portal-router v0.6.13
 	go.lumeweb.com/queryutil v0.3.16
-	go.uber.org/zap v1.27.1
+	go.uber.org/zap v1.28.0
 	gorm.io/datatypes v1.2.7
 	gorm.io/gorm v1.31.1
 )
