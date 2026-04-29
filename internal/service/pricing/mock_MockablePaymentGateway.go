@@ -1015,6 +1015,74 @@ func (_c *MockMockablePaymentGateway_GetName_Call) RunAndReturn(run func(ctx con
 	return _c
 }
 
+// GetSessionStatus provides a mock function for the type MockMockablePaymentGateway
+func (_mock *MockMockablePaymentGateway) GetSessionStatus(ctx context.Context, sessionID string) (*core.SessionStatus, error) {
+	ret := _mock.Called(ctx, sessionID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetSessionStatus")
+	}
+
+	var r0 *core.SessionStatus
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) (*core.SessionStatus, error)); ok {
+		return returnFunc(ctx, sessionID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) *core.SessionStatus); ok {
+		r0 = returnFunc(ctx, sessionID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*core.SessionStatus)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = returnFunc(ctx, sessionID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockMockablePaymentGateway_GetSessionStatus_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetSessionStatus'
+type MockMockablePaymentGateway_GetSessionStatus_Call struct {
+	*mock.Call
+}
+
+// GetSessionStatus is a helper method to define mock.On call
+//   - ctx context.Context
+//   - sessionID string
+func (_e *MockMockablePaymentGateway_Expecter) GetSessionStatus(ctx interface{}, sessionID interface{}) *MockMockablePaymentGateway_GetSessionStatus_Call {
+	return &MockMockablePaymentGateway_GetSessionStatus_Call{Call: _e.mock.On("GetSessionStatus", ctx, sessionID)}
+}
+
+func (_c *MockMockablePaymentGateway_GetSessionStatus_Call) Run(run func(ctx context.Context, sessionID string)) *MockMockablePaymentGateway_GetSessionStatus_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockMockablePaymentGateway_GetSessionStatus_Call) Return(sessionStatus *core.SessionStatus, err error) *MockMockablePaymentGateway_GetSessionStatus_Call {
+	_c.Call.Return(sessionStatus, err)
+	return _c
+}
+
+func (_c *MockMockablePaymentGateway_GetSessionStatus_Call) RunAndReturn(run func(ctx context.Context, sessionID string) (*core.SessionStatus, error)) *MockMockablePaymentGateway_GetSessionStatus_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // HandleWebhook provides a mock function for the type MockMockablePaymentGateway
 func (_mock *MockMockablePaymentGateway) HandleWebhook(ctx context.Context, payload []byte) error {
 	ret := _mock.Called(ctx, payload)

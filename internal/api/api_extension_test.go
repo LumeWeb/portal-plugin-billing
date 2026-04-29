@@ -1650,6 +1650,100 @@ func createTestExpirationTime() time.Time {
 	return time.Now().Add(30 * time.Minute)
 }
 
+// Checkout Session Status Tests
+
+func TestHandleGetCheckoutSessionStatus_Success(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupTest(ctx)
+
+		sessionID := "cs_test_123"
+		customerEmail := "test@example.com"
+
+		// Mock user account validation
+		ts.userSvc.EXPECT().AccountExists(mock.Anything, uint(1)).Return(true, nil, nil)
+
+		// Mock gateway - PaymentGateway now includes SessionStatusProvider
+		mockGateway := pluginCore.NewMockPaymentGateway(t)
+		ts.billingSvc.EXPECT().GetGateway(mock.Anything, "stripe").Return(mockGateway, nil).Once()
+
+		// Mock GetSessionStatus response
+		sessionStatus := &pluginCore.SessionStatus{
+			SessionID:     sessionID,
+			Status:        "complete",
+			CustomerEmail: customerEmail,
+		}
+		mockGateway.EXPECT().GetSessionStatus(mock.Anything, sessionID).Return(sessionStatus, nil).Once()
+
+		// Create authenticated request
+		req := ctx.NewAPIRequest("GET", "/api/account/billing/checkout/session/"+sessionID+"/status", nil)
+		token := coreTesting.CreateTestLoginToken(ctx.T(), ctx, "1")
+		req.Header.Set("Authorization", "Bearer "+token)
+
+		w := httptest.NewRecorder()
+
+		// Execute
+		ts.router.ServeHTTP(w, req)
+
+		// Verify
+		assert.Equal(tb, http.StatusOK, w.Code)
+
+		var response dto.CheckoutSessionStatusResponse
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(tb, err)
+
+		assert.Equal(tb, sessionID, response.SessionID)
+		assert.Equal(tb, "complete", response.Status)
+		assert.Equal(tb, customerEmail, response.CustomerEmail)
+	}, getUserAPITestOptions())
+}
+
+func TestHandleGetCheckoutSessionStatus_GatewayNotFound(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupTest(ctx)
+
+		sessionID := "cs_test_789"
+
+		// Mock user account validation
+		ts.userSvc.EXPECT().AccountExists(mock.Anything, uint(1)).Return(true, nil, nil)
+
+		// Mock gateway not found
+		ts.billingSvc.EXPECT().GetGateway(mock.Anything, "nonexistent").
+			Return(nil, pluginCore.ErrGatewayNotFound).Once()
+
+		// Create authenticated request with non-existent gateway
+		req := ctx.NewAPIRequest("GET", "/api/account/billing/checkout/session/"+sessionID+"/status?gateway=nonexistent", nil)
+		token := coreTesting.CreateTestLoginToken(ctx.T(), ctx, "1")
+		req.Header.Set("Authorization", "Bearer "+token)
+
+		w := httptest.NewRecorder()
+
+		// Execute
+		ts.router.ServeHTTP(w, req)
+
+		// Verify - should return 404 Not Found
+		assert.Equal(tb, http.StatusNotFound, w.Code)
+	}, getUserAPITestOptions())
+}
+
+func TestHandleGetCheckoutSessionStatus_Unauthorized(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupTest(ctx)
+
+		sessionID := "cs_test_123"
+
+		// Create request without authentication
+		req := ctx.NewAPIRequest("GET", "/api/account/billing/checkout/session/"+sessionID+"/status", nil)
+
+		w := httptest.NewRecorder()
+
+		// Execute
+		ts.router.ServeHTTP(w, req)
+
+		// Verify - should return 401 Unauthorized
+		assert.Equal(tb, http.StatusUnauthorized, w.Code)
+	}, getUserAPITestOptions())
+}
+
 // Management operation tests
 
 func TestHandleCancelOperation_Success_APIBased(t *testing.T) {

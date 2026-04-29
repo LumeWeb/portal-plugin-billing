@@ -338,6 +338,33 @@ func (e *APIExtension) Configure(gRouter router.Router, accessSvc core.AccessSer
 			router.WithMiddlewares(authMw, accessMw),
 			router.WithCors(),
 		),
+		// Checkout session status endpoint (for embedded checkout return page)
+		router.NewRoute(http.MethodGet, "/api/account/billing/checkout/session/:sessionId/status", e.handleGetCheckoutSessionStatus,
+			router.WithSwagger(
+				router.WithSummary("Get Checkout Session Status"),
+				router.WithDescription(
+					"Returns the status of a checkout session. Used by embedded checkout return pages "+
+						"to verify payment completion and retrieve customer information. "+
+						"Returns 501 if the gateway does not support session status retrieval.",
+				),
+				router.WithTags("Billing"),
+				router.WithPathParam("sessionId", "Checkout session ID (e.g., Stripe's cs_xxx)", "cs_test_xxx"),
+				router.WithQueryParam("gateway", "Payment gateway type (defaults to Stripe if not specified)", "stripe"),
+				router.WithSuccessResponse(http.StatusOK, "Session status retrieved",
+					router.WithJSONContent(dto.CheckoutSessionStatusResponse{})),
+				router.WithErrorResponses(
+					router.DefineSwaggerErrorResponses(
+						router.DefineSwaggerErrorResponse(http.StatusBadRequest, "Invalid session ID"),
+						router.DefineSwaggerErrorResponse(http.StatusNotFound, "Session not found"),
+						router.DefineSwaggerErrorResponse(http.StatusNotImplemented, "Gateway does not support session status retrieval"),
+						router.DefineSwaggerErrorResponse(http.StatusInternalServerError, "Failed to get session status"),
+					),
+				),
+			),
+			router.WithAccess(core.ACCESS_USER_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
+			router.WithCors(),
+		),
 		// User balance endpoint
 		router.NewRoute(http.MethodGet, "/api/account/billing/balance", e.handleGetBalance,
 			router.WithSwagger(
@@ -1314,4 +1341,75 @@ func min(b []byte, maxLen int) []byte {
 		return b[:maxLen]
 	}
 	return b
+}
+
+// handleGetCheckoutSessionStatus retrieves the status of a checkout session.
+// Used by embedded checkout return pages to verify payment completion.
+func (e *APIExtension) handleGetCheckoutSessionStatus(c echo.Context) error {
+	ctx := httputil.Context(c)
+	userID, ok := e.getUser(ctx)
+	if !ok {
+		return ctx.Error(NewError(ErrKeyUnauthorized, errors.New("authentication required")), http.StatusUnauthorized)
+	}
+
+	sessionID := c.Param("sessionId")
+	if sessionID == "" {
+		return ctx.Error(NewError(ErrKeyInvalidRequest, errors.New("session ID is required")), http.StatusBadRequest)
+	}
+
+	// Get the gateway type from query params (default to Stripe)
+	gatewayType := c.QueryParam("gateway")
+	if gatewayType == "" {
+		gatewayType = "stripe"
+	}
+
+	// Look up the gateway via billing service
+	g, err := e.billingService.GetGateway(c.Request().Context(), gatewayType)
+	if err != nil {
+		e.Logger().Error("gateway not found",
+			zap.Uint("user_id", userID),
+			zap.String("gateway_type", gatewayType),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeyGatewayNotFound, err), http.StatusNotFound)
+	}
+
+	// Check if gateway implements SessionStatusProvider
+	if !pluginCore.IsSessionStatusProvider(g) {
+		e.Logger().Debug("gateway does not support session status retrieval",
+			zap.Uint("user_id", userID),
+			zap.String("gateway_type", gatewayType))
+		return ctx.Error(NewError(ErrKeyGatewayNotSupported, errors.New("gateway does not support session status retrieval")), http.StatusNotImplemented)
+	}
+
+	// Cast to SessionStatusProvider and retrieve status
+	provider, err := pluginCore.AsSessionStatusProvider(g)
+	if err != nil {
+		e.Logger().Error("failed to cast gateway to SessionStatusProvider",
+			zap.Uint("user_id", userID),
+			zap.String("gateway_type", gatewayType),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeyGatewayNotSupported, err), http.StatusInternalServerError)
+	}
+
+	status, err := provider.GetSessionStatus(c.Request().Context(), sessionID)
+	if err != nil {
+		e.Logger().Error("failed to get session status",
+			zap.Uint("user_id", userID),
+			zap.String("gateway_type", gatewayType),
+			zap.String("session_id", sessionID),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeyCheckoutUIGenerationFailed, fmt.Errorf("failed to get session status: %w", err)), http.StatusInternalServerError)
+	}
+
+	response := dto.CheckoutSessionStatusResponse{}
+	if err := response.FromModel(status); err != nil {
+		e.Logger().Error("failed to convert session status to DTO",
+			zap.Uint("user_id", userID),
+			zap.String("gateway_type", gatewayType),
+			zap.String("session_id", sessionID),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeyCheckoutUIGenerationFailed, fmt.Errorf("failed to build response: %w", err)), http.StatusInternalServerError)
+	}
+
+	return c.JSON(http.StatusOK, response)
 }

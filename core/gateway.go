@@ -365,4 +365,37 @@ func AsSubscriptionExecutor(gateway GatewayIdentity) (SubscriptionExecutor, erro
 	return executor, nil
 }
 
+// SessionStatusProvider is an optional interface for gateways that support
+// retrieving session status after embedded checkout completion.
+// Used by return pages to verify payment status.
+type SessionStatusProvider interface {
+	// GetSessionStatus retrieves the current status of a checkout session
+	// sessionID: the gateway's session identifier (e.g., Stripe's cs_xxx)
+	// Returns: status ('open', 'complete', 'expired'), customer email, or error
+	GetSessionStatus(ctx context.Context, sessionID string) (*SessionStatus, error)
+}
+
+// SessionStatus represents the status of a checkout session
+type SessionStatus struct {
+	Status        string // 'open', 'complete', 'expired'
+	CustomerEmail string // Customer email if available
+	SessionID     string // Gateway session ID
+}
+
+// IsSessionStatusProvider checks if the gateway implements the SessionStatusProvider interface.
+func IsSessionStatusProvider(gateway GatewayIdentity) bool {
+	_, ok := gateway.(SessionStatusProvider)
+	return ok
+}
+
+// AsSessionStatusProvider attempts to cast the gateway to SessionStatusProvider.
+// Returns nil and an error if the gateway does not implement SessionStatusProvider.
+func AsSessionStatusProvider(gateway GatewayIdentity) (SessionStatusProvider, error) {
+	provider, ok := gateway.(SessionStatusProvider)
+	if !ok {
+		return nil, ErrGatewayNotSupported
+	}
+	return provider, nil
+}
+
 

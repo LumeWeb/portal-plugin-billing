@@ -60,13 +60,27 @@ func assertCheckoutError(t *testing.T, err error, response *pluginCore.CheckoutU
 	assert.Contains(t, err.Error(), errContains)
 }
 
-// assertCheckoutSuccess asserts that the checkout response meets all success criteria
+// assertCheckoutSuccess asserts that the checkout response meets all success criteria for hosted checkout
 func assertCheckoutSuccess(t *testing.T, response *pluginCore.CheckoutUIResponse, sessionID string, sessionURL string) {
 	require.NotNil(t, response)
 	assert.Equal(t, sessionID, response.SessionID)
 	assert.Len(t, response.Fragments, 1)
 	assert.Equal(t, pluginCore.FragmentTypeLink, response.Fragments[0].Type)
 	assert.Equal(t, sessionURL, response.Fragments[0].Link)
+}
+
+// assertEmbeddedCheckoutSuccess asserts that the checkout response returns an embedded HTML fragment
+func assertEmbeddedCheckoutSuccess(t *testing.T, response *pluginCore.CheckoutUIResponse, sessionID string, clientSecret string) {
+	require.NotNil(t, response)
+	assert.Equal(t, sessionID, response.SessionID)
+	assert.Len(t, response.Fragments, 1)
+	assert.Equal(t, pluginCore.FragmentTypeHTML, response.Fragments[0].Type)
+	// Verify the HTML contains expected elements for embedded checkout
+	assert.Contains(t, response.Fragments[0].HTML, "stripe-checkout")
+	assert.Contains(t, response.Fragments[0].HTML, "js.stripe.com/dahlia/stripe.js")
+	if clientSecret != "" {
+		assert.Contains(t, response.Fragments[0].HTML, clientSecret)
+	}
 }
 
 // mockUserExists sets up user retrieval mock
@@ -154,8 +168,8 @@ func TestStripeGateway_GetCheckoutUI_Success(t *testing.T) {
 			Email: "test@example.com",
 		}
 		checkoutSession := &stripe.CheckoutSession{
-			ID:  "sess_test123",
-			URL: "https://checkout.stripe.com/pay/sess_test123",
+			ID:           "sess_test123",
+			ClientSecret: "cs_test_secret_123",
 		}
 
 		mockStripeCheckoutSession(mockStripeClient, mockBilling, customer, checkoutSession, nil, nil)
@@ -165,7 +179,7 @@ func TestStripeGateway_GetCheckoutUI_Success(t *testing.T) {
 		response, err := gw.GetCheckoutUI(context.Background(), userID, planID, 1)
 
 		require.NoError(t, err)
-		assertCheckoutSuccess(t, response, "sess_test123", "https://checkout.stripe.com/pay/sess_test123")
+		assertEmbeddedCheckoutSuccess(t, response, "sess_test123", "cs_test_secret_123")
 
 		mockStripeClient.CustomersService.AssertExpectations(t)
 		mockStripeClient.V1CheckoutSessionsService.AssertExpectations(t)
@@ -180,43 +194,24 @@ func testOptionsWithDashboardAPI(tb coreTesting.TB) coreTesting.TestContextBuild
 	})
 }
 
-func TestGetCheckoutSuccessURL_WithDashboardAPI(t *testing.T) {
+func TestGetCheckoutReturnURL_WithDashboardAPI(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		mockQuota, mockUsers, mockBilling, mockPricing, mockCredit := setupCheckoutMocks(ctx)
 		gw := createGateway(ctx, "sk_test", nil, mockQuota, mockUsers, mockBilling, mockPricing, mockCredit)
 
-		result := gw.getCheckoutSuccessURL()
-		assert.Equal(t, "https://account.test.local/billing/checkout/success", result)
+		result := gw.getCheckoutReturnURL()
+		// URL gets encoded by BuildAbsoluteURL - the placeholder is preserved but encoded
+		assert.Equal(t, "https://account.test.local/billing/checkout/return%3Fsession_id=%7BCHECKOUT_SESSION_ID%7D", result)
 	}, testOptionsWithDashboardAPI(t))
 }
 
-func TestGetCheckoutSuccessURL_FallbackToRelative(t *testing.T) {
+func TestGetCheckoutReturnURL_FallbackToRelative(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		cfg := testConfigWithSecrets(TestWebhookSecret, "test_key")
 		gw := NewWithConfig(ctx.Logger(), ctx, cfg, nil, nil, nil, nil, nil)
 
-		result := gw.getCheckoutSuccessURL()
-		assert.Equal(t, "/billing/checkout/success", result)
-	})
-}
-
-func TestGetCheckoutCancelURL_WithDashboardAPI(t *testing.T) {
-	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
-		mockQuota, mockUsers, mockBilling, mockPricing, mockCredit := setupCheckoutMocks(ctx)
-		gw := createGateway(ctx, "sk_test", nil, mockQuota, mockUsers, mockBilling, mockPricing, mockCredit)
-
-		result := gw.getCheckoutCancelURL()
-		assert.Equal(t, "https://account.test.local/billing/checkout/cancel", result)
-	}, testOptionsWithDashboardAPI(t))
-}
-
-func TestGetCheckoutCancelURL_FallbackToRelative(t *testing.T) {
-	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
-		cfg := testConfigWithSecrets(TestWebhookSecret, "test_key")
-		gw := NewWithConfig(ctx.Logger(), ctx, cfg, nil, nil, nil, nil, nil)
-
-		result := gw.getCheckoutCancelURL()
-		assert.Equal(t, "/billing/checkout/cancel", result)
+		result := gw.getCheckoutReturnURL()
+		assert.Equal(t, "/billing/checkout/return?session_id={CHECKOUT_SESSION_ID}", result)
 	})
 }
 
@@ -345,8 +340,8 @@ func TestStripeGateway_GetCheckoutUI_ExistingCustomer(t *testing.T) {
 		}
 
 		mockStripeCheckoutSession(mockStripeClient, mockBilling, customer, &stripe.CheckoutSession{
-			ID:  "sess_test456",
-			URL: "https://checkout.stripe.com/pay/sess_test456",
+			ID:           "sess_test456",
+			ClientSecret: "cs_test_secret_456",
 		}, existingSubscriber, nil)
 
 		gw := createGateway(ctx, "sk_test", mockStripeClient, mockQuota, mockUsers, mockBilling, mockPricing, mockCredit)
@@ -354,9 +349,135 @@ func TestStripeGateway_GetCheckoutUI_ExistingCustomer(t *testing.T) {
 		response, err := gw.GetCheckoutUI(context.Background(), userID, planID, 1)
 
 		require.NoError(t, err)
-		assertCheckoutSuccess(t, response, "sess_test456", "https://checkout.stripe.com/pay/sess_test456")
+		assertEmbeddedCheckoutSuccess(t, response, "sess_test456", "cs_test_secret_456")
 
 		mockStripeClient.CustomersService.AssertExpectations(t)
+		mockStripeClient.V1CheckoutSessionsService.AssertExpectations(t)
+	})
+}
+
+func TestStripeGateway_ImplementsSessionStatusProvider(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockQuota, mockUsers, mockBilling, mockPricing, mockCredit := setupCheckoutMocks(ctx)
+		gw := createGateway(ctx, "sk_test", nil, mockQuota, mockUsers, mockBilling, mockPricing, mockCredit)
+
+		assert.True(t, pluginCore.IsSessionStatusProvider(gw), "StripeGateway should implement SessionStatusProvider")
+
+		provider, err := pluginCore.AsSessionStatusProvider(gw)
+		require.NoError(t, err)
+		assert.NotNil(t, provider)
+	})
+}
+
+func TestStripeGateway_GetSessionStatus_Success(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockQuota, mockUsers, mockBilling, mockPricing, mockCredit := setupCheckoutMocks(ctx)
+		mockStripeClient := NewMockStripeClient()
+
+		sessionID := "cs_test_123"
+		customerEmail := "test@example.com"
+
+		session := &stripe.CheckoutSession{
+			ID:     sessionID,
+			Status: stripe.CheckoutSessionStatusComplete,
+			CustomerDetails: &stripe.CheckoutSessionCustomerDetails{
+				Email: customerEmail,
+			},
+		}
+
+		mockStripeClient.V1CheckoutSessionsService.On("Retrieve", mock.Anything, sessionID, mock.Anything).Return(session, nil)
+
+		gw := createGateway(ctx, "sk_test", mockStripeClient, mockQuota, mockUsers, mockBilling, mockPricing, mockCredit)
+
+		status, err := gw.GetSessionStatus(context.Background(), sessionID)
+
+		require.NoError(t, err)
+		assert.Equal(t, sessionID, status.SessionID)
+		assert.Equal(t, string(stripe.CheckoutSessionStatusComplete), status.Status)
+		assert.Equal(t, customerEmail, status.CustomerEmail)
+
+		mockStripeClient.V1CheckoutSessionsService.AssertExpectations(t)
+	})
+}
+
+func TestStripeGateway_GetSessionStatus_WithCustomerObject(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockQuota, mockUsers, mockBilling, mockPricing, mockCredit := setupCheckoutMocks(ctx)
+		mockStripeClient := NewMockStripeClient()
+
+		sessionID := "cs_test_456"
+		customerEmail := "customer@example.com"
+
+		session := &stripe.CheckoutSession{
+			ID:     sessionID,
+			Status: stripe.CheckoutSessionStatusOpen,
+			Customer: &stripe.Customer{
+				Email: customerEmail,
+			},
+			CustomerDetails: nil, // No CustomerDetails, should fallback to Customer
+		}
+
+		mockStripeClient.V1CheckoutSessionsService.On("Retrieve", mock.Anything, sessionID, mock.Anything).Return(session, nil)
+
+		gw := createGateway(ctx, "sk_test", mockStripeClient, mockQuota, mockUsers, mockBilling, mockPricing, mockCredit)
+
+		status, err := gw.GetSessionStatus(context.Background(), sessionID)
+
+		require.NoError(t, err)
+		assert.Equal(t, sessionID, status.SessionID)
+		assert.Equal(t, string(stripe.CheckoutSessionStatusOpen), status.Status)
+		assert.Equal(t, customerEmail, status.CustomerEmail)
+
+		mockStripeClient.V1CheckoutSessionsService.AssertExpectations(t)
+	})
+}
+
+func TestStripeGateway_GetSessionStatus_NoEmail(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockQuota, mockUsers, mockBilling, mockPricing, mockCredit := setupCheckoutMocks(ctx)
+		mockStripeClient := NewMockStripeClient()
+
+		sessionID := "cs_test_789"
+
+		session := &stripe.CheckoutSession{
+			ID:              sessionID,
+			Status:          stripe.CheckoutSessionStatusExpired,
+			CustomerDetails: nil,
+			Customer:        nil,
+		}
+
+		mockStripeClient.V1CheckoutSessionsService.On("Retrieve", mock.Anything, sessionID, mock.Anything).Return(session, nil)
+
+		gw := createGateway(ctx, "sk_test", mockStripeClient, mockQuota, mockUsers, mockBilling, mockPricing, mockCredit)
+
+		status, err := gw.GetSessionStatus(context.Background(), sessionID)
+
+		require.NoError(t, err)
+		assert.Equal(t, sessionID, status.SessionID)
+		assert.Equal(t, string(stripe.CheckoutSessionStatusExpired), status.Status)
+		assert.Empty(t, status.CustomerEmail)
+
+		mockStripeClient.V1CheckoutSessionsService.AssertExpectations(t)
+	})
+}
+
+func TestStripeGateway_GetSessionStatus_Error(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockQuota, mockUsers, mockBilling, mockPricing, mockCredit := setupCheckoutMocks(ctx)
+		mockStripeClient := NewMockStripeClient()
+
+		sessionID := "cs_test_invalid"
+
+		mockStripeClient.V1CheckoutSessionsService.On("Retrieve", mock.Anything, sessionID, mock.Anything).Return(nil, assert.AnError)
+
+		gw := createGateway(ctx, "sk_test", mockStripeClient, mockQuota, mockUsers, mockBilling, mockPricing, mockCredit)
+
+		status, err := gw.GetSessionStatus(context.Background(), sessionID)
+
+		assert.Error(t, err)
+		assert.Nil(t, status)
+		assert.Contains(t, err.Error(), "failed to retrieve checkout session")
+
 		mockStripeClient.V1CheckoutSessionsService.AssertExpectations(t)
 	})
 }
