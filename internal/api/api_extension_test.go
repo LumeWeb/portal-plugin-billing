@@ -1787,6 +1787,45 @@ func TestHandleGetCheckoutSessionStatus_OwnershipMismatch(t *testing.T) {
 	}, getUserAPITestOptions())
 }
 
+func TestHandleGetCheckoutSessionStatus_UnverifiableOwnership(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupTest(ctx)
+
+		sessionID := "cs_test_123"
+		authenticatedUserID := uint(1)
+		customerEmail := "test@example.com"
+
+		// Mock user account validation
+		ts.userSvc.EXPECT().AccountExists(mock.Anything, authenticatedUserID).Return(true, nil, nil)
+
+		// Mock gateway - PaymentGateway now includes SessionStatusProvider
+		mockGateway := pluginCore.NewMockPaymentGateway(t)
+		ts.billingSvc.EXPECT().GetGateway(mock.Anything, "stripe").Return(mockGateway, nil).Once()
+
+		// Mock GetSessionStatus returning a session with UserID = 0 (unverifiable)
+		sessionStatus := &pluginCore.SessionStatus{
+			SessionID:     sessionID,
+			Status:        "complete",
+			CustomerEmail: customerEmail,
+			UserID:        0, // Missing ClientReferenceID - ownership unverifiable!
+		}
+		mockGateway.EXPECT().GetSessionStatus(mock.Anything, sessionID).Return(sessionStatus, nil).Once()
+
+		// Create authenticated request as user 1
+		req := ctx.NewAPIRequest("GET", "/api/account/billing/checkout/session/"+sessionID+"/status", nil)
+		token := coreTesting.CreateTestLoginToken(ctx.T(), ctx, "1")
+		req.Header.Set("Authorization", "Bearer "+token)
+
+		w := httptest.NewRecorder()
+
+		// Execute
+		ts.router.ServeHTTP(w, req)
+
+		// Verify - should return 404 Not Found (deny by default when ownership unverifiable)
+		assert.Equal(tb, http.StatusNotFound, w.Code)
+	}, getUserAPITestOptions())
+}
+
 // Management operation tests
 
 func TestHandleCancelOperation_Success_APIBased(t *testing.T) {

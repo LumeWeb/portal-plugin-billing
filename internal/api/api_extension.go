@@ -1402,7 +1402,8 @@ func (e *APIExtension) handleGetCheckoutSessionStatus(c echo.Context) error {
 	}
 
 	// Verify session ownership - prevent IDOR attack
-	if status.UserID != 0 && status.UserID != userID {
+	// Deny when UserID is 0 (ownership unverifiable) or when mismatched
+	if status.UserID != userID {
 		e.Logger().Warn("session ownership mismatch",
 			zap.Uint("authenticated_user_id", userID),
 			zap.Uint("session_user_id", status.UserID),
