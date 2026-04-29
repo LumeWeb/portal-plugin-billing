@@ -500,9 +500,12 @@ func (r *PricingPlanSyncResponse) FromModel(result *pricing.SyncGatewayPlanResul
 	r.SuccessCount = result.SuccessCount
 	r.FailureCount = result.FailureCount
 
-	r.Status = SyncStatusSuccess
-	if result.FailureCount > 0 {
+	if result.FailureCount > 0 && result.SuccessCount == 0 {
+		r.Status = SyncStatusError
+	} else if result.FailureCount > 0 {
 		r.Status = SyncStatusPartial
+	} else {
+		r.Status = SyncStatusSuccess
 	}
 
 	r.GatewayResults = make(map[string]GatewaySyncResult, len(result.Results))
@@ -563,11 +566,10 @@ func (r *PricingPlanSyncAllResponse) FromModel(result *SyncAllResult) error {
 		}
 
 		status := SyncStatusSuccess
-		if pr.FailureCount > 0 {
-			status = SyncStatusPartial
-		}
-		if pr.SuccessCount == 0 && pr.FailureCount == 0 {
+		if pr.FailureCount > 0 && pr.SuccessCount == 0 {
 			status = SyncStatusError
+		} else if pr.FailureCount > 0 {
+			status = SyncStatusPartial
 		}
 
 		r.Results = append(r.Results, PricingPlanSyncAllResult{
