@@ -5,7 +5,6 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"strconv"
 	"strings"
 	"text/template"
@@ -1569,17 +1568,7 @@ func (g *AtlosGateway) getMerchantID() string {
 // getPostbackURL returns the postback URL for payment notifications
 // Uses the HTTP service to build full URL with account subdomain and protocol
 func (g *AtlosGateway) getPostbackURL() string {
-	if g.http == nil {
-		return "/api/billing/webhook/atlos"
-	}
-
-	subdomain := g.http.APISubdomain("account", true)
-	u, err := url.Parse(subdomain)
-	if err != nil {
-		return "/api/billing/webhook/atlos"
-	}
-	u.Path = "/api/billing/webhook/atlos"
-	return u.String()
+	return gateway.BuildAbsoluteURL(g.http, gateway.AccountSubdomain, "/api/billing/webhook/atlos")
 }
 
 // buildProratedButtonFragment creates a button fragment for prorated plan changes.
