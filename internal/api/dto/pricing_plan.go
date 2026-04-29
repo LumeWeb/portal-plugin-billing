@@ -504,6 +504,8 @@ func (r *PricingPlanSyncResponse) FromModel(result *pricing.SyncGatewayPlanResul
 		r.Status = SyncStatusError
 	} else if result.FailureCount > 0 {
 		r.Status = SyncStatusPartial
+	} else if result.SuccessCount == 0 && result.FailureCount == 0 {
+		r.Status = SyncStatusError
 	} else {
 		r.Status = SyncStatusSuccess
 	}
