@@ -17,6 +17,7 @@ type CheckoutSessionStatusResponse struct {
 	SessionID     string `json:"session_id"`     // Gateway session identifier (e.g., cs_xxx for Stripe)
 	Status        string `json:"status"`         // Session status: 'open', 'complete', or 'expired'
 	CustomerEmail string `json:"customer_email"` // Customer email if available
+	UserID        uint   `json:"user_id"`        // User ID from ClientReferenceID (for verification)
 }
 
 // FromModel converts core.SessionStatus to CheckoutSessionStatusResponse.
@@ -29,6 +30,7 @@ func (r *CheckoutSessionStatusResponse) FromModel(source *pluginCore.SessionStat
 		SessionID:     source.SessionID,
 		Status:        source.Status,
 		CustomerEmail: source.CustomerEmail,
+		UserID:        source.UserID,
 	}
 
 	return nil

@@ -380,6 +380,7 @@ type SessionStatus struct {
 	Status        string // 'open', 'complete', 'expired'
 	CustomerEmail string // Customer email if available
 	SessionID     string // Gateway session ID
+	UserID        uint   // User ID from ClientReferenceID for ownership verification
 }
 
 // IsSessionStatusProvider checks if the gateway implements the SessionStatusProvider interface.

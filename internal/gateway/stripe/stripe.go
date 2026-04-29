@@ -3533,5 +3533,12 @@ func (g *StripeGateway) GetSessionStatus(ctx context.Context, sessionID string) 
 		status.CustomerEmail = string(session.Customer.Email)
 	}
 
+	// Extract user ID from ClientReferenceID for ownership verification
+	if session.ClientReferenceID != "" {
+		if userID, err := strconv.ParseUint(session.ClientReferenceID, 10, 64); err == nil {
+			status.UserID = uint(userID)
+		}
+	}
+
 	return status, nil
 }

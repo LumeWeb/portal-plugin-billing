@@ -1401,6 +1401,15 @@ func (e *APIExtension) handleGetCheckoutSessionStatus(c echo.Context) error {
 		return ctx.Error(NewError(ErrKeyCheckoutUIGenerationFailed, fmt.Errorf("failed to get session status: %w", err)), http.StatusInternalServerError)
 	}
 
+	// Verify session ownership - prevent IDOR attack
+	if status.UserID != 0 && status.UserID != userID {
+		e.Logger().Warn("session ownership mismatch",
+			zap.Uint("authenticated_user_id", userID),
+			zap.Uint("session_user_id", status.UserID),
+			zap.String("session_id", sessionID))
+		return ctx.Error(NewError(ErrKeyUnauthorized, errors.New("session not found")), http.StatusNotFound)
+	}
+
 	response := dto.CheckoutSessionStatusResponse{}
 	if err := response.FromModel(status); err != nil {
 		e.Logger().Error("failed to convert session status to DTO",

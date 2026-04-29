@@ -1658,19 +1658,21 @@ func TestHandleGetCheckoutSessionStatus_Success(t *testing.T) {
 
 		sessionID := "cs_test_123"
 		customerEmail := "test@example.com"
+		userID := uint(1)
 
 		// Mock user account validation
-		ts.userSvc.EXPECT().AccountExists(mock.Anything, uint(1)).Return(true, nil, nil)
+		ts.userSvc.EXPECT().AccountExists(mock.Anything, userID).Return(true, nil, nil)
 
 		// Mock gateway - PaymentGateway now includes SessionStatusProvider
 		mockGateway := pluginCore.NewMockPaymentGateway(t)
 		ts.billingSvc.EXPECT().GetGateway(mock.Anything, "stripe").Return(mockGateway, nil).Once()
 
-		// Mock GetSessionStatus response
+		// Mock GetSessionStatus response with matching UserID
 		sessionStatus := &pluginCore.SessionStatus{
 			SessionID:     sessionID,
 			Status:        "complete",
 			CustomerEmail: customerEmail,
+			UserID:        userID, // Matches authenticated user
 		}
 		mockGateway.EXPECT().GetSessionStatus(mock.Anything, sessionID).Return(sessionStatus, nil).Once()
 
@@ -1694,6 +1696,7 @@ func TestHandleGetCheckoutSessionStatus_Success(t *testing.T) {
 		assert.Equal(tb, sessionID, response.SessionID)
 		assert.Equal(tb, "complete", response.Status)
 		assert.Equal(tb, customerEmail, response.CustomerEmail)
+		assert.Equal(tb, userID, response.UserID)
 	}, getUserAPITestOptions())
 }
 
@@ -1741,6 +1744,46 @@ func TestHandleGetCheckoutSessionStatus_Unauthorized(t *testing.T) {
 
 		// Verify - should return 401 Unauthorized
 		assert.Equal(tb, http.StatusUnauthorized, w.Code)
+	}, getUserAPITestOptions())
+}
+
+func TestHandleGetCheckoutSessionStatus_OwnershipMismatch(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupTest(ctx)
+
+		sessionID := "cs_test_123"
+		authenticatedUserID := uint(1)
+		sessionUserID := uint(999) // Different user - simulating IDOR attack
+		customerEmail := "other@example.com"
+
+		// Mock user account validation
+		ts.userSvc.EXPECT().AccountExists(mock.Anything, authenticatedUserID).Return(true, nil, nil)
+
+		// Mock gateway - PaymentGateway now includes SessionStatusProvider
+		mockGateway := pluginCore.NewMockPaymentGateway(t)
+		ts.billingSvc.EXPECT().GetGateway(mock.Anything, "stripe").Return(mockGateway, nil).Once()
+
+		// Mock GetSessionStatus returning a session with different UserID
+		sessionStatus := &pluginCore.SessionStatus{
+			SessionID:     sessionID,
+			Status:        "complete",
+			CustomerEmail: customerEmail,
+			UserID:        sessionUserID, // Belongs to a different user!
+		}
+		mockGateway.EXPECT().GetSessionStatus(mock.Anything, sessionID).Return(sessionStatus, nil).Once()
+
+		// Create authenticated request as user 1
+		req := ctx.NewAPIRequest("GET", "/api/account/billing/checkout/session/"+sessionID+"/status", nil)
+		token := coreTesting.CreateTestLoginToken(ctx.T(), ctx, "1")
+		req.Header.Set("Authorization", "Bearer "+token)
+
+		w := httptest.NewRecorder()
+
+		// Execute
+		ts.router.ServeHTTP(w, req)
+
+		// Verify - should return 404 Not Found (obscures the fact that session exists but belongs to another user)
+		assert.Equal(tb, http.StatusNotFound, w.Code)
 	}, getUserAPITestOptions())
 }
 
