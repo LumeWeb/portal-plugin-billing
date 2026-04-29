@@ -995,6 +995,15 @@ func (e *AdminExtension) handleAddPlanToPriceLine(c echo.Context) error {
 	position := 0
 	if req.Position != nil {
 		position = *req.Position
+	} else {
+		// Auto-calculate position (append to end)
+		existingPlans, err := e.pricingService.GetPriceLinePlans(reqCtx, priceLineID)
+		if err != nil {
+			e.Logger().Warn("failed to get price line plans for position calculation",
+				zap.Uint("price_line_id", priceLineID),
+				zap.Error(err))
+		}
+		position = len(existingPlans)
 	}
 	if err := e.pricingService.AddPlanToPriceLine(reqCtx, priceLineID, req.PlanID, position); err != nil {
 		e.Logger().Error("failed to add plan to price line",
