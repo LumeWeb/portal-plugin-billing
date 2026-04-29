@@ -20,6 +20,7 @@ type PricingPlanPeriodDTO struct {
 	PriceUSD       float64   `json:"price_usd"`
 	QuotaPlanID    uint      `json:"quota_plan_id"`
 	RollingDays    *int      `json:"rolling_days,omitempty"`
+	AllowFree      bool      `json:"allow_free"`
 	IsActive       bool      `json:"is_active"`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
@@ -38,6 +39,7 @@ func (r *PricingPlanPeriodDTO) FromModel(period *models.PricingPlanPeriod) error
 	r.PriceUSD = period.PriceUSD
 	r.QuotaPlanID = period.QuotaPlanID
 	r.RollingDays = period.RollingDays
+	r.AllowFree = period.AllowFree
 	r.IsActive = period.DeletedAt.Time.IsZero()
 	r.CreatedAt = period.CreatedAt
 	r.UpdatedAt = period.UpdatedAt
@@ -88,6 +90,7 @@ func (r *PricingPlanResponse) SetPricingPeriods(periods []*models.PricingPlanPer
 			PriceUSD:      period.PriceUSD,
 			QuotaPlanID:   period.QuotaPlanID,
 			RollingDays:   period.RollingDays,
+			AllowFree:     period.AllowFree,
 			IsActive:      period.DeletedAt.Time.IsZero(),
 			CreatedAt:     period.CreatedAt,
 			UpdatedAt:     period.UpdatedAt,
