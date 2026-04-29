@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
 	"go.lumeweb.com/portal-plugin-billing/internal/api/dto"
+	"go.lumeweb.com/portal-plugin-billing/internal/gateway"
 	"go.lumeweb.com/portal-plugin-billing/internal/service/pricing"
 	"go.lumeweb.com/portal/core"
 	coreTesting "go.lumeweb.com/portal/core/testing"
@@ -97,6 +98,32 @@ func createMockPriceLine(id uint, name, description string, isActive, isDefault 
 func TestAdminHandleSyncPricingPlan_Success(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		ts := setupAdminTest(ctx)
+		billingSvc := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+		mockGateway := pricing.NewMockMockablePaymentGateway(t)
+
+		// Create mock pricing plan
+		plan := createMockPricingPlan(123, "Test Plan", "Test Description", "USD", true, true)
+		ts.pricingSvc.EXPECT().GetPricingPlan(mock.Anything, uint(123)).Return(plan, nil).Once()
+
+		// Mock pricing plan periods
+		ts.pricingSvc.EXPECT().GetPricingPlanPeriods(mock.Anything, uint(123)).Return([]*internalModels.PricingPlanPeriod{}, nil).Once()
+
+		// Mock gateway methods
+		mockGateway.EXPECT().ID(mock.Anything).Return("stripe").Maybe()
+		mockGateway.EXPECT().GetName(mock.Anything).Return("Stripe").Maybe()
+		mockGateway.EXPECT().GetDescription(mock.Anything).Return("Stripe Gateway").Maybe()
+		mockGateway.EXPECT().SupportsProductSync().Return(true).Maybe()
+		mockGateway.EXPECT().SyncPlan(mock.Anything, mock.Anything).Return(&pluginCore.SyncResult{
+			Success:   true,
+			ProductID: "prod_test123",
+		}, nil).Maybe()
+
+		// Setup registry with mock gateway
+		registry := gateway.NewRegistry()
+		ctxForReg := context.Background()
+		err := registry.Register(ctxForReg, mockGateway)
+		require.NoError(tb, err)
+		billingSvc.EXPECT().GetRegistry(mock.Anything).Return(registry).Once()
 
 		// Create authenticated request
 		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/billing/plans/123/sync", nil, "1")
@@ -107,16 +134,77 @@ func TestAdminHandleSyncPricingPlan_Success(t *testing.T) {
 		ts.router.ServeHTTP(w, req)
 
 		// Verify
-		assert.Equal(tb, http.StatusAccepted, w.Code)
+		assert.Equal(tb, http.StatusOK, w.Code)
 
 		// Parse response
-		var response map[string]interface{}
+		var response dto.PricingPlanSyncResponse
 		err = json.Unmarshal(w.Body.Bytes(), &response)
 		assert.NoError(tb, err)
 
-		assert.Equal(tb, "queued", response["status"])
-		assert.Equal(tb, float64(123), response["plan_id"])
-		assert.Equal(tb, "sync_pricing_plan", response["job_type"])
+		assert.Equal(tb, uint(123), response.PlanID)
+		assert.Equal(tb, dto.SyncStatusSuccess, response.Status)
+		assert.Equal(tb, 1, response.SuccessCount)
+		assert.Equal(tb, 0, response.FailureCount)
+	}, getAdminAPITestOptions())
+}
+
+func TestAdminHandleSyncAllPricingPlans_Success(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
+		billingSvc := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+		mockGateway := pricing.NewMockMockablePaymentGateway(t)
+
+		// Create mock pricing plans
+		plan1 := createMockPricingPlan(1, "Plan 1", "Description 1", "USD", true, true)
+		plan2 := createMockPricingPlan(2, "Plan 2", "Description 2", "USD", true, true)
+
+		// Mock GetPricingPlans to return both plans
+		ts.pricingSvc.EXPECT().GetPricingPlans(mock.Anything, uint(0), mock.Anything, mock.Anything, mock.Anything).
+			Return([]*internalModels.PricingPlan{plan1, plan2}, int64(2), nil).Once()
+
+		// Mock GetPricingPlan for each individual sync
+		ts.pricingSvc.EXPECT().GetPricingPlan(mock.Anything, uint(1)).Return(plan1, nil).Once()
+		ts.pricingSvc.EXPECT().GetPricingPlan(mock.Anything, uint(2)).Return(plan2, nil).Once()
+
+		// Mock pricing plan periods for each plan
+		ts.pricingSvc.EXPECT().GetPricingPlanPeriods(mock.Anything, uint(1)).Return([]*internalModels.PricingPlanPeriod{}, nil).Once()
+		ts.pricingSvc.EXPECT().GetPricingPlanPeriods(mock.Anything, uint(2)).Return([]*internalModels.PricingPlanPeriod{}, nil).Once()
+
+		// Mock gateway methods
+		mockGateway.EXPECT().ID(mock.Anything).Return("stripe").Maybe()
+		mockGateway.EXPECT().GetName(mock.Anything).Return("Stripe").Maybe()
+		mockGateway.EXPECT().GetDescription(mock.Anything).Return("Stripe Gateway").Maybe()
+		mockGateway.EXPECT().SupportsProductSync().Return(true).Maybe()
+		mockGateway.EXPECT().SyncPlan(mock.Anything, mock.Anything).Return(&pluginCore.SyncResult{
+			Success:   true,
+			ProductID: "prod_test123",
+		}, nil).Maybe()
+
+		// Setup registry with mock gateway
+		registry := gateway.NewRegistry()
+		ctxForReg := context.Background()
+		err := registry.Register(ctxForReg, mockGateway)
+		require.NoError(tb, err)
+		billingSvc.EXPECT().GetRegistry(mock.Anything).Return(registry).Maybe()
+
+		// Create authenticated request
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/billing/pricing-plans/sync-all", nil, "1")
+		require.NoError(tb, err)
+		w := httptest.NewRecorder()
+
+		// Execute
+		ts.router.ServeHTTP(w, req)
+
+		// Verify
+		assert.Equal(tb, http.StatusOK, w.Code)
+
+		// Parse response
+		var response dto.PricingPlanSyncAllResponse
+		err = json.Unmarshal(w.Body.Bytes(), &response)
+		assert.NoError(tb, err)
+
+		assert.Equal(tb, 2, response.TotalPlans)
+		assert.Equal(tb, 2, len(response.Results))
 	}, getAdminAPITestOptions())
 }
 
