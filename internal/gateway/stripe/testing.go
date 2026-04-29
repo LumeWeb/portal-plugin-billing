@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/mock"
-	"github.com/stripe/stripe-go/v83"
+	"github.com/stripe/stripe-go/v85"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
 	pluginConfig "go.lumeweb.com/portal-plugin-billing/internal/config"
 	quotaCore "go.lumeweb.com/portal-plugin-quota/core"

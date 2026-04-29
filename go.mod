@@ -13,7 +13,6 @@ require (
 	github.com/samber/lo v1.53.0
 	github.com/shopspring/decimal v1.4.0
 	github.com/stretchr/testify v1.11.1
-	github.com/stripe/stripe-go/v83 v83.2.1
 	github.com/stripe/stripe-go/v85 v85.1.0
 	github.com/tkuchiki/faketime v0.1.1
 	go.lumeweb.com/atlos-sdk v0.1.1
@@ -69,7 +68,6 @@ require (
 	github.com/coreos/go-semver v0.3.1 // indirect
 	github.com/coreos/go-systemd/v22 v22.7.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
-	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/fatih/structs v1.1.0 // indirect
@@ -177,7 +175,6 @@ require (
 	github.com/uptrace/uptrace-go v1.43.0 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasttemplate v1.2.2 // indirect
-	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
 	github.com/wneessen/go-mail v0.7.2 // indirect
 	github.com/woodsbury/decimal128 v1.4.0 // indirect
 	github.com/yuin/gopher-lua v1.1.1 // indirect

@@ -11,8 +11,8 @@ import (
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	"github.com/stripe/stripe-go/v83"
-	"github.com/stripe/stripe-go/v83/webhook"
+	"github.com/stripe/stripe-go/v85"
+	"github.com/stripe/stripe-go/v85/webhook"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
 	pluginConfig "go.lumeweb.com/portal-plugin-billing/internal/config"
 	billingModels "go.lumeweb.com/portal-plugin-billing/internal/db/models"
@@ -24,8 +24,8 @@ import (
 )
 
 const (
-	// StripeAPIVersion is the API version that matches the stripe-go library version
-	StripeAPIVersion = "2025-09-30.clover"
+	// StripeAPIVersion is the API version string from stripe-go/v85
+	StripeAPIVersion = stripe.APIVersion
 
 	// Test constants for commonly used values
 	TestUserID         = uint(123)

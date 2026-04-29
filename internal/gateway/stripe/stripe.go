@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/shopspring/decimal"
-	"github.com/stripe/stripe-go/v83"
-	"github.com/stripe/stripe-go/v83/webhook"
+	"github.com/stripe/stripe-go/v85"
+	"github.com/stripe/stripe-go/v85/webhook"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
 	"go.lumeweb.com/portal-plugin-billing/internal/config"
 	billingModels "go.lumeweb.com/portal-plugin-billing/internal/db/models"
