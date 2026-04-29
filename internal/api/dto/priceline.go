@@ -101,7 +101,7 @@ func (r *PriceLineDetailResponse) SetPlans(priceLinePlans []*models.PriceLinePla
 			IsActive:    plp.PricingPlan.IsActive,
 			Position:    plp.Position,
 		}
-		// Extract monthly/yearly prices from periods if available
+		// Extract monthly/yearly prices from periods and build PricingPeriods
 		for _, period := range plp.PricingPlan.Periods {
 			if period.DeletedAt.Time.IsZero() {
 				switch period.Cadence {
@@ -109,6 +109,10 @@ func (r *PriceLineDetailResponse) SetPlans(priceLinePlans []*models.PriceLinePla
 					item.MonthlyPrice = &period.PriceUSD
 				case "yearly":
 					item.YearlyPrice = &period.PriceUSD
+				}
+				periodDTO := PricingPlanPeriodDTO{}
+				if err := periodDTO.FromModel(&period); err == nil {
+					item.PricingPeriods = append(item.PricingPeriods, periodDTO)
 				}
 			}
 		}
@@ -233,14 +237,15 @@ func (r *PriceLineAssignmentRequest) ToModel() (*models.PriceLineAssignment, err
 
 // PricingPlanItem represents a pricing plan in a list response
 type PricingPlanItem struct {
-	ID            uint      `json:"id"`
-	Name          string    `json:"name"`
-	Description   string    `json:"description"`
-	MonthlyPrice  *float64  `json:"monthly_price,omitempty"`
-	YearlyPrice   *float64  `json:"yearly_price,omitempty"`
-	Currency      string    `json:"currency"`
-	IsActive      bool      `json:"is_active"`
-	Position      int       `json:"position"`
+	ID              uint                    `json:"id"`
+	Name            string                  `json:"name"`
+	Description     string                  `json:"description"`
+	MonthlyPrice    *float64                `json:"monthly_price,omitempty"`
+	YearlyPrice     *float64                `json:"yearly_price,omitempty"`
+	Currency        string                  `json:"currency"`
+	IsActive        bool                    `json:"is_active"`
+	Position        int                     `json:"position"`
+	PricingPeriods  []PricingPlanPeriodDTO  `json:"pricing_periods"`
 }
 
 // PricingPlansListResponse is a swagger-only DTO that represents the paginated response for pricing plans.
