@@ -46,6 +46,7 @@ const (
 	ErrKeyPricingPlanCreateFailed core.ErrorType = "PRICING_PLAN_CREATE_FAILED"
 	ErrKeyPricingPlanUpdateFailed core.ErrorType = "PRICING_PLAN_UPDATE_FAILED"
 	ErrKeyPricingPlanDeleteFailed core.ErrorType = "PRICING_PLAN_DELETE_FAILED"
+	ErrKeyPricingPlanFetchFailed  core.ErrorType = "PRICING_PLAN_FETCH_FAILED"
 
 	// Price line errors
 	ErrKeyPriceLineNotFound         core.ErrorType = "PRICE_LINE_NOT_FOUND"
@@ -183,6 +184,7 @@ func init() {
 		ErrKeyPricingPlanCreateFailed: {Key: ErrKeyPricingPlanCreateFailed, Message: "Failed to create pricing plan"},
 		ErrKeyPricingPlanUpdateFailed: {Key: ErrKeyPricingPlanUpdateFailed, Message: "Failed to update pricing plan"},
 		ErrKeyPricingPlanDeleteFailed: {Key: ErrKeyPricingPlanDeleteFailed, Message: "Failed to delete pricing plan"},
+		ErrKeyPricingPlanFetchFailed:  {Key: ErrKeyPricingPlanFetchFailed, Message: "Failed to fetch pricing plan"},
 
 		// Price line errors
 		ErrKeyPriceLineNotFound:         {Key: ErrKeyPriceLineNotFound, Message: "Price line not found"},
@@ -249,6 +251,7 @@ func init() {
 		ErrKeyPricingPlanCreateFailed: http.StatusInternalServerError,
 		ErrKeyPricingPlanUpdateFailed: http.StatusInternalServerError,
 		ErrKeyPricingPlanDeleteFailed: http.StatusInternalServerError,
+		ErrKeyPricingPlanFetchFailed:  http.StatusInternalServerError,
 
 		// Price line errors
 		ErrKeyPriceLineNotFound:         http.StatusNotFound,

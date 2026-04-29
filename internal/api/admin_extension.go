@@ -16,6 +16,7 @@ import (
 	"go.lumeweb.com/portal-middleware/middleware"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
 	"go.lumeweb.com/portal-plugin-billing/internal/api/dto"
+	"go.lumeweb.com/portal-plugin-billing/internal/service/pricing"
 	_ "go.lumeweb.com/portal-plugin-billing/internal/api/dto"
 	"go.lumeweb.com/portal-plugin-billing/internal/db/models"
 	"go.lumeweb.com/portal-plugin-billing/pkg/ledger"
@@ -139,6 +140,18 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 				router.WithTags("Billing Admin"),
 				router.WithSuccessResponse(http.StatusOK, "",
 					router.WithJSONContent(dto.PricingPlansListResponse{})),
+			),
+			router.WithAccess(core.ACCESS_ADMIN_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
+		),
+		router.NewRoute(http.MethodGet, "/api/billing/pricing-plans/:id", e.handleGetPricingPlan,
+			router.WithSwagger(
+				router.WithSummary("Get Pricing Plan"),
+				router.WithDescription("Retrieves a specific pricing plan by ID with its pricing periods"),
+				router.WithTags("Billing Admin"),
+				router.WithPathParam("id", "Pricing Plan ID", "123"),
+				router.WithSuccessResponse(http.StatusOK, "",
+					router.WithJSONContent(dto.PricingPlanResponse{})),
 			),
 			router.WithAccess(core.ACCESS_ADMIN_ROLE),
 			router.WithMiddlewares(authMw, accessMw),
@@ -812,6 +825,43 @@ func (e *AdminExtension) handleDeletePricingPlan(c echo.Context) error {
 	return ctx.NoContent(http.StatusNoContent)
 }
 
+// handleGetPricingPlan retrieves a specific pricing plan by ID with its periods
+func (e *AdminExtension) handleGetPricingPlan(c echo.Context) error {
+	ctx := httputil.Context(c)
+	reqCtx := ctx.Context.Request().Context()
+
+	idStr := c.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 64)
+	if err != nil {
+		return ctx.Error(NewError(ErrKeyInvalidPlanID, fmt.Errorf("invalid id: %w", err)), http.StatusBadRequest)
+	}
+
+	// Fetch the plan with periods preloaded
+	plan, err := e.pricingService.GetPricingPlan(reqCtx, uint(id))
+	if err != nil {
+		if errors.Is(err, pricing.ErrPricingPlanNotFound) {
+			return ctx.Error(NewError(ErrKeyPricingPlanNotFound, fmt.Errorf("pricing plan with ID %d not found", id)), http.StatusNotFound)
+		}
+		e.Logger().Error("failed to fetch pricing plan", zap.Error(err))
+		return ctx.Error(NewError(ErrKeyPricingPlanFetchFailed, fmt.Errorf("failed to fetch pricing plan: %w", err)), http.StatusInternalServerError)
+	}
+
+	var resp dto.PricingPlanResponse
+	_ = resp.FromModel(plan)
+
+	// Fetch and populate pricing periods
+	periods, err := e.pricingService.GetPricingPlanPeriods(reqCtx, plan.ID)
+	if err != nil {
+		e.Logger().Error("failed to fetch pricing periods for plan",
+			zap.Uint("plan_id", plan.ID),
+			zap.Error(err))
+	} else {
+		resp.SetPricingPeriods(periods)
+	}
+
+	return ctx.JSON(http.StatusOK, resp)
+}
+
 // handleListPricingPlans lists all pricing plans with filtering
 func (e *AdminExtension) handleListPricingPlans(c echo.Context) error {
 	ctx := httputil.Context(c)
@@ -827,6 +877,17 @@ func (e *AdminExtension) handleListPricingPlans(c echo.Context) error {
 		func(plan *models.PricingPlan) dto.PricingPlanResponse {
 			var resp dto.PricingPlanResponse
 			_ = resp.FromModel(plan)
+
+			// Fetch and populate pricing periods
+			periods, err := e.pricingService.GetPricingPlanPeriods(reqCtx, plan.ID)
+			if err != nil {
+				e.Logger().Error("failed to fetch pricing periods for plan",
+					zap.Uint("plan_id", plan.ID),
+					zap.Error(err))
+			} else {
+				resp.SetPricingPeriods(periods)
+			}
+
 			return resp
 		},
 	)

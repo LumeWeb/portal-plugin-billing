@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
 	"go.lumeweb.com/portal-plugin-billing/internal/api/dto"
+	"go.lumeweb.com/portal-plugin-billing/internal/service/pricing"
 	"go.lumeweb.com/portal/core"
 	coreTesting "go.lumeweb.com/portal/core/testing"
 	"go.lumeweb.com/queryutil"
@@ -551,6 +552,9 @@ func TestAdminHandleListPricingPlans_FilterByPeriod(t *testing.T) {
 		ts.pricingSvc.EXPECT().GetPricingPlans(mock.Anything, uint(0), mock.Anything, mock.Anything, mock.Anything).
 			Return(plans, int64(1), nil).Once()
 
+		// Mock pricing periods for the plan
+		ts.pricingSvc.EXPECT().GetPricingPlanPeriods(mock.Anything, uint(1)).Return([]*internalModels.PricingPlanPeriod{}, nil).Once()
+
 		// Create request with filter (this would need to be implemented in the handler)
 		req, err := ts.createAuthenticatedRequest(ctx, "GET", "/api/billing/pricing-plans", nil, "1")
 		require.NoError(tb, err)
@@ -816,6 +820,10 @@ func TestAdminHandleListPricingPlans_Success(t *testing.T) {
 		ts.pricingSvc.EXPECT().GetPricingPlans(mock.Anything, uint(0), mock.Anything, mock.Anything, mock.Anything).
 			Return(plans, int64(2), nil).Once()
 
+		// Mock pricing periods for each plan
+		ts.pricingSvc.EXPECT().GetPricingPlanPeriods(mock.Anything, uint(1)).Return([]*internalModels.PricingPlanPeriod{}, nil).Once()
+		ts.pricingSvc.EXPECT().GetPricingPlanPeriods(mock.Anything, uint(2)).Return([]*internalModels.PricingPlanPeriod{}, nil).Once()
+
 		// Create request
 		req, err := ts.createAuthenticatedRequest(ctx, "GET", "/api/billing/pricing-plans", nil, "1")
 		require.NoError(tb, err)
@@ -848,6 +856,9 @@ func TestAdminHandleListPricingPlans_WithFilters(t *testing.T) {
 		ts.pricingSvc.EXPECT().GetPricingPlans(mock.Anything, uint(0), mock.Anything, mock.Anything, mock.Anything).
 			Return(plans, int64(1), nil).Once()
 
+		// Mock pricing periods for the plan
+		ts.pricingSvc.EXPECT().GetPricingPlanPeriods(mock.Anything, uint(1)).Return([]*internalModels.PricingPlanPeriod{}, nil).Once()
+
 		// Create request with filters
 		req, err := ts.createAuthenticatedRequest(ctx, "GET", "/api/billing/pricing-plans?filter[name]=Active", nil, "1")
 		require.NoError(tb, err)
@@ -864,6 +875,163 @@ func TestAdminHandleListPricingPlans_WithFilters(t *testing.T) {
 		err = json.Unmarshal(w.Body.Bytes(), &response)
 		assert.NoError(tb, err)
 		assert.Len(tb, response.Data, 1)
+	}, getAdminAPITestOptions())
+}
+
+// Get Pricing Plan Tests
+
+func TestAdminHandleGetPricingPlan_Success(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
+
+		// Mock pricing plan
+		plan := createMockPricingPlan(13, "Test Plan", "Test description", "USD", true, true)
+
+		// Mock periods for this plan
+		periods := []*internalModels.PricingPlanPeriod{
+			{
+				Model:         gorm.Model{ID: 12},
+				PricingPlanID: 13,
+				Cadence:       "monthly",
+				PriceUSD:      10.00,
+				QuotaPlanID:   1,
+			},
+		}
+
+		// Mock pricing service to return the plan
+		ts.pricingSvc.EXPECT().GetPricingPlan(mock.Anything, uint(13)).Return(plan, nil).Once()
+
+		// Mock pricing service to return periods
+		ts.pricingSvc.EXPECT().GetPricingPlanPeriods(mock.Anything, uint(13)).Return(periods, nil).Once()
+
+		// Create request
+		req, err := ts.createAuthenticatedRequest(ctx, "GET", "/api/billing/pricing-plans/13", nil, "1")
+		require.NoError(tb, err)
+		w := httptest.NewRecorder()
+
+		// Execute
+		ts.router.ServeHTTP(w, req)
+
+		// Verify
+		assert.Equal(tb, http.StatusOK, w.Code)
+
+		// Parse response
+		var response dto.PricingPlanResponse
+		err = json.Unmarshal(w.Body.Bytes(), &response)
+		assert.NoError(tb, err)
+
+		// Verify plan data
+		assert.Equal(tb, uint(13), response.ID)
+		assert.Equal(tb, "Test Plan", response.Name)
+		assert.Equal(tb, "Test description", response.Description)
+		assert.Equal(tb, "USD", response.Currency)
+		assert.True(tb, response.IsActive)
+		assert.True(tb, response.IsPublic)
+
+		// Verify periods are populated
+		assert.Len(tb, response.PricingPeriods, 1)
+		assert.Equal(tb, uint(12), response.PricingPeriods[0].ID)
+		assert.Equal(tb, "monthly", response.PricingPeriods[0].Cadence)
+		assert.Equal(tb, 10.00, response.PricingPeriods[0].PriceUSD)
+		assert.Equal(tb, uint(1), response.PricingPeriods[0].QuotaPlanID)
+	}, getAdminAPITestOptions())
+}
+
+func TestAdminHandleGetPricingPlan_NotFound(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
+
+		// Mock pricing service to return not found error
+		ts.pricingSvc.EXPECT().GetPricingPlan(mock.Anything, uint(999)).
+			Return(nil, pricing.ErrPricingPlanNotFound).Once()
+
+		// Create request
+		req, err := ts.createAuthenticatedRequest(ctx, "GET", "/api/billing/pricing-plans/999", nil, "1")
+		require.NoError(tb, err)
+		w := httptest.NewRecorder()
+
+		// Execute
+		ts.router.ServeHTTP(w, req)
+
+		// Verify - should return 404
+		assert.Equal(tb, http.StatusNotFound, w.Code)
+	}, getAdminAPITestOptions())
+}
+
+func TestAdminHandleGetPricingPlan_InvalidID(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
+
+		// Create request with invalid ID
+		req, err := ts.createAuthenticatedRequest(ctx, "GET", "/api/billing/pricing-plans/invalid", nil, "1")
+		require.NoError(tb, err)
+		w := httptest.NewRecorder()
+
+		// Execute
+		ts.router.ServeHTTP(w, req)
+
+		// Verify - should return 400
+		assert.Equal(tb, http.StatusBadRequest, w.Code)
+	}, getAdminAPITestOptions())
+}
+
+func TestAdminHandleGetPricingPlan_WithMultiplePeriods(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
+
+		// Mock pricing plan
+		plan := createMockPricingPlan(13, "Test Plan", "Test description", "USD", true, true)
+
+		// Mock multiple periods for this plan
+		periods := []*internalModels.PricingPlanPeriod{
+			{
+				Model:         gorm.Model{ID: 12},
+				PricingPlanID: 13,
+				Cadence:       "monthly",
+				PriceUSD:      10.00,
+				QuotaPlanID:   1,
+			},
+			{
+				Model:         gorm.Model{ID: 13},
+				PricingPlanID: 13,
+				Cadence:       "yearly",
+				PriceUSD:      100.00,
+				QuotaPlanID:   1,
+			},
+		}
+
+		// Mock pricing service
+		ts.pricingSvc.EXPECT().GetPricingPlan(mock.Anything, uint(13)).Return(plan, nil).Once()
+		ts.pricingSvc.EXPECT().GetPricingPlanPeriods(mock.Anything, uint(13)).Return(periods, nil).Once()
+
+		// Create request
+		req, err := ts.createAuthenticatedRequest(ctx, "GET", "/api/billing/pricing-plans/13", nil, "1")
+		require.NoError(tb, err)
+		w := httptest.NewRecorder()
+
+		// Execute
+		ts.router.ServeHTTP(w, req)
+
+		// Verify
+		assert.Equal(tb, http.StatusOK, w.Code)
+
+		// Parse response
+		var response dto.PricingPlanResponse
+		err = json.Unmarshal(w.Body.Bytes(), &response)
+		assert.NoError(tb, err)
+
+		// Verify periods are populated correctly
+		assert.Len(tb, response.PricingPeriods, 2)
+
+		// First period
+		assert.Equal(tb, uint(12), response.PricingPeriods[0].ID)
+		assert.Equal(tb, "monthly", response.PricingPeriods[0].Cadence)
+		assert.Equal(tb, 10.00, response.PricingPeriods[0].PriceUSD)
+
+		// Second period
+		assert.Equal(tb, uint(13), response.PricingPeriods[1].ID)
+		assert.Equal(tb, "yearly", response.PricingPeriods[1].Cadence)
+		assert.Equal(tb, 100.00, response.PricingPeriods[1].PriceUSD)
 	}, getAdminAPITestOptions())
 }
 
