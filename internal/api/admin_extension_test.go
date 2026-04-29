@@ -2343,7 +2343,7 @@ func TestAdminExtension_CreatePricingPlanPeriod_Validation_RollingDays(t *testin
 	req := dto.PricingPlanPeriodCreateRequest{
 		PricingPlanID: 1,
 		Cadence:       "monthly",
-		PriceUSD:      9.99,
+		PriceUSD:      new(9.99),
 		QuotaPlanID:   123,
 		RollingDays:   &rollingDays,
 	}
@@ -2604,7 +2604,7 @@ func TestPricingPlanPeriodCreateRequest_ToModel_Success(t *testing.T) {
 	req := dto.PricingPlanPeriodCreateRequest{
 		PricingPlanID: 1,
 		Cadence:       "rolling",
-		PriceUSD:      9.99,
+		PriceUSD:      new(9.99),
 		QuotaPlanID:   123,
 		RollingDays:   &rollDays,
 	}
@@ -2630,7 +2630,7 @@ func TestPricingPlanPeriodCreateRequest_ToModel_ValidationError(t *testing.T) {
 			req: dto.PricingPlanPeriodCreateRequest{
 				PricingPlanID: 1,
 				Cadence:       "monthly",
-				PriceUSD:      9.99,
+				PriceUSD:      new(9.99),
 				QuotaPlanID:   123,
 				RollingDays:   intPtr(30),
 			},
@@ -2641,7 +2641,7 @@ func TestPricingPlanPeriodCreateRequest_ToModel_ValidationError(t *testing.T) {
 			req: dto.PricingPlanPeriodCreateRequest{
 				PricingPlanID: 1,
 				Cadence:       "rolling",
-				PriceUSD:      9.99,
+				PriceUSD:      new(9.99),
 				QuotaPlanID:   123,
 				RollingDays:   nil,
 			},
@@ -2652,7 +2652,7 @@ func TestPricingPlanPeriodCreateRequest_ToModel_ValidationError(t *testing.T) {
 			req: dto.PricingPlanPeriodCreateRequest{
 				PricingPlanID: 1,
 				Cadence:       "monthly",
-				PriceUSD:      0,
+				PriceUSD:      new(0.0),
 				QuotaPlanID:   123,
 			},
 			wantErr: true,
@@ -2674,7 +2674,7 @@ func TestPricingPlanPeriodCreateRequest_ToModel_ValidationError(t *testing.T) {
 func TestPricingPlanPeriodUpdateRequest_ToModel_Success(t *testing.T) {
 	newPrice := 19.99
 	req := dto.PricingPlanPeriodUpdateRequest{
-		PriceUSD: newPrice,
+		PriceUSD: &newPrice,
 	}
 
 	model, err := req.ToModel()

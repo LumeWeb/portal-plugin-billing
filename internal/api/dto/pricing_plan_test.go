@@ -78,6 +78,8 @@ func TestPricingPlanResponse_WithPricingPeriods(t *testing.T) {
 	assert.Equal(t, 199.99, response.PricingPeriods[1].PriceUSD)
 }
 
+
+
 func TestPricingPlanCreateRequest_WithPricingPeriods(t *testing.T) {
 	// Test that PricingPlanCreateRequest accepts PricingPeriods array
 	isActive := true
@@ -85,10 +87,10 @@ func TestPricingPlanCreateRequest_WithPricingPeriods(t *testing.T) {
 	request := PricingPlanCreateRequest{
 		Name:        "Basic Plan",
 		Description: "Basic subscription plan",
-		PricingPeriods: []PricingPlanPeriodDTO{
+		PricingPeriods: []PricingPeriodCreateInput{
 			{
 				Cadence:     string(subscription.CadenceMonthly),
-				PriceUSD:    19.99,
+				PriceUSD:    new(19.99),
 				QuotaPlanID: 100,
 				RollingDays: nil,
 			},
@@ -100,7 +102,7 @@ func TestPricingPlanCreateRequest_WithPricingPeriods(t *testing.T) {
 
 	assert.Equal(t, "Basic Plan", request.Name)
 	assert.Len(t, request.PricingPeriods, 1)
-	assert.Equal(t, 19.99, request.PricingPeriods[0].PriceUSD)
+	assert.Equal(t, 19.99, *request.PricingPeriods[0].PriceUSD)
 	assert.NotNil(t, request.IsActive)
 	assert.True(t, *request.IsActive)
 }
@@ -110,7 +112,7 @@ func TestPricingPlanCreateRequest_Validation(t *testing.T) {
 	request := PricingPlanCreateRequest{
 		Name:           "Test Plan",
 		Description:    "Test description",
-		PricingPeriods: []PricingPlanPeriodDTO{}, // Empty array should fail
+		PricingPeriods: []PricingPeriodCreateInput{}, // Empty array should fail
 		Currency:       "USD",
 	}
 
@@ -129,10 +131,10 @@ func TestPricingPlanUpdateRequest_WithPricingPeriods(t *testing.T) {
 	request := PricingPlanUpdateRequest{
 		Name:        "Updated Plan",
 		Description: "Updated description",
-		PricingPeriods: []PricingPlanPeriodDTO{
+		PricingPeriods: []PricingPeriodInput{
 			{
 				Cadence:     string(subscription.CadenceMonthly),
-				PriceUSD:    29.99,
+				PriceUSD:    new(29.99),
 				QuotaPlanID: 100,
 				RollingDays: nil,
 			},
@@ -144,7 +146,7 @@ func TestPricingPlanUpdateRequest_WithPricingPeriods(t *testing.T) {
 
 	assert.Equal(t, "Updated Plan", request.Name)
 	assert.Len(t, request.PricingPeriods, 1)
-	assert.Equal(t, 29.99, request.PricingPeriods[0].PriceUSD)
+	assert.Equal(t, 29.99, *request.PricingPeriods[0].PriceUSD)
 }
 
 func TestPricingPlanResponse_FromModel_WithPricingPeriods(t *testing.T) {
@@ -176,10 +178,10 @@ func TestPricingPlanCreateRequest_ToModel_WithPricingPeriods(t *testing.T) {
 	request := &PricingPlanCreateRequest{
 		Name:        "Basic Plan",
 		Description: "Basic subscription plan",
-		PricingPeriods: []PricingPlanPeriodDTO{
+		PricingPeriods: []PricingPeriodCreateInput{
 			{
 				Cadence:     string(subscription.CadenceMonthly),
-				PriceUSD:    19.99,
+				PriceUSD:    new(19.99),
 				QuotaPlanID: 100,
 				RollingDays: nil,
 			},
@@ -203,10 +205,10 @@ func TestPricingPlanUpdateRequest_ToModel_WithPricingPeriods(t *testing.T) {
 	request := &PricingPlanUpdateRequest{
 		Name:        "Updated Plan",
 		Description: "Updated description",
-		PricingPeriods: []PricingPlanPeriodDTO{
+		PricingPeriods: []PricingPeriodInput{
 			{
 				Cadence:     string(subscription.CadenceMonthly),
-				PriceUSD:    29.99,
+				PriceUSD:    new(29.99),
 				QuotaPlanID: 100,
 				RollingDays: nil,
 			},
@@ -220,6 +222,66 @@ func TestPricingPlanUpdateRequest_ToModel_WithPricingPeriods(t *testing.T) {
 	assert.NotNil(t, model)
 	assert.Equal(t, "Updated Plan", model.Name)
 	assert.Equal(t, "USD", model.Currency)
+}
+
+func TestPricingPlanPeriodCreateRequest_AllowFree_Success(t *testing.T) {
+	allowFree := true
+	req := PricingPlanPeriodCreateRequest{
+		PricingPlanID: 1,
+		Cadence:       "monthly",
+		PriceUSD:      new(0.0),
+		QuotaPlanID:   123,
+		AllowFree:     &allowFree,
+	}
+
+	model, err := req.ToModel()
+
+	require.NoError(t, err)
+	assert.Equal(t, float64(0), model.PriceUSD)
+}
+
+func TestPricingPlanPeriodCreateRequest_ZeroPrice_WithoutAllowFree_Fails(t *testing.T) {
+	req := PricingPlanPeriodCreateRequest{
+		PricingPlanID: 1,
+		Cadence:       "monthly",
+		PriceUSD:      new(0.0),
+		QuotaPlanID:   123,
+	}
+
+	_, err := req.ToModel()
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "use allow_free for $0 plans")
+}
+
+func TestPricingPlanPeriodCreateRequest_ZeroPrice_WithAllowFreeFalse_Fails(t *testing.T) {
+	allowFree := false
+	req := PricingPlanPeriodCreateRequest{
+		PricingPlanID: 1,
+		Cadence:       "monthly",
+		PriceUSD:      new(0.0),
+		QuotaPlanID:   123,
+		AllowFree:     &allowFree,
+	}
+
+	_, err := req.ToModel()
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "use allow_free for $0 plans")
+}
+
+func TestPricingPlanPeriodCreateRequest_NegativePrice_Fails(t *testing.T) {
+	req := PricingPlanPeriodCreateRequest{
+		PricingPlanID: 1,
+		Cadence:       "monthly",
+		PriceUSD:      new(-5.0),
+		QuotaPlanID:   123,
+	}
+
+	_, err := req.ToModel()
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "price must not be negative")
 }
 
 func TestSubscriptionStatusResponse_WithPricingPlanPeriodID(t *testing.T) {
