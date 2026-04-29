@@ -10,6 +10,7 @@ import (
 	"github.com/stripe/stripe-go/v85"
 	"go.lumeweb.com/portal/core"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
+	"go.lumeweb.com/portal-plugin-billing/internal/gateway"
 	billingModels "go.lumeweb.com/portal-plugin-billing/internal/db/models"
 	quotaCore "go.lumeweb.com/portal-plugin-quota/core"
 	coreTesting "go.lumeweb.com/portal/core/testing"
@@ -171,22 +172,22 @@ func TestStripeGateway_GetCheckoutUI_Success(t *testing.T) {
 	})
 }
 
-// testOptionsWithAccountAPI creates a test option that registers a mock "account" API
-// with subdomain "account" and configures the HTTP service to return the subdomain domain.
-func testOptionsWithAccountAPI(tb coreTesting.TB) coreTesting.TestContextBuilderOption {
-	return coreTesting.WithAPI("account", func() (core.API, []core.ContextBuilderOption, error) {
-		return coreTesting.NewMockAPI(tb, "account").WithSubdomain("account"), nil, nil
+// testOptionsWithDashboardAPI creates a test option that registers a mock "dashboard" API
+// with subdomain "dashboard" and configures the HTTP service to return the subdomain domain.
+func testOptionsWithDashboardAPI(tb coreTesting.TB) coreTesting.TestContextBuilderOption {
+	return coreTesting.WithAPI(gateway.DashboardPluginID, func() (core.API, []core.ContextBuilderOption, error) {
+		return coreTesting.NewMockAPI(tb, gateway.DashboardPluginID).WithSubdomain("account"), nil, nil
 	})
 }
 
-func TestGetCheckoutSuccessURL_WithAccountAPI(t *testing.T) {
+func TestGetCheckoutSuccessURL_WithDashboardAPI(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		mockQuota, mockUsers, mockBilling, mockPricing, mockCredit := setupCheckoutMocks(ctx)
 		gw := createGateway(ctx, "sk_test", nil, mockQuota, mockUsers, mockBilling, mockPricing, mockCredit)
 
 		result := gw.getCheckoutSuccessURL()
 		assert.Equal(t, "https://account.test.local/billing/checkout/success", result)
-	}, testOptionsWithAccountAPI(t))
+	}, testOptionsWithDashboardAPI(t))
 }
 
 func TestGetCheckoutSuccessURL_FallbackToRelative(t *testing.T) {
@@ -199,14 +200,14 @@ func TestGetCheckoutSuccessURL_FallbackToRelative(t *testing.T) {
 	})
 }
 
-func TestGetCheckoutCancelURL_WithAccountAPI(t *testing.T) {
+func TestGetCheckoutCancelURL_WithDashboardAPI(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		mockQuota, mockUsers, mockBilling, mockPricing, mockCredit := setupCheckoutMocks(ctx)
 		gw := createGateway(ctx, "sk_test", nil, mockQuota, mockUsers, mockBilling, mockPricing, mockCredit)
 
 		result := gw.getCheckoutCancelURL()
 		assert.Equal(t, "https://account.test.local/billing/checkout/cancel", result)
-	}, testOptionsWithAccountAPI(t))
+	}, testOptionsWithDashboardAPI(t))
 }
 
 func TestGetCheckoutCancelURL_FallbackToRelative(t *testing.T) {
