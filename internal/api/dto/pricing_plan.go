@@ -321,6 +321,16 @@ func (r PricingPlanPeriodCreateRequest) Schema() *z.StructSchema {
 	})
 }
 
+func validatePrice(price float64, allowFree *bool) error {
+	if price < 0 {
+		return fmt.Errorf("price must not be negative")
+	}
+	if price == 0 && (allowFree == nil || !*allowFree) {
+		return fmt.Errorf("price must be greater than 0 (use allow_free for $0 plans)")
+	}
+	return nil
+}
+
 func (r PricingPlanPeriodCreateRequest) ToModel() (*models.PricingPlanPeriod, error) {
 	if r.RollingDays != nil && r.Cadence != "rolling" {
 		return nil, fmt.Errorf("rolling_days can only be set for 'rolling' cadence")
@@ -328,11 +338,8 @@ func (r PricingPlanPeriodCreateRequest) ToModel() (*models.PricingPlanPeriod, er
 	if r.Cadence == "rolling" && r.RollingDays == nil {
 		return nil, fmt.Errorf("rolling_days is required for 'rolling' cadence")
 	}
-	if r.PriceUSD < 0 {
-		return nil, fmt.Errorf("price must not be negative")
-	}
-	if r.PriceUSD == 0 && (r.AllowFree == nil || !*r.AllowFree) {
-		return nil, fmt.Errorf("price must be greater than 0 (use allow_free for $0 plans)")
+	if err := validatePrice(r.PriceUSD, r.AllowFree); err != nil {
+		return nil, err
 	}
 
 	return &models.PricingPlanPeriod{
@@ -376,9 +383,9 @@ func (r PricingPlanPeriodUpdateRequest) ToModel() (*models.PricingPlanPeriod, er
 		period.Cadence = r.Cadence
 	}
 
-	if r.PriceUSD != 0 {
-		if r.PriceUSD < 0 {
-			return nil, fmt.Errorf("price must not be negative")
+	if r.PriceUSD != 0 || (r.AllowFree != nil && *r.AllowFree) {
+		if err := validatePrice(r.PriceUSD, r.AllowFree); err != nil {
+			return nil, err
 		}
 		period.PriceUSD = r.PriceUSD
 	}
