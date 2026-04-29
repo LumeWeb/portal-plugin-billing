@@ -63,6 +63,7 @@ const (
 	// Gateway errors
 	ErrKeyGatewayNotFound           core.ErrorType = "GATEWAY_NOT_FOUND"
 	ErrKeyGatewayLogoNotFound       core.ErrorType = "GATEWAY_LOGO_NOT_FOUND"
+	ErrKeyGatewayNotSupported       core.ErrorType = "GATEWAY_NOT_SUPPORTED"
 
 	// Checkout errors
 	ErrKeyCheckoutSubscriptionActive    core.ErrorType = "CHECKOUT_SUBSCRIPTION_ACTIVE"

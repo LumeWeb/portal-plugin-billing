@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"strconv"
 	"strings"
+	"text/template"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -97,6 +98,9 @@ import (
 
 //go:embed assets/*.svg
 var gatewayLogoFiles embed.FS
+
+//go:embed templates/*.tpl
+var templatesFS embed.FS
 
 const (
 	GatewayID                             = "stripe"
@@ -256,6 +260,7 @@ type StripeGateway struct {
 	coreCtx             core.Context
 	endpointSecret      string
 	secretKey           string
+	publishableKey      string
 	stripeClient        Client
 	quota               quotaCore.QuotaService
 	users               core.UserService
@@ -290,6 +295,13 @@ type ProrationComparison struct {
 	InvoiceAnalysis   *InvoiceProrationAnalysis
 }
 
+// EmbeddedCheckoutData holds template data for the embedded checkout form.
+type EmbeddedCheckoutData struct {
+	PublishableKey string
+	ClientSecret   string
+	Appearance     string
+}
+
 // newGateway is the internal constructor that creates a StripeGateway instance
 // with a custom filesystem
 func newGateway(coreCtx core.Context, logger *core.Logger, cfg *config.ServiceConfig, quota quotaCore.QuotaService, users core.UserService, billing pluginCore.BillingService, pricing pluginCore.PricingService, credit pluginCore.CreditService, fs fs.FS) *StripeGateway {
@@ -321,6 +333,7 @@ func newGateway(coreCtx core.Context, logger *core.Logger, cfg *config.ServiceCo
 		coreCtx:             coreCtx,
 		endpointSecret:      cfg.Stripe.WebhookSecret,
 		secretKey:           cfg.Stripe.SecretKey,
+		publishableKey:      cfg.Stripe.PublishableKey,
 		stripeClient:        stripeClient,
 		quota:               quota,
 		users:               users,
@@ -1991,10 +2004,11 @@ func (g *StripeGateway) GetCheckoutUI(ctx context.Context, userID uint, planID u
 				return nil, fmt.Errorf("failed to get/create stripe customer: %w", err)
 			}
 
-			// 6. Create checkout session
+			// 6. Create checkout session with embedded UI
 			priceID := mapping.RemotePriceID
 			params := &stripe.CheckoutSessionCreateParams{
-				Mode: stripe.String(stripe.CheckoutSessionModeSubscription),
+				UIMode:  stripe.String(string(stripe.CheckoutSessionUIModeEmbeddedPage)),
+				Mode:    stripe.String(stripe.CheckoutSessionModeSubscription),
 				LineItems: []*stripe.CheckoutSessionCreateLineItemParams{
 					{
 						Price:    stripe.String(priceID),
@@ -2003,8 +2017,9 @@ func (g *StripeGateway) GetCheckoutUI(ctx context.Context, userID uint, planID u
 				},
 				Customer:          stripe.String(customerID),
 				ClientReferenceID: stripe.String(strconv.FormatUint(uint64(userID), 10)),
-				SuccessURL:        stripe.String(g.getCheckoutSuccessURL()),
-				CancelURL:         stripe.String(g.getCheckoutCancelURL()),
+				ReturnURL:         stripe.String(g.getCheckoutReturnURL()),
+				AutomaticTax:    &stripe.CheckoutSessionCreateAutomaticTaxParams{Enabled: stripe.Bool(true)},
+				AllowPromotionCodes: stripe.Bool(true),
 			}
 
 			session, err := g.stripeClient.V1CheckoutSessions().Create(ctx, params)
@@ -2017,16 +2032,19 @@ func (g *StripeGateway) GetCheckoutUI(ctx context.Context, userID uint, planID u
 				return nil, fmt.Errorf("failed to create checkout session: %w", err)
 			}
 
-			// 7. Build response with link fragment
+			// 7. Build response with embedded checkout HTML fragment
+			fragment, err := g.buildEmbeddedCheckoutFragment(session.ClientSecret)
+			if err != nil {
+				g.logger.Error("failed to build embedded checkout fragment",
+					zap.Error(err),
+					zap.String("session_id", session.ID))
+				return nil, fmt.Errorf("failed to build checkout fragment: %w", err)
+			}
+
 			response := &pluginCore.CheckoutUIResponse{
 				SessionID: session.ID,
 				ExpiresAt: time.Unix(session.ExpiresAt, 0),
-				Fragments: []pluginCore.CheckoutUIFragment{
-					{
-						Type: pluginCore.FragmentTypeLink,
-						Link: session.URL,
-					},
-				},
+				Fragments: []pluginCore.CheckoutUIFragment{fragment},
 			}
 
 			g.logger.Debug("checkout session created",
@@ -2041,17 +2059,35 @@ func (g *StripeGateway) GetCheckoutUI(ctx context.Context, userID uint, planID u
 	)
 }
 
-// getCheckoutSuccessURL returns the success URL for checkout
-func (g *StripeGateway) getCheckoutSuccessURL() string {
+// getCheckoutReturnURL returns the return URL for embedded checkout completion
+func (g *StripeGateway) getCheckoutReturnURL() string {
 	http := core.GetService[core.HTTPService](g.coreCtx, core.HTTP_SERVICE)
 	secure := g.coreCtx.Config().Config().Core.Secure
-	return gateway.BuildAbsoluteURL(http, gateway.DashboardPluginID, "/billing/checkout/success", secure)
+	return gateway.BuildAbsoluteURL(http, gateway.DashboardPluginID, "/billing/checkout/return?session_id={CHECKOUT_SESSION_ID}", secure)
 }
 
-func (g *StripeGateway) getCheckoutCancelURL() string {
-	http := core.GetService[core.HTTPService](g.coreCtx, core.HTTP_SERVICE)
-	secure := g.coreCtx.Config().Config().Core.Secure
-	return gateway.BuildAbsoluteURL(http, gateway.DashboardPluginID, "/billing/checkout/cancel", secure)
+// buildEmbeddedCheckoutFragment creates an HTML fragment with embedded checkout UI
+func (g *StripeGateway) buildEmbeddedCheckoutFragment(clientSecret string) (pluginCore.CheckoutUIFragment, error) {
+	tmpl, err := template.New("embeddedCheckout").ParseFS(templatesFS, "templates/embedded_checkout.tpl")
+	if err != nil {
+		return pluginCore.CheckoutUIFragment{}, fmt.Errorf("failed to parse template: %w", err)
+	}
+
+	data := EmbeddedCheckoutData{
+		PublishableKey: g.publishableKey,
+		ClientSecret:   clientSecret,
+		Appearance:     "stripe", // Default theme; could be configurable
+	}
+
+	var htmlBuf strings.Builder
+	if err := tmpl.ExecuteTemplate(&htmlBuf, "embedded_checkout.tpl", data); err != nil {
+		return pluginCore.CheckoutUIFragment{}, fmt.Errorf("failed to execute template: %w", err)
+	}
+
+	return pluginCore.CheckoutUIFragment{
+		Type: pluginCore.FragmentTypeHTML,
+		HTML: htmlBuf.String(),
+	}, nil
 }
 
 // getOrCreateStripeCustomer gets an existing or creates a new Stripe customer
@@ -3466,4 +3502,43 @@ func (g *StripeGateway) ExecutePlanChange(
 		Action:        pluginCore.PlanChangeActionComplete,
 		EffectiveDate: new(time.Now()),
 	}, nil
+}
+
+// GetSessionStatus retrieves the current status of a checkout session.
+// Implements the SessionStatusProvider interface for embedded checkout return page verification.
+func (g *StripeGateway) GetSessionStatus(ctx context.Context, sessionID string) (*pluginCore.SessionStatus, error) {
+	ctx, span := core.TraceMethod(ctx, "StripeGateway.GetSessionStatus")
+	defer span.End()
+
+	session, err := g.stripeClient.V1CheckoutSessions().Retrieve(ctx, sessionID, &stripe.CheckoutSessionRetrieveParams{
+		Expand: []*string{
+			stripe.String("customer_details"),
+			stripe.String("customer"),
+		},
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve checkout session: %w", err)
+	}
+
+	status := &pluginCore.SessionStatus{
+		SessionID: session.ID,
+		Status:    string(session.Status),
+	}
+
+	// Extract customer email if available
+	if session.CustomerDetails != nil && session.CustomerDetails.Email != "" {
+		status.CustomerEmail = string(session.CustomerDetails.Email)
+	} else if session.Customer != nil && session.Customer.Email != "" {
+		status.CustomerEmail = string(session.Customer.Email)
+	}
+
+	// Extract user ID from ClientReferenceID for ownership verification
+	if session.ClientReferenceID != "" {
+		if userID, err := strconv.ParseUint(session.ClientReferenceID, 10, 64); err == nil {
+			status.UserID = uint(userID)
+		}
+	}
+
+	return status, nil
 }
