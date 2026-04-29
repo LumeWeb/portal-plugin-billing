@@ -188,7 +188,7 @@ type AddPlanToPriceLineRequest struct {
 func (r AddPlanToPriceLineRequest) Schema() *z.StructSchema {
 	return z.Struct(z.Shape{
 		"PlanID":   z.Uint().Required(),
-		"Position": z.Ptr(z.Int()).NotNil(),
+		"Position": z.Ptr(z.Int()),
 	})
 }
 
@@ -240,7 +240,7 @@ type PricingPlanItem struct {
 	YearlyPrice   *float64  `json:"yearly_price,omitempty"`
 	Currency      string    `json:"currency"`
 	IsActive      bool      `json:"is_active"`
-	Position      int       `json:"position,omitempty"`
+	Position      int       `json:"position"`
 }
 
 // PricingPlansListResponse is a swagger-only DTO that represents the paginated response for pricing plans.

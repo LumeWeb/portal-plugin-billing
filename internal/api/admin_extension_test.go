@@ -1375,6 +1375,103 @@ func TestAdminHandleAddPlanToPriceLine_InvalidID(t *testing.T) {
 	}, getAdminAPITestOptions())
 }
 
+func TestAdminHandleAddPlanToPriceLine_AutoPosition(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
+
+		line := createMockPriceLine(1, "Test Price Line", "Test description", true, false)
+		plan := createMockPricingPlan(1, "Test Plan", "Test plan description", "USD", true, true)
+
+		ts.pricingSvc.EXPECT().GetPriceLine(mock.Anything, uint(1)).Return(line, nil).Once()
+		ts.pricingSvc.EXPECT().GetPricingPlan(mock.Anything, uint(1)).Return(plan, nil).Once()
+		// Auto-position: 2 existing plans → position = 2
+		existingPlans := []*internalModels.PriceLinePlan{
+			{PriceLineID: 1, PlanID: 10, Position: 0},
+			{PriceLineID: 1, PlanID: 20, Position: 1},
+		}
+		ts.pricingSvc.EXPECT().GetPriceLinePlans(mock.Anything, uint(1)).Return(existingPlans, nil).Once()
+		ts.pricingSvc.EXPECT().AddPlanToPriceLine(mock.Anything, uint(1), uint(1), 2).Return(nil).Once()
+		ts.pricingSvc.EXPECT().GetPriceLinePlans(mock.Anything, uint(1)).Return([]*internalModels.PriceLinePlan{
+			{PriceLineID: 1, PlanID: 10, Position: 0},
+			{PriceLineID: 1, PlanID: 20, Position: 1},
+			{PriceLineID: 1, PlanID: 1, Position: 2},
+		}, nil).Once()
+
+		requestBody := map[string]any{
+			"plan_id": 1,
+			// No position — should auto-calculate
+		}
+		bodyBytes, _ := json.Marshal(requestBody)
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/billing/price-lines/1/plan", bodyBytes, "1")
+		require.NoError(tb, err)
+		w := httptest.NewRecorder()
+
+		ts.router.ServeHTTP(w, req)
+
+		assert.Equal(tb, http.StatusOK, w.Code)
+	}, getAdminAPITestOptions())
+}
+
+func TestAdminHandleAddPlanToPriceLine_AutoPosition_EmptyPriceLine(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
+
+		line := createMockPriceLine(1, "Test Price Line", "Test description", true, false)
+		plan := createMockPricingPlan(1, "Test Plan", "Test plan description", "USD", true, true)
+
+		ts.pricingSvc.EXPECT().GetPriceLine(mock.Anything, uint(1)).Return(line, nil).Once()
+		ts.pricingSvc.EXPECT().GetPricingPlan(mock.Anything, uint(1)).Return(plan, nil).Once()
+		// No existing plans → position = 0
+		ts.pricingSvc.EXPECT().GetPriceLinePlans(mock.Anything, uint(1)).Return([]*internalModels.PriceLinePlan{}, nil).Once()
+		ts.pricingSvc.EXPECT().AddPlanToPriceLine(mock.Anything, uint(1), uint(1), 0).Return(nil).Once()
+		ts.pricingSvc.EXPECT().GetPriceLinePlans(mock.Anything, uint(1)).Return([]*internalModels.PriceLinePlan{
+			{PriceLineID: 1, PlanID: 1, Position: 0},
+		}, nil).Once()
+
+		requestBody := map[string]any{
+			"plan_id": 1,
+		}
+		bodyBytes, _ := json.Marshal(requestBody)
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/billing/price-lines/1/plan", bodyBytes, "1")
+		require.NoError(tb, err)
+		w := httptest.NewRecorder()
+
+		ts.router.ServeHTTP(w, req)
+
+		assert.Equal(tb, http.StatusOK, w.Code)
+	}, getAdminAPITestOptions())
+}
+
+func TestAdminHandleAddPlanToPriceLine_AutoPosition_GetPlansFailed(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupAdminTest(ctx)
+
+		line := createMockPriceLine(1, "Test Price Line", "Test description", true, false)
+		plan := createMockPricingPlan(1, "Test Plan", "Test plan description", "USD", true, true)
+
+		ts.pricingSvc.EXPECT().GetPriceLine(mock.Anything, uint(1)).Return(line, nil).Once()
+		ts.pricingSvc.EXPECT().GetPricingPlan(mock.Anything, uint(1)).Return(plan, nil).Once()
+		// GetPriceLinePlans fails for position calc → falls back to position 0
+		ts.pricingSvc.EXPECT().GetPriceLinePlans(mock.Anything, uint(1)).Return(nil, errors.New("db error")).Once()
+		ts.pricingSvc.EXPECT().AddPlanToPriceLine(mock.Anything, uint(1), uint(1), 0).Return(nil).Once()
+		ts.pricingSvc.EXPECT().GetPriceLinePlans(mock.Anything, uint(1)).Return([]*internalModels.PriceLinePlan{
+			{PriceLineID: 1, PlanID: 1, Position: 0},
+		}, nil).Once()
+
+		requestBody := map[string]any{
+			"plan_id": 1,
+		}
+		bodyBytes, _ := json.Marshal(requestBody)
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/billing/price-lines/1/plan", bodyBytes, "1")
+		require.NoError(tb, err)
+		w := httptest.NewRecorder()
+
+		ts.router.ServeHTTP(w, req)
+
+		assert.Equal(tb, http.StatusOK, w.Code)
+	}, getAdminAPITestOptions())
+}
+
 func TestAdminHandleAddPlanToPriceLine_GetPriceLinePlansFailed(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		ts := setupAdminTest(ctx)
