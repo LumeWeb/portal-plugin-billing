@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/stripe/stripe-go/v83"
+	"github.com/stripe/stripe-go/v85"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"

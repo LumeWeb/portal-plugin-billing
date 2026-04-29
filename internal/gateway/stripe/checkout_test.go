@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"github.com/stripe/stripe-go/v83"
+	"github.com/stripe/stripe-go/v85"
 	"go.lumeweb.com/portal/core"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
 	billingModels "go.lumeweb.com/portal-plugin-billing/internal/db/models"
