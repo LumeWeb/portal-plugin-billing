@@ -3,7 +3,45 @@ package gateway
 import (
 	"fmt"
 	"io/fs"
+	"net/url"
+
+	"go.lumeweb.com/portal/core"
 )
+
+const AccountSubdomain = "account"
+
+// BuildAbsoluteURL constructs an absolute URL using the HTTP service's
+// APISubdomain helper. Falls back to the provided relative path when the
+// HTTP service is unavailable or parsing fails.
+//
+// The secure parameter determines the scheme: https if true, http if false.
+func BuildAbsoluteURL(http core.HTTPService, subdomainID, relativePath string, secure bool) string {
+	if http == nil {
+		return relativePath
+	}
+
+	base := http.APISubdomain(subdomainID, false)
+
+	// If base is empty, fall back to relative path
+	if base == "" {
+		return relativePath
+	}
+
+	// Determine scheme based on secure flag
+	scheme := "http"
+	if secure {
+		scheme = "https"
+	}
+
+	// Build URL struct directly
+	u := &url.URL{
+		Scheme: scheme,
+		Host:   base,
+		Path:   relativePath,
+	}
+
+	return u.String()
+}
 
 // ReadGatewayLogo reads a gateway logo file from an embedded filesystem.
 //

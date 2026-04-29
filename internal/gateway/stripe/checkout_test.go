@@ -171,6 +171,54 @@ func TestStripeGateway_GetCheckoutUI_Success(t *testing.T) {
 	})
 }
 
+// testOptionsWithAccountAPI creates a test option that registers a mock "account" API
+// with subdomain "account" and configures the HTTP service to return the subdomain domain.
+func testOptionsWithAccountAPI(tb coreTesting.TB) coreTesting.TestContextBuilderOption {
+	return coreTesting.WithAPI("account", func() (core.API, []core.ContextBuilderOption, error) {
+		return coreTesting.NewMockAPI(tb, "account").WithSubdomain("account"), nil, nil
+	})
+}
+
+func TestGetCheckoutSuccessURL_WithAccountAPI(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockQuota, mockUsers, mockBilling, mockPricing, mockCredit := setupCheckoutMocks(ctx)
+		gw := createGateway(ctx, "sk_test", nil, mockQuota, mockUsers, mockBilling, mockPricing, mockCredit)
+
+		result := gw.getCheckoutSuccessURL()
+		assert.Equal(t, "https://account.test.local/billing/checkout/success", result)
+	}, testOptionsWithAccountAPI(t))
+}
+
+func TestGetCheckoutSuccessURL_FallbackToRelative(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		cfg := testConfigWithSecrets(TestWebhookSecret, "test_key")
+		gw := NewWithConfig(ctx.Logger(), ctx, cfg, nil, nil, nil, nil, nil)
+
+		result := gw.getCheckoutSuccessURL()
+		assert.Equal(t, "/billing/checkout/success", result)
+	})
+}
+
+func TestGetCheckoutCancelURL_WithAccountAPI(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockQuota, mockUsers, mockBilling, mockPricing, mockCredit := setupCheckoutMocks(ctx)
+		gw := createGateway(ctx, "sk_test", nil, mockQuota, mockUsers, mockBilling, mockPricing, mockCredit)
+
+		result := gw.getCheckoutCancelURL()
+		assert.Equal(t, "https://account.test.local/billing/checkout/cancel", result)
+	}, testOptionsWithAccountAPI(t))
+}
+
+func TestGetCheckoutCancelURL_FallbackToRelative(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		cfg := testConfigWithSecrets(TestWebhookSecret, "test_key")
+		gw := NewWithConfig(ctx.Logger(), ctx, cfg, nil, nil, nil, nil, nil)
+
+		result := gw.getCheckoutCancelURL()
+		assert.Equal(t, "/billing/checkout/cancel", result)
+	})
+}
+
 func TestStripeGateway_GetCheckoutUI_UserNotFound(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		mockQuota, mockUsers, mockBilling, mockPricing, mockCredit := setupCheckoutMocks(ctx)
