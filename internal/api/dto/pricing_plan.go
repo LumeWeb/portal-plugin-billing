@@ -170,16 +170,26 @@ type PublicPricingPlansListResponse struct {
 	Total int64                       `json:"total"`
 }
 
+// PricingPeriodCreateInput represents a pricing period within a create plan request
+type PricingPeriodCreateInput struct {
+	Cadence     string   `json:"cadence"`
+	PriceUSD    *float64 `json:"price_usd"`
+	QuotaPlanID uint     `json:"quota_plan_id"`
+	RollingDays *int     `json:"rolling_days,omitempty"`
+	AllowFree   *bool    `json:"allow_free,omitempty"`
+	IsActive    bool     `json:"is_active"`
+}
+
 // PricingPlanCreateRequest represents a request to create a pricing plan
 type PricingPlanCreateRequest struct {
-	Name           string                 `json:"name"`
-	Description    string                 `json:"description"`
-	PricingPeriods []PricingPlanPeriodDTO `json:"pricing_periods"`
-	Currency       string                 `json:"currency"`
-	IsActive       *bool                  `json:"is_active"`
-	IsPublic       *bool                  `json:"is_public"`
-	PriceLineID    *uint                  `json:"priceline_id,omitempty"`
-	Position       *int                   `json:"position,omitempty"`
+	Name           string                     `json:"name"`
+	Description    string                     `json:"description"`
+	PricingPeriods []PricingPeriodCreateInput `json:"pricing_periods"`
+	Currency       string                     `json:"currency"`
+	IsActive       *bool                      `json:"is_active"`
+	IsPublic       *bool                      `json:"is_public"`
+	PriceLineID    *uint                      `json:"priceline_id,omitempty"`
+	Position       *int                       `json:"position,omitempty"`
 }
 
 func (r PricingPlanCreateRequest) Schema() *z.StructSchema {
@@ -188,9 +198,10 @@ func (r PricingPlanCreateRequest) Schema() *z.StructSchema {
 		"Description":    z.String().Required().Min(1).Max(500),
 		"PricingPeriods": z.Slice(z.Struct(z.Shape{
 			"Cadence":     z.String().Required(),
-			"PriceUSD":    z.Float64().Required(),
+			"PriceUSD":    z.Ptr(z.Float64()).NotNil(),
 			"QuotaPlanID": z.Uint().Required(),
 			"RollingDays": z.Ptr(z.Int()),
+			"AllowFree":   z.Ptr(z.Bool()),
 			"IsActive":    z.Bool().Required(),
 		})).Min(1),
 		"Currency":    z.String().Default("USD").Min(3).Max(3),
@@ -222,28 +233,42 @@ func (r *PricingPlanCreateRequest) ToModel() (*models.PricingPlan, error) {
 }
 
 // ToPricingPeriodModels converts pricing periods from DTOs to models
-func (r *PricingPlanCreateRequest) ToPricingPeriodModels(pricingPlanID uint) []models.PricingPlanPeriod {
+func (r *PricingPlanCreateRequest) ToPricingPeriodModels(pricingPlanID uint) ([]models.PricingPlanPeriod, error) {
 	periods := make([]models.PricingPlanPeriod, len(r.PricingPeriods))
 	for i, period := range r.PricingPeriods {
+		if err := validatePrice(*period.PriceUSD, period.AllowFree); err != nil {
+			return nil, err
+		}
 		periods[i] = models.PricingPlanPeriod{
 			PricingPlanID: pricingPlanID,
 			Cadence:       period.Cadence,
-			PriceUSD:      period.PriceUSD,
+			PriceUSD:      *period.PriceUSD,
 			QuotaPlanID:   period.QuotaPlanID,
 			RollingDays:   period.RollingDays,
 		}
 	}
-	return periods
+	return periods, nil
+}
+
+// PricingPeriodInput represents a pricing period within an update plan request
+type PricingPeriodInput struct {
+	ID          uint     `json:"id,omitempty"`
+	Cadence     string   `json:"cadence"`
+	PriceUSD    *float64 `json:"price_usd"`
+	QuotaPlanID uint     `json:"quota_plan_id"`
+	RollingDays *int     `json:"rolling_days,omitempty"`
+	AllowFree   *bool    `json:"allow_free,omitempty"`
+	IsActive    bool     `json:"is_active"`
 }
 
 // PricingPlanUpdateRequest represents a request to update a pricing plan
 type PricingPlanUpdateRequest struct {
-	Name           string                 `json:"name"`
-	Description    string                 `json:"description"`
-	PricingPeriods []PricingPlanPeriodDTO `json:"pricing_periods"`
-	Currency       string                 `json:"currency"`
-	IsActive       *bool                  `json:"is_active"`
-	IsPublic       *bool                  `json:"is_public"`
+	Name           string                    `json:"name"`
+	Description    string                    `json:"description"`
+	PricingPeriods []PricingPeriodInput      `json:"pricing_periods"`
+	Currency       string                    `json:"currency"`
+	IsActive       *bool                     `json:"is_active"`
+	IsPublic       *bool                     `json:"is_public"`
 }
 
 func (r PricingPlanUpdateRequest) Schema() *z.StructSchema {
@@ -251,10 +276,12 @@ func (r PricingPlanUpdateRequest) Schema() *z.StructSchema {
 		"Name":        z.String().Min(1).Max(255),
 		"Description": z.String().Min(1).Max(500),
 		"PricingPeriods": z.Slice(z.Struct(z.Shape{
+			"ID":          z.Uint(),
 			"Cadence":     z.String(),
-			"PriceUSD":    z.Float64(),
+			"PriceUSD":    z.Ptr(z.Float64()),
 			"QuotaPlanID": z.Uint(),
 			"RollingDays": z.Ptr(z.Int()),
+			"AllowFree":   z.Ptr(z.Bool()),
 			"IsActive":    z.Bool(),
 		})),
 		"Currency": z.String().Min(3).Max(3),
@@ -282,39 +309,44 @@ func (r *PricingPlanUpdateRequest) ToModel() (*models.PricingPlan, error) {
 }
 
 // ToPricingPeriodModels converts pricing periods from DTOs to models
-func (r *PricingPlanUpdateRequest) ToPricingPeriodModels(pricingPlanID uint) []models.PricingPlanPeriod {
+func (r *PricingPlanUpdateRequest) ToPricingPeriodModels(pricingPlanID uint) ([]models.PricingPlanPeriod, error) {
 	periods := make([]models.PricingPlanPeriod, len(r.PricingPeriods))
 	for i, period := range r.PricingPeriods {
 		periodModel := models.PricingPlanPeriod{
 			PricingPlanID: pricingPlanID,
 			Cadence:       period.Cadence,
-			PriceUSD:      period.PriceUSD,
 			QuotaPlanID:   period.QuotaPlanID,
 			RollingDays:   period.RollingDays,
+		}
+		if period.PriceUSD != nil {
+			if err := validatePrice(*period.PriceUSD, period.AllowFree); err != nil {
+				return nil, err
+			}
+			periodModel.PriceUSD = *period.PriceUSD
 		}
 		if period.ID > 0 {
 			periodModel.ID = period.ID
 		}
 		periods[i] = periodModel
 	}
-	return periods
+	return periods, nil
 }
 
 // PricingPlanPeriodCreateRequest represents a request to create a pricing plan period
 type PricingPlanPeriodCreateRequest struct {
-	PricingPlanID uint    `json:"pricing_plan_id"`
-	Cadence       string  `json:"cadence"`
-	PriceUSD      float64 `json:"price_usd"`
-	QuotaPlanID   uint    `json:"quota_plan_id"`
-	RollingDays   *int    `json:"rolling_days,omitempty"`
-	AllowFree     *bool   `json:"allow_free,omitempty"`
+	PricingPlanID uint     `json:"pricing_plan_id"`
+	Cadence       string   `json:"cadence"`
+	PriceUSD      *float64 `json:"price_usd"`
+	QuotaPlanID   uint     `json:"quota_plan_id"`
+	RollingDays   *int     `json:"rolling_days,omitempty"`
+	AllowFree     *bool    `json:"allow_free,omitempty"`
 }
 
 func (r PricingPlanPeriodCreateRequest) Schema() *z.StructSchema {
 	return z.Struct(z.Shape{
 		"PricingPlanID": z.Uint().Required(),
 		"Cadence":       z.String().Required().OneOf([]string{"monthly", "yearly", "quarterly", "weekly", "rolling"}),
-		"PriceUSD":      z.Float64().Required(),
+		"PriceUSD":      z.Ptr(z.Float64()).NotNil(),
 		"QuotaPlanID":   z.Uint().Required(),
 		"RollingDays":   z.Ptr(z.Int()),
 		"AllowFree":     z.Ptr(z.Bool()),
@@ -338,14 +370,14 @@ func (r PricingPlanPeriodCreateRequest) ToModel() (*models.PricingPlanPeriod, er
 	if r.Cadence == "rolling" && r.RollingDays == nil {
 		return nil, fmt.Errorf("rolling_days is required for 'rolling' cadence")
 	}
-	if err := validatePrice(r.PriceUSD, r.AllowFree); err != nil {
+	if err := validatePrice(*r.PriceUSD, r.AllowFree); err != nil {
 		return nil, err
 	}
 
 	return &models.PricingPlanPeriod{
 		PricingPlanID: r.PricingPlanID,
 		Cadence:       r.Cadence,
-		PriceUSD:      r.PriceUSD,
+		PriceUSD:      *r.PriceUSD,
 		QuotaPlanID:   r.QuotaPlanID,
 		RollingDays:   r.RollingDays,
 	}, nil
@@ -353,17 +385,17 @@ func (r PricingPlanPeriodCreateRequest) ToModel() (*models.PricingPlanPeriod, er
 
 // PricingPlanPeriodUpdateRequest represents a request to update a pricing plan period
 type PricingPlanPeriodUpdateRequest struct {
-	Cadence     string  `json:"cadence"`
-	PriceUSD    float64 `json:"price_usd"`
-	QuotaPlanID uint    `json:"quota_plan_id"`
-	RollingDays *int    `json:"rolling_days,omitempty"`
-	AllowFree   *bool   `json:"allow_free,omitempty"`
+	Cadence     string   `json:"cadence"`
+	PriceUSD    *float64 `json:"price_usd"`
+	QuotaPlanID uint     `json:"quota_plan_id"`
+	RollingDays *int     `json:"rolling_days,omitempty"`
+	AllowFree   *bool    `json:"allow_free,omitempty"`
 }
 
 func (r PricingPlanPeriodUpdateRequest) Schema() *z.StructSchema {
 	return z.Struct(z.Shape{
 		"Cadence":     z.String().OneOf([]string{"monthly", "yearly", "quarterly", "weekly", "rolling"}),
-		"PriceUSD":    z.Float64(),
+		"PriceUSD":    z.Ptr(z.Float64()),
 		"QuotaPlanID": z.Uint(),
 		"RollingDays": z.Ptr(z.Int()),
 		"AllowFree":   z.Ptr(z.Bool()),
@@ -383,11 +415,11 @@ func (r PricingPlanPeriodUpdateRequest) ToModel() (*models.PricingPlanPeriod, er
 		period.Cadence = r.Cadence
 	}
 
-	if r.PriceUSD != 0 || (r.AllowFree != nil && *r.AllowFree) {
-		if err := validatePrice(r.PriceUSD, r.AllowFree); err != nil {
+	if r.PriceUSD != nil {
+		if err := validatePrice(*r.PriceUSD, r.AllowFree); err != nil {
 			return nil, err
 		}
-		period.PriceUSD = r.PriceUSD
+		period.PriceUSD = *r.PriceUSD
 	}
 
 	if r.QuotaPlanID > 0 {
