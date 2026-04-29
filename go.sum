@@ -695,6 +695,8 @@ go.lumeweb.com/portal-plugin-quota v0.0.0-20260428221307-98ebac6a28fb h1:5WXejEI
 go.lumeweb.com/portal-plugin-quota v0.0.0-20260428221307-98ebac6a28fb/go.mod h1:bUp7WTIqZmb6nZJcfWvxrEXYi96Q3kbpnONk0oi3Vzw=
 go.lumeweb.com/portal-router v0.6.14 h1:aeTMngHkaxfRwlJy2icH6d4hMxXNGeIdyaAq4a6lpNs=
 go.lumeweb.com/portal-router v0.6.14/go.mod h1:lupvi1L4sJ4HLtwW7/bfOOqUBPcwm6ks9CwDZSZsnuU=
+go.lumeweb.com/portal-router v0.6.15 h1:i0k5NGrXNaUhqKl6+3v1mrxMJL6xHq+2vatt6/H+1Bs=
+go.lumeweb.com/portal-router v0.6.15/go.mod h1:lupvi1L4sJ4HLtwW7/bfOOqUBPcwm6ks9CwDZSZsnuU=
 go.lumeweb.com/queryutil v0.3.16 h1:4ShUZdaov+jBRWTkABaa8j1QnDSUv1AtVDJd6IbPO3Y=
 go.lumeweb.com/queryutil v0.3.16/go.mod h1:nLkIuXzugX8Ln24wsAbfTafvNmaTHLJhIUKWC1693G4=
 go.opencensus.io v0.21.0/go.mod h1:mSImk1erAIZhrmZN+AvHh14ztQfjbGwt4TtuofqLduU=
