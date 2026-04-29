@@ -570,6 +570,8 @@ func (r *PricingPlanSyncAllResponse) FromModel(result *SyncAllResult) error {
 			status = SyncStatusError
 		} else if pr.FailureCount > 0 {
 			status = SyncStatusPartial
+		} else if pr.SuccessCount == 0 && pr.FailureCount == 0 {
+			status = SyncStatusError
 		}
 
 		r.Results = append(r.Results, PricingPlanSyncAllResult{

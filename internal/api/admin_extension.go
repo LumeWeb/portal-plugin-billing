@@ -749,7 +749,9 @@ func (e *AdminExtension) handleSyncAllPricingPlans(c echo.Context) error {
 				zap.Uint("plan_id", plan.ID),
 				zap.Error(syncErr))
 			planResults = append(planResults, &pricing.SyncGatewayPlanResults{
-				PlanID: plan.ID,
+				PlanID:       plan.ID,
+				Errors:       map[string]error{"sync": syncErr},
+				FailureCount: 1,
 			})
 			continue
 		}
