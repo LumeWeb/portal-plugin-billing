@@ -8,7 +8,7 @@ import (
 	"go.lumeweb.com/portal/core"
 )
 
-const AccountSubdomain = "account"
+const DashboardPluginID = "dashboard"
 
 // BuildAbsoluteURL constructs an absolute URL using the HTTP service's
 // APISubdomain helper. Falls back to the provided relative path when the
