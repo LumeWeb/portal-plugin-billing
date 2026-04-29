@@ -86,6 +86,16 @@ func (e *AdminExtension) Configure(gRouter router.Router, accessSvc core.AccessS
 
 	// Define admin billing routes (all require admin authentication)
 	routes := router.DefineRoutes(
+		router.NewRoute(http.MethodPost, "/api/billing/pricing-plans/sync-all", e.handleSyncAllPricingPlans,
+			router.WithSwagger(
+				router.WithSummary("Sync All Pricing Plans to Gateways"),
+				router.WithDescription("Triggers synchronization of all pricing plans with payment gateways and returns results"),
+				router.WithTags("Billing Admin"),
+				router.WithSuccessResponse(http.StatusOK, "Sync results"),
+			),
+			router.WithAccess(core.ACCESS_ADMIN_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
+		),
 		router.NewRoute(http.MethodPost, "/api/billing/plans/:id/sync", e.handleSyncPricingPlan,
 			router.WithSwagger(
 				router.WithSummary("Sync Pricing Plan to Gateway"),
@@ -696,9 +706,10 @@ func (e *AdminExtension) ID() string {
 	return "billing.admin_extension"
 }
 
-// handleSyncPricingPlan triggers immediate sync for pricing plan
+// handleSyncPricingPlan triggers immediate sync for a pricing plan
 func (e *AdminExtension) handleSyncPricingPlan(c echo.Context) error {
 	ctx := httputil.Context(c)
+	reqCtx := ctx.Context.Request().Context()
 
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 64)
@@ -706,11 +717,52 @@ func (e *AdminExtension) handleSyncPricingPlan(c echo.Context) error {
 		return ctx.Error(NewError(ErrKeyInvalidPlanID, fmt.Errorf("invalid id: %w", err)), http.StatusBadRequest)
 	}
 
-	return ctx.JSON(http.StatusAccepted, map[string]interface{}{
-		"status":   "queued",
-		"plan_id":  id,
-		"job_type": "sync_pricing_plan",
-	})
+	syncManager := pricing.NewSyncManager(e.pricingService, e.billingService, e.Context())
+
+	result, err := syncManager.SyncPricingPlan(reqCtx, uint(id))
+	if err != nil {
+		return ctx.Error(NewError(ErrKeyPricingPlanFetchFailed, fmt.Errorf("failed to sync plan: %w", err)), http.StatusInternalServerError)
+	}
+
+	var resp dto.PricingPlanSyncResponse
+	return httputil.EncodeResponse(ctx, result, &resp)
+}
+
+// handleSyncAllPricingPlans triggers sync for all pricing plans and returns results
+func (e *AdminExtension) handleSyncAllPricingPlans(c echo.Context) error {
+	ctx := httputil.Context(c)
+	reqCtx := ctx.Context.Request().Context()
+
+	syncManager := pricing.NewSyncManager(e.pricingService, e.billingService, e.Context())
+
+	plans, _, err := e.pricingService.GetPricingPlans(reqCtx, 0, nil, nil, queryutil.XXLargePagination)
+	if err != nil {
+		return ctx.Error(NewError(ErrKeyPricingPlansSyncAllFailed, fmt.Errorf("failed to fetch plans: %w", err)), http.StatusInternalServerError)
+	}
+
+	planResults := make([]*pricing.SyncGatewayPlanResults, 0, len(plans))
+
+	for _, plan := range plans {
+		syncResult, syncErr := syncManager.SyncPricingPlan(reqCtx, plan.ID)
+		if syncErr != nil {
+			e.Logger().Error("failed to sync pricing plan",
+				zap.Uint("plan_id", plan.ID),
+				zap.Error(syncErr))
+			planResults = append(planResults, &pricing.SyncGatewayPlanResults{
+				PlanID: plan.ID,
+			})
+			continue
+		}
+
+		planResults = append(planResults, syncResult)
+	}
+
+	result := &dto.SyncAllResult{
+		PlanResults: planResults,
+	}
+
+	var resp dto.PricingPlanSyncAllResponse
+	return httputil.EncodeResponse(ctx, result, &resp)
 }
 
 // handleCreatePricingPlan creates a new pricing plan

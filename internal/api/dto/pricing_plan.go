@@ -7,6 +7,7 @@ import (
 	z "github.com/Oudwins/zog"
 	"go.lumeweb.com/httputil"
 	"go.lumeweb.com/portal-plugin-billing/internal/db/models"
+	"go.lumeweb.com/portal-plugin-billing/internal/service/pricing"
 )
 
 var _ httputil.DTOResponse[*models.PricingPlan] = (*PricingPlanResponse)(nil)
@@ -458,4 +459,127 @@ type PricingPlanPeriodsListResponse struct {
 type PricingPlanPeriodFilterRequest struct {
 	PricingPlanID *uint   `json:"pricing_plan_id" filter:"true"`
 	Cadence       *string `json:"cadence" filter:"true"`
+}
+
+// SyncStatus represents the status of a pricing plan sync operation
+type SyncStatus string
+
+const (
+	SyncStatusSuccess SyncStatus = "success"
+	SyncStatusPartial SyncStatus = "partial"
+	SyncStatusError   SyncStatus = "error"
+)
+
+// GatewaySyncResult represents the sync result for a single gateway
+type GatewaySyncResult struct {
+	Success   bool   `json:"success"`
+	ProductID string `json:"product_id,omitempty"`
+	Error     string `json:"error,omitempty"`
+}
+
+// PricingPlanSyncResponse represents the sync result for a single pricing plan
+type PricingPlanSyncResponse struct {
+	PlanID         uint                         `json:"plan_id"`
+	TotalGateways  int                          `json:"total_gateways"`
+	SuccessCount   int                          `json:"success_count"`
+	FailureCount   int                          `json:"failure_count"`
+	Status         SyncStatus                   `json:"status"`
+	GatewayResults map[string]GatewaySyncResult `json:"gateway_results"`
+}
+
+var _ httputil.DTOResponse[*pricing.SyncGatewayPlanResults] = (*PricingPlanSyncResponse)(nil)
+
+// FromModel converts SyncGatewayPlanResults to PricingPlanSyncResponse
+func (r *PricingPlanSyncResponse) FromModel(result *pricing.SyncGatewayPlanResults) error {
+	if result == nil {
+		return nil
+	}
+
+	r.PlanID = result.PlanID
+	r.TotalGateways = result.TotalGateways
+	r.SuccessCount = result.SuccessCount
+	r.FailureCount = result.FailureCount
+
+	r.Status = SyncStatusSuccess
+	if result.FailureCount > 0 {
+		r.Status = SyncStatusPartial
+	}
+
+	r.GatewayResults = make(map[string]GatewaySyncResult, len(result.Results))
+	for gwID, sr := range result.Results {
+		r.GatewayResults[gwID] = GatewaySyncResult{
+			Success:   sr.Success,
+			ProductID: sr.ProductID,
+		}
+	}
+	for gwID, gwErr := range result.Errors {
+		r.GatewayResults[gwID] = GatewaySyncResult{
+			Success: false,
+			Error:   gwErr.Error(),
+		}
+	}
+
+	return nil
+}
+
+// PricingPlanSyncAllResult represents the sync result summary for a single plan in a sync-all operation
+type PricingPlanSyncAllResult struct {
+	PlanID        uint       `json:"plan_id"`
+	SuccessCount  int        `json:"success_count"`
+	FailureCount  int        `json:"failure_count"`
+	TotalGateways int        `json:"total_gateways"`
+	Status        SyncStatus `json:"status"`
+}
+
+// PricingPlanSyncAllResponse represents the sync result for all pricing plans
+type PricingPlanSyncAllResponse struct {
+	TotalPlans    int                       `json:"total_plans"`
+	TotalSuccess  int                       `json:"total_success"`
+	TotalFailures int                       `json:"total_failures"`
+	Results       []PricingPlanSyncAllResult `json:"results"`
+}
+
+// SyncAllResult represents the aggregated result of syncing all plans
+type SyncAllResult struct {
+	PlanResults []*pricing.SyncGatewayPlanResults
+}
+
+var _ httputil.DTOResponse[*SyncAllResult] = (*PricingPlanSyncAllResponse)(nil)
+
+// FromModel converts SyncAllResult to PricingPlanSyncAllResponse
+func (r *PricingPlanSyncAllResponse) FromModel(result *SyncAllResult) error {
+	if result == nil {
+		return nil
+	}
+
+	r.Results = make([]PricingPlanSyncAllResult, 0, len(result.PlanResults))
+	r.TotalSuccess = 0
+	r.TotalFailures = 0
+	r.TotalPlans = len(result.PlanResults)
+
+	for _, pr := range result.PlanResults {
+		if pr == nil {
+			continue
+		}
+
+		status := SyncStatusSuccess
+		if pr.FailureCount > 0 {
+			status = SyncStatusPartial
+		}
+		if pr.SuccessCount == 0 && pr.FailureCount == 0 {
+			status = SyncStatusError
+		}
+
+		r.Results = append(r.Results, PricingPlanSyncAllResult{
+			PlanID:        pr.PlanID,
+			SuccessCount:  pr.SuccessCount,
+			FailureCount:  pr.FailureCount,
+			TotalGateways: pr.TotalGateways,
+			Status:        status,
+		})
+		r.TotalSuccess += pr.SuccessCount
+		r.TotalFailures += pr.FailureCount
+	}
+
+	return nil
 }
