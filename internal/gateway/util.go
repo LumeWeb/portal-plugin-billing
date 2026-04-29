@@ -13,7 +13,9 @@ const AccountSubdomain = "account"
 // BuildAbsoluteURL constructs an absolute URL using the HTTP service's
 // APISubdomain helper. Falls back to the provided relative path when the
 // HTTP service is unavailable or parsing fails.
-func BuildAbsoluteURL(http core.HTTPService, subdomainID, relativePath string) string {
+//
+// The secure parameter determines the scheme: https if true, http if false.
+func BuildAbsoluteURL(http core.HTTPService, subdomainID, relativePath string, secure bool) string {
 	if http == nil {
 		return relativePath
 	}
@@ -25,9 +27,15 @@ func BuildAbsoluteURL(http core.HTTPService, subdomainID, relativePath string) s
 		return relativePath
 	}
 
+	// Determine scheme based on secure flag
+	scheme := "http"
+	if secure {
+		scheme = "https"
+	}
+
 	// Build URL struct directly
 	u := &url.URL{
-		Scheme: "https",
+		Scheme: scheme,
 		Host:   base,
 		Path:   relativePath,
 	}

@@ -2044,12 +2044,14 @@ func (g *StripeGateway) GetCheckoutUI(ctx context.Context, userID uint, planID u
 // getCheckoutSuccessURL returns the success URL for checkout
 func (g *StripeGateway) getCheckoutSuccessURL() string {
 	http := core.GetService[core.HTTPService](g.coreCtx, core.HTTP_SERVICE)
-	return gateway.BuildAbsoluteURL(http, gateway.AccountSubdomain, "/billing/checkout/success")
+	secure := g.coreCtx.Config().Config().Core.Secure
+	return gateway.BuildAbsoluteURL(http, gateway.AccountSubdomain, "/billing/checkout/success", secure)
 }
 
 func (g *StripeGateway) getCheckoutCancelURL() string {
 	http := core.GetService[core.HTTPService](g.coreCtx, core.HTTP_SERVICE)
-	return gateway.BuildAbsoluteURL(http, gateway.AccountSubdomain, "/billing/checkout/cancel")
+	secure := g.coreCtx.Config().Config().Core.Secure
+	return gateway.BuildAbsoluteURL(http, gateway.AccountSubdomain, "/billing/checkout/cancel", secure)
 }
 
 // getOrCreateStripeCustomer gets an existing or creates a new Stripe customer
