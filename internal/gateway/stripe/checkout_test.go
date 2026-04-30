@@ -205,8 +205,7 @@ func TestGetCheckoutReturnURL_WithDashboardAPI(t *testing.T) {
 		gw := createGateway(ctx, "sk_test", nil, mockQuota, mockUsers, mockBilling, mockPricing, mockCredit)
 
 		result := gw.getCheckoutReturnURL()
-		// URL gets encoded by BuildAbsoluteURL - the placeholder is preserved but encoded
-		assert.Equal(t, "https://account.test.local/account/subscription%3Fcheckout_return=1&session_id=%7BCHECKOUT_SESSION_ID%7D", result)
+		assert.Equal(t, "https://account.test.local/account/subscription?checkout_return=1&session_id={CHECKOUT_SESSION_ID}", result)
 	}, testOptionsWithDashboardAPI(t))
 }
 

@@ -33,11 +33,18 @@ func BuildAbsoluteURL(http core.HTTPService, subdomainID, relativePath string, s
 		scheme = "https"
 	}
 
-	// Build URL struct directly
+	// Parse the relative path to separate path from query so that
+	// query parameters and brace-delimited placeholders are not encoded.
+	rel, err := url.Parse(relativePath)
+	if err != nil {
+		return relativePath
+	}
+
 	u := &url.URL{
-		Scheme: scheme,
-		Host:   base,
-		Path:   relativePath,
+		Scheme:   scheme,
+		Host:     base,
+		Path:     rel.Path,
+		RawQuery: rel.RawQuery,
 	}
 
 	return u.String()
