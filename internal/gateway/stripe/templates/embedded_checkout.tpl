@@ -1,7 +1,6 @@
 <div id="stripe-checkout-container">
 	<div id="stripe-checkout"></div>
 </div>
-<script src="https://js.stripe.com/dahlia/stripe.js"></script>
 <script>
 (function() {
 	var stripe = globalThis.Stripe('{{.PublishableKey}}');

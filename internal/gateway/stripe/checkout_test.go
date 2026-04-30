@@ -73,13 +73,16 @@ func assertCheckoutSuccess(t *testing.T, response *pluginCore.CheckoutUIResponse
 func assertEmbeddedCheckoutSuccess(t *testing.T, response *pluginCore.CheckoutUIResponse, sessionID string, clientSecret string) {
 	require.NotNil(t, response)
 	assert.Equal(t, sessionID, response.SessionID)
-	assert.Len(t, response.Fragments, 1)
-	assert.Equal(t, pluginCore.FragmentTypeHTML, response.Fragments[0].Type)
-	// Verify the HTML contains expected elements for embedded checkout
-	assert.Contains(t, response.Fragments[0].HTML, "stripe-checkout")
-	assert.Contains(t, response.Fragments[0].HTML, "js.stripe.com/dahlia/stripe.js")
+	// Now returns 2 fragments: script fragment + HTML fragment
+	assert.Len(t, response.Fragments, 2)
+	// First fragment should be the Stripe SDK script
+	assert.Equal(t, pluginCore.FragmentTypeScript, response.Fragments[0].Type)
+	assert.Equal(t, "https://js.stripe.com/dahlia/stripe.js", response.Fragments[0].Script)
+	// Second fragment should be the embedded checkout HTML
+	assert.Equal(t, pluginCore.FragmentTypeHTML, response.Fragments[1].Type)
+	assert.Contains(t, response.Fragments[1].HTML, "stripe-checkout")
 	if clientSecret != "" {
-		assert.Contains(t, response.Fragments[0].HTML, clientSecret)
+		assert.Contains(t, response.Fragments[1].HTML, clientSecret)
 	}
 }
 
