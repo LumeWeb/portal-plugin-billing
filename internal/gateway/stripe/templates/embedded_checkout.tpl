@@ -8,6 +8,15 @@
 			fetchClientSecret: async () => '{{.ClientSecret}}'
 		});
 
+		// Register onComplete callback to signal client-side completion
+		// Per js_payment_events.md spec: paymentCompleted has detail: null
+		// sessionId must come from the usePaymentEvents sessionId prop, NOT from event detail
+		checkoutInstance.on('complete', function() {
+			window.dispatchEvent(new CustomEvent('paymentCompleted', {
+				bubbles: true
+			}));
+		});
+
 		if (!cleanedUp) {
 			checkoutInstance.mount('#stripe-checkout');
 		}
