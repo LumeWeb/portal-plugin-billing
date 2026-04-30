@@ -6,18 +6,22 @@
 (function() {
 	var stripe = globalThis.Stripe('{{.PublishableKey}}');
 	var checkoutInstance = null;
+	var cleanedUp = false;
 
 	async function initialize() {
 		checkoutInstance = await stripe.createEmbeddedCheckoutPage({
 			fetchClientSecret: async () => '{{.ClientSecret}}'
 		});
 
-		checkoutInstance.mount('#stripe-checkout');
+		if (!cleanedUp) {
+			checkoutInstance.mount('#stripe-checkout');
+		}
 	}
 
 	window.dispatchEvent(new CustomEvent('paymentCleanupRegister', {
 		detail: {
 			cleanup: function() {
+				cleanedUp = true;
 				if (checkoutInstance) {
 					checkoutInstance.unmount();
 				}
