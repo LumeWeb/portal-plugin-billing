@@ -2007,8 +2007,8 @@ func (g *StripeGateway) GetCheckoutUI(ctx context.Context, userID uint, planID u
 			// 6. Create checkout session with embedded UI
 			priceID := mapping.RemotePriceID
 			params := &stripe.CheckoutSessionCreateParams{
-				UIMode:  stripe.String(string(stripe.CheckoutSessionUIModeEmbeddedPage)),
-				Mode:    stripe.String(stripe.CheckoutSessionModeSubscription),
+				UIMode: stripe.String(string(stripe.CheckoutSessionUIModeEmbeddedPage)),
+				Mode:   stripe.String(stripe.CheckoutSessionModeSubscription),
 				LineItems: []*stripe.CheckoutSessionCreateLineItemParams{
 					{
 						Price:    stripe.String(priceID),
@@ -2017,8 +2017,9 @@ func (g *StripeGateway) GetCheckoutUI(ctx context.Context, userID uint, planID u
 				},
 				Customer:          stripe.String(customerID),
 				ClientReferenceID: stripe.String(strconv.FormatUint(uint64(userID), 10)),
-				ReturnURL:         stripe.String(g.getCheckoutReturnURL()),
-				AutomaticTax:    &stripe.CheckoutSessionCreateAutomaticTaxParams{Enabled: stripe.Bool(true)},
+				RedirectOnCompletion: stripe.String(string(stripe.CheckoutSessionRedirectOnCompletionIfRequired)),
+				ReturnURL:            stripe.String(g.getCheckoutReturnURL()),
+				AutomaticTax:         &stripe.CheckoutSessionCreateAutomaticTaxParams{Enabled: stripe.Bool(true)},
 				CustomerUpdate: &stripe.CheckoutSessionCreateCustomerUpdateParams{
 					Address: stripe.String("auto"),
 				},
@@ -2062,11 +2063,13 @@ func (g *StripeGateway) GetCheckoutUI(ctx context.Context, userID uint, planID u
 	)
 }
 
-// getCheckoutReturnURL returns the return URL for embedded checkout completion
+// getCheckoutReturnURL returns the return URL for embedded checkout completion.
+// In embedded mode this is primarily used for 3DS/fallback redirects — the user
+// should land back at the subscription page so BillingContext can detect the completion.
 func (g *StripeGateway) getCheckoutReturnURL() string {
 	http := core.GetService[core.HTTPService](g.coreCtx, core.HTTP_SERVICE)
 	secure := g.coreCtx.Config().Config().Core.Secure
-	return gateway.BuildAbsoluteURL(http, gateway.DashboardPluginID, "/billing/checkout/return?session_id={CHECKOUT_SESSION_ID}", secure)
+	return gateway.BuildAbsoluteURL(http, gateway.DashboardPluginID, "/account/subscription?checkout_return=1&session_id={CHECKOUT_SESSION_ID}", secure)
 }
 
 // buildEmbeddedCheckoutFragment creates fragments for Stripe SDK, container HTML, and initialization script
