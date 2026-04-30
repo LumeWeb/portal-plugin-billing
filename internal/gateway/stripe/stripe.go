@@ -2069,32 +2069,36 @@ func (g *StripeGateway) getCheckoutReturnURL() string {
 	return gateway.BuildAbsoluteURL(http, gateway.DashboardPluginID, "/billing/checkout/return?session_id={CHECKOUT_SESSION_ID}", secure)
 }
 
-// buildEmbeddedCheckoutFragment creates a script fragment for Stripe SDK followed by an HTML fragment with embedded checkout UI
+// buildEmbeddedCheckoutFragment creates fragments for Stripe SDK, container HTML, and initialization script
 func (g *StripeGateway) buildEmbeddedCheckoutFragment(clientSecret string) ([]pluginCore.CheckoutUIFragment, error) {
+	data := EmbeddedCheckoutData{
+		PublishableKey: g.publishableKey,
+		ClientSecret:   clientSecret,
+		Appearance:     "stripe",
+	}
+
+	// Execute template for the main JS
 	tmpl, err := template.New("embeddedCheckout").ParseFS(templatesFS, "templates/embedded_checkout.tpl")
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse template: %w", err)
 	}
-
-	data := EmbeddedCheckoutData{
-		PublishableKey: g.publishableKey,
-		ClientSecret:   clientSecret,
-		Appearance:     "stripe", // Default theme; could be configurable
-	}
-
-	var htmlBuf strings.Builder
-	if err := tmpl.ExecuteTemplate(&htmlBuf, "embedded_checkout.tpl", data); err != nil {
+	var scriptBuf strings.Builder
+	if err := tmpl.ExecuteTemplate(&scriptBuf, "embedded_checkout.tpl", data); err != nil {
 		return nil, fmt.Errorf("failed to execute template: %w", err)
 	}
 
 	return []pluginCore.CheckoutUIFragment{
 		{
-			Type:   pluginCore.FragmentTypeScript,
+			Type:   pluginCore.FragmentTypeScriptURL,
 			Script: "https://js.stripe.com/dahlia/stripe.js",
 		},
 		{
 			Type: pluginCore.FragmentTypeHTML,
-			HTML: htmlBuf.String(),
+			HTML: `<div id="stripe-checkout-container"><div id="stripe-checkout"></div></div>`,
+		},
+		{
+			Type:   pluginCore.FragmentTypeScript,
+			Script: scriptBuf.String(),
 		},
 	}, nil
 }

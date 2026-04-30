@@ -1,7 +1,3 @@
-<div id="stripe-checkout-container">
-	<div id="stripe-checkout"></div>
-</div>
-<script>
 (function() {
 	var stripe = globalThis.Stripe('{{.PublishableKey}}');
 	var checkoutInstance = null;
@@ -36,4 +32,3 @@
 
 	initialize();
 })();
-</script>

@@ -1470,8 +1470,8 @@ func (g *AtlosGateway) getUser(ctx context.Context, userID uint) (*models.User, 
 // buildScriptFragment creates a script fragment that loads the ATLOS JavaScript SDK
 func (g *AtlosGateway) buildScriptFragment() (pluginCore.CheckoutUIFragment, error) {
 	return pluginCore.CheckoutUIFragment{
-		Type:   pluginCore.FragmentTypeScript,
-		Script: `<script async src="https://atlos.io/packages/app/atlos.js"></script>`,
+		Type:   pluginCore.FragmentTypeScriptURL,
+		Script: "https://atlos.io/packages/app/atlos.js",
 	}, nil
 }
 

@@ -250,7 +250,7 @@ func TestBillingService_GetCheckoutUI_Response(t *testing.T) {
 			},
 			Fragments: []pluginCore.CheckoutUIFragment{
 				{Type: pluginCore.FragmentTypeHTML, HTML: "<button>Pay Now</button>"},
-				{Type: pluginCore.FragmentTypeScript, Script: "https://js.stripe.com/v3/"},
+				{Type: pluginCore.FragmentTypeScriptURL, Script: "https://js.stripe.com/v3/"},
 			},
 		}, nil)
 
@@ -265,7 +265,7 @@ func TestBillingService_GetCheckoutUI_Response(t *testing.T) {
 		assert.Equal(tb, "1.0", result.Metadata["version"])
 		assert.Len(tb, result.Fragments, 2)
 		assert.Equal(tb, pluginCore.FragmentTypeHTML, result.Fragments[0].Type)
-		assert.Equal(tb, pluginCore.FragmentTypeScript, result.Fragments[1].Type)
+		assert.Equal(tb, pluginCore.FragmentTypeScriptURL, result.Fragments[1].Type)
 	}, getBillingTestOptions())
 }
 

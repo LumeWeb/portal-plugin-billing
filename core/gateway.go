@@ -181,8 +181,10 @@ const (
 	FragmentTypeLink FragmentType = "link"
 	// FragmentTypeHTML represents embedded HTML content
 	FragmentTypeHTML FragmentType = "html"
-	// FragmentTypeScript represents JavaScript SDK initialization
+	// FragmentTypeScript represents JavaScript SDK initialization (inline code)
 	FragmentTypeScript FragmentType = "script"
+	// FragmentTypeScriptURL represents external JavaScript SDK URL to load
+	FragmentTypeScriptURL FragmentType = "script_url"
 	// FragmentTypeIframe represents an embedded iframe
 	FragmentTypeIframe FragmentType = "iframe"
 	// FragmentTypeModal represents a modal popup
