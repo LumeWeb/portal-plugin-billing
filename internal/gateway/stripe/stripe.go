@@ -2019,6 +2019,9 @@ func (g *StripeGateway) GetCheckoutUI(ctx context.Context, userID uint, planID u
 				ClientReferenceID: stripe.String(strconv.FormatUint(uint64(userID), 10)),
 				ReturnURL:         stripe.String(g.getCheckoutReturnURL()),
 				AutomaticTax:    &stripe.CheckoutSessionCreateAutomaticTaxParams{Enabled: stripe.Bool(true)},
+				CustomerUpdate: &stripe.CheckoutSessionCreateCustomerUpdateParams{
+					Address: stripe.String("auto"),
+				},
 				AllowPromotionCodes: stripe.Bool(true),
 			}
 
