@@ -4,15 +4,36 @@
 <script src="https://js.stripe.com/dahlia/stripe.js"></script>
 <script>
 (function() {
-	const stripe = globalThis.Stripe('{{.PublishableKey}}');
+	var stripe = globalThis.Stripe('{{.PublishableKey}}');
+	var checkoutInstance = null;
+	var cleanedUp = false;
 
 	async function initialize() {
-		const checkout = await stripe.createEmbeddedCheckoutPage({
+		checkoutInstance = await stripe.createEmbeddedCheckoutPage({
 			fetchClientSecret: async () => '{{.ClientSecret}}'
 		});
 
-		checkout.mount('#stripe-checkout');
+		if (!cleanedUp) {
+			checkoutInstance.mount('#stripe-checkout');
+		}
 	}
+
+	window.dispatchEvent(new CustomEvent('paymentCleanupRegister', {
+		detail: {
+			cleanup: function() {
+				cleanedUp = true;
+				if (checkoutInstance) {
+					checkoutInstance.unmount();
+				}
+				var container = document.getElementById('stripe-checkout');
+				if (container) { container.innerHTML = ''; }
+				var scripts = document.querySelectorAll('script[src*="js.stripe.com"]');
+				scripts.forEach(function(s) { s.remove(); });
+				delete globalThis.Stripe;
+			}
+		},
+		bubbles: true
+	}));
 
 	initialize();
 })();

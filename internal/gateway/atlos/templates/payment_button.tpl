@@ -11,6 +11,19 @@
     console.log('Payment event dispatched:', eventName, detail);
   }
 
+  window.dispatchEvent(new CustomEvent('paymentCleanupRegister', {
+    detail: {
+      cleanup: function() {
+        var scripts = document.querySelectorAll('script[src*="atlos.io/packages"]');
+        scripts.forEach(function(s) { s.remove(); });
+        delete globalThis.atlos;
+        document.querySelectorAll('atlos-modal').forEach(function(el) { el.remove(); });
+        document.querySelectorAll('w3m-modal').forEach(function(el) { el.remove(); });
+      }
+    },
+    bubbles: true
+  }));
+
   function initButton() {
     if (typeof window.atlos === 'undefined') {
       setTimeout(initButton, 100);
