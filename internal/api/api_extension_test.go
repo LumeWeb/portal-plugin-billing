@@ -36,6 +36,16 @@ import (
 
 
 
+// mockGatewayWithSession is a composite mock that implements both PaymentGateway and SessionStatusProvider
+type mockGatewayWithSession struct {
+	*pluginCore.MockPaymentGateway
+	*pluginCore.MockSessionStatusProvider
+}
+
+// Ensure mockGatewayWithSession implements both interfaces
+var _ pluginCore.PaymentGateway = (*mockGatewayWithSession)(nil)
+var _ pluginCore.SessionStatusProvider = (*mockGatewayWithSession)(nil)
+
 // testSetup holds common test dependencies
 type testSetup struct {
 	billingSvc *pluginCore.MockBillingService
@@ -1830,9 +1840,16 @@ func TestHandleGetCheckoutSessionStatus_Success(t *testing.T) {
 		// Mock user account validation
 		ts.userSvc.EXPECT().AccountExists(mock.Anything, userID).Return(true, nil, nil)
 
-		// Mock gateway - PaymentGateway now includes SessionStatusProvider
+		// Mock gateway - use composite mock for PaymentGateway + SessionStatusProvider
 		mockGateway := pluginCore.NewMockPaymentGateway(t)
-		ts.billingSvc.EXPECT().GetGateway(mock.Anything, "stripe").Return(mockGateway, nil).Once()
+		mockSessionProvider := pluginCore.NewMockSessionStatusProvider(t)
+
+		// Create a composite mock that implements both interfaces
+		compositeMock := &mockGatewayWithSession{
+			MockPaymentGateway:     mockGateway,
+			MockSessionStatusProvider: mockSessionProvider,
+		}
+		ts.billingSvc.EXPECT().GetGateway(mock.Anything, "stripe").Return(compositeMock, nil).Once()
 
 		// Mock GetSessionStatus response with matching UserID
 		sessionStatus := &pluginCore.SessionStatus{
@@ -1841,7 +1858,7 @@ func TestHandleGetCheckoutSessionStatus_Success(t *testing.T) {
 			CustomerEmail: customerEmail,
 			UserID:        userID, // Matches authenticated user
 		}
-		mockGateway.EXPECT().GetSessionStatus(mock.Anything, sessionID).Return(sessionStatus, nil).Once()
+		mockSessionProvider.EXPECT().GetSessionStatus(mock.Anything, sessionID).Return(sessionStatus, nil).Once()
 
 		// Create authenticated request
 		req := ctx.NewAPIRequest("GET", "/api/account/billing/checkout/session/"+sessionID+"/status", nil)
@@ -1926,9 +1943,14 @@ func TestHandleGetCheckoutSessionStatus_OwnershipMismatch(t *testing.T) {
 		// Mock user account validation
 		ts.userSvc.EXPECT().AccountExists(mock.Anything, authenticatedUserID).Return(true, nil, nil)
 
-		// Mock gateway - PaymentGateway now includes SessionStatusProvider
+		// Mock gateway composite (PaymentGateway + SessionStatusProvider)
 		mockGateway := pluginCore.NewMockPaymentGateway(t)
-		ts.billingSvc.EXPECT().GetGateway(mock.Anything, "stripe").Return(mockGateway, nil).Once()
+		mockSessionProvider := pluginCore.NewMockSessionStatusProvider(t)
+		compositeMock := &mockGatewayWithSession{
+			MockPaymentGateway:        mockGateway,
+			MockSessionStatusProvider: mockSessionProvider,
+		}
+		ts.billingSvc.EXPECT().GetGateway(mock.Anything, "stripe").Return(compositeMock, nil).Once()
 
 		// Mock GetSessionStatus returning a session with different UserID
 		sessionStatus := &pluginCore.SessionStatus{
@@ -1937,7 +1959,7 @@ func TestHandleGetCheckoutSessionStatus_OwnershipMismatch(t *testing.T) {
 			CustomerEmail: customerEmail,
 			UserID:        sessionUserID, // Belongs to a different user!
 		}
-		mockGateway.EXPECT().GetSessionStatus(mock.Anything, sessionID).Return(sessionStatus, nil).Once()
+		mockSessionProvider.EXPECT().GetSessionStatus(mock.Anything, sessionID).Return(sessionStatus, nil).Once()
 
 		// Create authenticated request as user 1
 		req := ctx.NewAPIRequest("GET", "/api/account/billing/checkout/session/"+sessionID+"/status", nil)
@@ -1965,9 +1987,14 @@ func TestHandleGetCheckoutSessionStatus_UnverifiableOwnership(t *testing.T) {
 		// Mock user account validation
 		ts.userSvc.EXPECT().AccountExists(mock.Anything, authenticatedUserID).Return(true, nil, nil)
 
-		// Mock gateway - PaymentGateway now includes SessionStatusProvider
+		// Mock gateway composite (PaymentGateway + SessionStatusProvider)
 		mockGateway := pluginCore.NewMockPaymentGateway(t)
-		ts.billingSvc.EXPECT().GetGateway(mock.Anything, "stripe").Return(mockGateway, nil).Once()
+		mockSessionProvider := pluginCore.NewMockSessionStatusProvider(t)
+		compositeMock := &mockGatewayWithSession{
+			MockPaymentGateway:        mockGateway,
+			MockSessionStatusProvider: mockSessionProvider,
+		}
+		ts.billingSvc.EXPECT().GetGateway(mock.Anything, "stripe").Return(compositeMock, nil).Once()
 
 		// Mock GetSessionStatus returning a session with UserID = 0 (unverifiable)
 		sessionStatus := &pluginCore.SessionStatus{
@@ -1976,7 +2003,7 @@ func TestHandleGetCheckoutSessionStatus_UnverifiableOwnership(t *testing.T) {
 			CustomerEmail: customerEmail,
 			UserID:        0, // Missing ClientReferenceID - ownership unverifiable!
 		}
-		mockGateway.EXPECT().GetSessionStatus(mock.Anything, sessionID).Return(sessionStatus, nil).Once()
+		mockSessionProvider.EXPECT().GetSessionStatus(mock.Anything, sessionID).Return(sessionStatus, nil).Once()
 
 		// Create authenticated request as user 1
 		req := ctx.NewAPIRequest("GET", "/api/account/billing/checkout/session/"+sessionID+"/status", nil)
