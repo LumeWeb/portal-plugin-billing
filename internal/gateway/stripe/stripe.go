@@ -1200,16 +1200,26 @@ func (g *StripeGateway) handleInvoicePaid(ctx context.Context, event stripe.Even
 
 			customerIDStr := invoice.Customer.ID
 
-			// Look for subscription ID in invoice lines
+			// Look for subscription ID in invoice lines via parent.subscription_item_details.subscription
 			subscriptionID := ""
 			if invoice.Lines != nil && len(invoice.Lines.Data) > 0 {
 				for _, line := range invoice.Lines.Data {
-					// Try to get subscription ID from different line item fields
-					if line.Subscription != nil && line.Subscription.ID != "" {
-						subscriptionID = line.Subscription.ID
+					if line.Parent != nil &&
+						line.Parent.SubscriptionItemDetails != nil &&
+						line.Parent.SubscriptionItemDetails.Subscription != "" {
+						subscriptionID = line.Parent.SubscriptionItemDetails.Subscription
 						break
 					}
 				}
+			}
+
+			// Fallback to invoice-level parent.subscription_details.subscription
+			if subscriptionID == "" &&
+				invoice.Parent != nil &&
+				invoice.Parent.SubscriptionDetails != nil &&
+				invoice.Parent.SubscriptionDetails.Subscription != nil &&
+				invoice.Parent.SubscriptionDetails.Subscription.ID != "" {
+				subscriptionID = invoice.Parent.SubscriptionDetails.Subscription.ID
 			}
 
 			// If we still don't have a subscription ID, log and skip

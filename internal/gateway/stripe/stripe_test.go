@@ -1737,8 +1737,6 @@ func TestStripeGateway_HandleWebhook_InvoicePaid_InsufficientBalance(t *testing.
 func createTestInvoiceEvent(invoiceID string, customerID string, subscriptionID string, amount float64) stripe.Event {
 	lineItemData := fmt.Sprintf(`{
 		"id": "il_test_123",
-		"type": "subscription",
-		"subscription": "%s",
 		"period": {"start": 1704067200, "end": 1706745600},
 		"amount": %d,
 		"quantity": 1,
@@ -1748,14 +1746,21 @@ func createTestInvoiceEvent(invoiceID string, customerID string, subscriptionID 
 			"currency": "usd",
 			"recurring": {"interval": "month", "usage_type": "licensed"},
 			"product": "200"
+		},
+		"parent": {
+			"type": "subscription_item_details",
+			"subscription_item_details": {
+				"subscription": "%s",
+				"subscription_item": "si_test",
+				"proration": false
+			}
 		}
-	}`, subscriptionID, int(amount*100), int(amount*100))
-	
+	}`, int(amount*100), int(amount*100), subscriptionID)
+
 	invoiceData := fmt.Sprintf(`{
 		"id": "%s",
 		"object": "invoice",
 		"customer": {"id": "%s"},
-		"subscription": {"id": "%s"},
 		"status": "paid",
 		"amount_paid": %d,
 		"currency": "usd",
@@ -1763,8 +1768,14 @@ func createTestInvoiceEvent(invoiceID string, customerID string, subscriptionID 
 			"data": [%s]
 		},
 		"total": %d,
-		"subtotal": %d
-	}`, invoiceID, customerID, subscriptionID, int(amount*100), lineItemData, int(amount*100), int(amount*100))
+		"subtotal": %d,
+		"parent": {
+			"type": "subscription_details",
+			"subscription_details": {
+				"subscription": {"id": "%s"}
+			}
+		}
+	}`, invoiceID, customerID, int(amount*100), lineItemData, int(amount*100), int(amount*100), subscriptionID)
 	
 	return createTestEvent("invoice.paid", []byte(invoiceData))
 }
