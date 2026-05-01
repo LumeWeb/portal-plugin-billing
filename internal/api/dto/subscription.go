@@ -19,6 +19,7 @@ type SubscriptionStatusResponse struct {
 	GatewayType         string     `json:"gateway_type,omitempty"`
 	PricingPlanPeriodID *uint      `json:"pricing_plan_period_id,omitempty"`
 	WillCancelAt        *time.Time `json:"will_cancel_at,omitempty"`
+	PausedAt            *time.Time `json:"paused_at,omitempty"`
 	CreatedAt           *time.Time `json:"created_at,omitempty"`
 	UpdatedAt           *time.Time `json:"updated_at,omitempty"`
 }
@@ -39,6 +40,7 @@ func (r *SubscriptionStatusResponse) FromModel(subscriber *pluginCore.Subscriber
 	r.GatewayType = subscriber.GatewayType
 	r.PricingPlanPeriodID = subscriber.PricingPlanPeriodID
 	r.WillCancelAt = subscriber.WillCancelAt
+	r.PausedAt = subscriber.PausedAt
 	r.CreatedAt = &subscriber.CreatedAt
 	r.UpdatedAt = &subscriber.UpdatedAt
 
@@ -59,6 +61,7 @@ type SubscriberItem struct {
 	PaymentStatus       string      `json:"payment_status,omitempty"`
 	WillCancelAt        *time.Time  `json:"will_cancel_at,omitempty"`
 	CancelledAt         *time.Time  `json:"cancelled_at,omitempty"`
+	PausedAt            *time.Time  `json:"paused_at,omitempty"`
 	PreviousPlanID      *uint       `json:"previous_plan_id,omitempty"`
 	CreatedAt           time.Time   `json:"created_at"`
 	UpdatedAt           time.Time   `json:"updated_at"`
@@ -92,6 +95,7 @@ func (r *SubscriberItem) FromModel(subscriber *pluginCore.Subscriber) error {
 	r.PaymentStatus = subscriber.PaymentStatus
 	r.WillCancelAt = subscriber.WillCancelAt
 	r.CancelledAt = subscriber.CancelledAt
+	r.PausedAt = subscriber.PausedAt
 	r.PreviousPlanID = subscriber.PreviousPlanID
 	r.CreatedAt = subscriber.CreatedAt
 	r.UpdatedAt = subscriber.UpdatedAt
@@ -170,6 +174,7 @@ type SubscriberResponse struct {
 	PaymentStatus       string      `json:"payment_status,omitempty"`
 	WillCancelAt        *time.Time  `json:"will_cancel_at,omitempty"`
 	CancelledAt         *time.Time  `json:"cancelled_at,omitempty"`
+	PausedAt            *time.Time  `json:"paused_at,omitempty"`
 	PreviousPlanID      *uint       `json:"previous_plan_id,omitempty"`
 	CreatedAt           time.Time   `json:"created_at"`
 	UpdatedAt           time.Time   `json:"updated_at"`
@@ -195,6 +200,7 @@ func (r *SubscriberResponse) FromModel(subscriber *pluginCore.Subscriber) error 
 	r.PaymentStatus = subscriber.PaymentStatus
 	r.WillCancelAt = subscriber.WillCancelAt
 	r.CancelledAt = subscriber.CancelledAt
+	r.PausedAt = subscriber.PausedAt
 	r.PreviousPlanID = subscriber.PreviousPlanID
 	r.CreatedAt = subscriber.CreatedAt
 	r.UpdatedAt = subscriber.UpdatedAt

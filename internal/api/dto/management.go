@@ -146,7 +146,7 @@ type ManagementRequest struct {
 
 func (r *ManagementRequest) Schema() *z.StructSchema {
 	return z.Struct(z.Shape{
-		"Operation": z.String().Required().OneOf([]string{"cancel", "change_plan", "pause", "resume"}),
+		"Operation": z.String().Required().OneOf([]string{"cancel", "change_plan", "pause", "resume", "customer_portal"}),
 	})
 }
 

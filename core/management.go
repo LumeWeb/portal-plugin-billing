@@ -22,6 +22,9 @@ const (
 
 	// OperationResume resumes a paused subscription
 	OperationResume ManagementOperation = "resume"
+
+	// OperationCustomerPortal creates a generic customer portal session
+	OperationCustomerPortal ManagementOperation = "customer_portal"
 )
 
 // Predefined management endpoint paths
@@ -31,6 +34,7 @@ const (
 	ChangePlanEndpointPath  = "/api/account/billing/change-plan"
 	PauseEndpointPath       = "/api/account/billing/pause"
 	ResumeEndpointPath      = "/api/account/billing/resume"
+	CustomerPortalEndpointPath = "/api/account/billing/customer-portal"
 )
 
 // ManagementMode defines how a gateway handles subscription management
@@ -185,6 +189,10 @@ var predefinedManagementEndpoints = map[ManagementOperation]*APIEndpointInfo{
 	OperationResume: {
 		Method: "POST",
 		Path:   ResumeEndpointPath,
+	},
+	OperationCustomerPortal: {
+		Method: "POST",
+		Path:   CustomerPortalEndpointPath,
 	},
 }
 
