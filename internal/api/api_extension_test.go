@@ -1070,16 +1070,30 @@ func TestHandleSubscriptionStatus_Unauthorized(t *testing.T) {
 	}, getUserAPITestOptions())
 }
 
+// mockFullGateway embeds MockPaymentGateway (which satisfies CheckoutProvider and CustomerPortal)
+// plus MockSessionStatusProvider to satisfy all public ability interfaces.
+type mockFullGateway struct {
+	*pluginCore.MockPaymentGateway
+	*pluginCore.MockSessionStatusProvider
+}
+
+func newMockFullGateway(t *testing.T) *mockFullGateway {
+	return &mockFullGateway{
+		MockPaymentGateway:        pluginCore.NewMockPaymentGateway(t),
+		MockSessionStatusProvider: pluginCore.NewMockSessionStatusProvider(t),
+	}
+}
+
 func TestHandleGetGateways_Success(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		ts := setupTest(ctx)
 
 		// Create a new registry for testing
 		mockRegistry := gateway.NewRegistry()
-		mockGateway1 := pluginCore.NewMockPaymentGateway(t)
-		mockGateway1.EXPECT().ID(mock.Anything).Return("stripe").Once()
-		mockGateway1.EXPECT().GetName(mock.Anything).Return("Stripe").Once()
-		mockGateway1.EXPECT().GetDescription(mock.Anything).Return("Industry-leading payment processor").Once()
+		mockGateway1 := newMockFullGateway(t)
+		mockGateway1.MockPaymentGateway.EXPECT().ID(mock.Anything).Return("stripe").Once()
+		mockGateway1.MockPaymentGateway.EXPECT().GetName(mock.Anything).Return("Stripe").Once()
+		mockGateway1.MockPaymentGateway.EXPECT().GetDescription(mock.Anything).Return("Industry-leading payment processor").Once()
 		mockGateway2 := pluginCore.NewMockPaymentGateway(t)
 		mockGateway2.EXPECT().ID(mock.Anything).Return("paypal").Once()
 		mockGateway2.EXPECT().GetName(mock.Anything).Return("PayPal").Once()
@@ -1123,6 +1137,9 @@ func TestHandleGetGateways_Success(t *testing.T) {
 		assert.Equal(tb, "Industry-leading payment processor", stripeGateway.Description)
 		assert.Equal(tb, "/api/billing/gateways/stripe/logo", stripeGateway.LogoURL)
 		assert.True(tb, stripeGateway.IsActive)
+		assert.True(tb, stripeGateway.Abilities.Checkout)
+		assert.True(tb, stripeGateway.Abilities.SessionStatus)
+		assert.True(tb, stripeGateway.Abilities.CustomerPortal)
 
 		// Verify paypal gateway
 		paypalGateway, exists := gatewayMap["paypal"]

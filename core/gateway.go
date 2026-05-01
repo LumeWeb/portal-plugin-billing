@@ -391,6 +391,21 @@ func IsSessionStatusProvider(gateway GatewayIdentity) bool {
 	return ok
 }
 
+// PublicAbilities defines gateway capabilities that are publicly discoverable
+// without requiring a user context or subscription. These are used for checkout flow decisions.
+type PublicAbilities struct {
+	// Checkout indicates the gateway provides checkout UI fragments (via CheckoutProvider)
+	Checkout bool
+
+	// SessionStatus indicates the gateway supports polling checkout session status
+	// (implements SessionStatusProvider interface)
+	SessionStatus bool
+
+	// CustomerPortal indicates the gateway provides a hosted customer portal
+	// (implements CustomerPortal interface with GetCustomerPortalURL)
+	CustomerPortal bool
+}
+
 // AsSessionStatusProvider attempts to cast the gateway to SessionStatusProvider.
 // Returns nil and an error if the gateway does not implement SessionStatusProvider.
 func AsSessionStatusProvider(gateway GatewayIdentity) (SessionStatusProvider, error) {
