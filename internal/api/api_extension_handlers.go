@@ -233,6 +233,77 @@ func (e *APIExtension) handleResumeOperation(c echo.Context) error {
 	return httputil.EncodeResponse(ctx, result, &response)
 }
 
+// handleCustomerPortal returns a generic customer portal URL for subscription management.
+// This operation is always handled via portal redirect - it doesn't have a direct API execution mode.
+func (e *APIExtension) handleCustomerPortal(c echo.Context) error {
+	ctx := httputil.Context(c)
+	userID, ok := e.getUser(ctx)
+	if !ok {
+		return ctx.Error(NewError(ErrKeyUnauthorized, fmt.Errorf("failed to get user ID")), http.StatusUnauthorized)
+	}
+
+	// Get subscription to determine gateway (check active first, then paused)
+	reqCtx := c.Request().Context()
+	sub, err := e.billingService.GetActiveSubscription(reqCtx, userID)
+	if err != nil {
+		e.Logger().Error("failed to check subscription status",
+			zap.Uint("user_id", userID),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeySubscriptionCheckFailed, fmt.Errorf("failed to check subscription status")), http.StatusInternalServerError)
+	}
+
+	// If no active subscription, check for paused subscription
+	if sub == nil {
+		sub, err = e.billingService.GetPausedSubscription(reqCtx, userID)
+		if err != nil {
+			e.Logger().Error("failed to check paused subscription status",
+				zap.Uint("user_id", userID),
+				zap.Error(err))
+			return ctx.Error(NewError(ErrKeySubscriptionCheckFailed, fmt.Errorf("failed to check subscription status")), http.StatusInternalServerError)
+		}
+	}
+
+	if sub == nil {
+		return ctx.Error(NewError(ErrKeyNoActiveSubscription, fmt.Errorf("no subscription found")), http.StatusNotFound)
+	}
+
+	// Get the gateway for this subscription
+	gateway, err := e.billingService.GetGateway(c.Request().Context(), sub.GatewayType)
+	if err != nil {
+		e.Logger().Error("failed to get payment gateway",
+			zap.Uint("user_id", userID),
+			zap.String("gateway_type", sub.GatewayType),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("failed to get payment gateway")), http.StatusInternalServerError)
+	}
+
+	// Check if gateway implements SubscriptionManager (for portal mode)
+	manager, ok := gateway.(pluginCore.SubscriptionManager)
+	if !ok {
+		return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway does not support subscription management")), http.StatusInternalServerError)
+	}
+
+	// Always return portal URL for customer_portal operation
+	result, err := manager.GetManagementURL(c.Request().Context(), userID, pluginCore.OperationCustomerPortal)
+	if err != nil {
+		e.Logger().Error("failed to get customer portal URL",
+			zap.Uint("user_id", userID),
+			zap.String("gateway_type", sub.GatewayType),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("failed to get customer portal URL: %w", err)), http.StatusInternalServerError)
+	}
+
+	response := dto.ManagementResultResponse{}
+	if err := response.FromModel(result); err != nil {
+		e.Logger().Error("failed to build customer portal response",
+			zap.Uint("user_id", userID),
+			zap.Error(err))
+		return ctx.Error(NewError(ErrKeyManagementOperationFailed, fmt.Errorf("failed to build response: %w", err)), http.StatusInternalServerError)
+	}
+
+	return httputil.EncodeResponse(ctx, result, &response)
+}
+
 func (e *APIExtension) handleGetBalance(c echo.Context) error {
 	ctx := httputil.Context(c)
 	reqCtx := ctx.Context.Request().Context()

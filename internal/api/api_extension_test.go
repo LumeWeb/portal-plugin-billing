@@ -443,6 +443,173 @@ func TestHandleResumeOperation_NotSupported(t *testing.T) {
 	}, getUserAPITestOptions())
 }
 
+// Customer Portal Tests
+
+func TestHandleCustomerPortal_Success(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupTest(ctx)
+
+		// Mock user account validation
+		ts.userSvc.EXPECT().AccountExists(mock.Anything, uint(1)).Return(true, nil, nil)
+
+		// Mock active subscription
+		planID := uint(42)
+		mockSubscriber := createMockSubscriber(1, "stripe", "cus_123", true, &planID)
+		ts.billingSvc.EXPECT().GetActiveSubscription(mock.Anything, uint(1)).Return(mockSubscriber, nil).Once()
+
+		// Mock gateway
+		mockGateway := pluginCore.NewMockPaymentGateway(tb)
+		ts.billingSvc.EXPECT().GetGateway(mock.Anything, "stripe").Return(mockGateway, nil).Once()
+
+		// Mock management result - redirect to portal
+		managementResult := &pluginCore.ManagementResult{
+			Action: pluginCore.ActionRedirect,
+			URL:    "https://billing.stripe.com/session/abc123",
+		}
+		mockGateway.EXPECT().GetManagementURL(mock.Anything, uint(1), pluginCore.OperationCustomerPortal).Return(managementResult, nil).Once()
+
+		// Create authenticated request
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/account/billing/customer-portal", nil, "1")
+		assert.NoError(tb, err, "Failed to create authenticated request")
+
+		w := httptest.NewRecorder()
+
+		// Execute
+		ts.router.ServeHTTP(w, req)
+
+		// Verify
+		assert.Equal(tb, http.StatusOK, w.Code)
+
+		var response dto.ManagementResultResponse
+		err = json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(tb, err)
+
+		assert.Equal(tb, pluginCore.ActionRedirect, response.Action)
+		assert.Equal(tb, "https://billing.stripe.com/session/abc123", response.URL)
+
+	}, getUserAPITestOptions())
+}
+
+func TestHandleCustomerPortal_PausedSubscription(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupTest(ctx)
+
+		// Mock user account validation
+		ts.userSvc.EXPECT().AccountExists(mock.Anything, uint(1)).Return(true, nil, nil)
+
+		// No active subscription
+		ts.billingSvc.EXPECT().GetActiveSubscription(mock.Anything, uint(1)).Return(nil, nil).Once()
+
+		// Mock paused subscription
+		planID := uint(42)
+		mockSubscriber := createMockSubscriber(1, "stripe", "cus_123", false, &planID)
+		ts.billingSvc.EXPECT().GetPausedSubscription(mock.Anything, uint(1)).Return(mockSubscriber, nil).Once()
+
+		// Mock gateway
+		mockGateway := pluginCore.NewMockPaymentGateway(tb)
+		ts.billingSvc.EXPECT().GetGateway(mock.Anything, "stripe").Return(mockGateway, nil).Once()
+
+		// Mock management result - redirect to portal
+		managementResult := &pluginCore.ManagementResult{
+			Action: pluginCore.ActionRedirect,
+			URL:    "https://billing.stripe.com/session/paused_sub",
+		}
+		mockGateway.EXPECT().GetManagementURL(mock.Anything, uint(1), pluginCore.OperationCustomerPortal).Return(managementResult, nil).Once()
+
+		// Create authenticated request
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/account/billing/customer-portal", nil, "1")
+		assert.NoError(tb, err, "Failed to create authenticated request")
+
+		w := httptest.NewRecorder()
+
+		// Execute
+		ts.router.ServeHTTP(w, req)
+
+		// Verify
+		assert.Equal(tb, http.StatusOK, w.Code)
+
+		var response dto.ManagementResultResponse
+		err = json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(tb, err)
+
+		assert.Equal(tb, pluginCore.ActionRedirect, response.Action)
+		assert.Equal(tb, "https://billing.stripe.com/session/paused_sub", response.URL)
+
+	}, getUserAPITestOptions())
+}
+
+func TestHandleCustomerPortal_NoSubscription(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupTest(ctx)
+
+		// Mock user account validation
+		ts.userSvc.EXPECT().AccountExists(mock.Anything, uint(1)).Return(true, nil, nil)
+
+		// No active subscription
+		ts.billingSvc.EXPECT().GetActiveSubscription(mock.Anything, uint(1)).Return(nil, nil).Once()
+
+		// No paused subscription
+		ts.billingSvc.EXPECT().GetPausedSubscription(mock.Anything, uint(1)).Return(nil, nil).Once()
+
+		// Create authenticated request
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/account/billing/customer-portal", nil, "1")
+		assert.NoError(tb, err, "Failed to create authenticated request")
+
+		w := httptest.NewRecorder()
+
+		// Execute
+		ts.router.ServeHTTP(w, req)
+
+		// Verify - should return 404 Not Found
+		assert.Equal(tb, http.StatusNotFound, w.Code)
+
+		var errResponse map[string]any
+		err = json.Unmarshal(w.Body.Bytes(), &errResponse)
+		require.NoError(tb, err)
+		assert.Contains(tb, errResponse["error"], "no subscription found")
+
+	}, getUserAPITestOptions())
+}
+
+func TestHandleCustomerPortal_GetManagementURLError(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupTest(ctx)
+
+		// Mock user account validation
+		ts.userSvc.EXPECT().AccountExists(mock.Anything, uint(1)).Return(true, nil, nil)
+
+		// Mock active subscription
+		planID := uint(42)
+		mockSubscriber := createMockSubscriber(1, "stripe", "cus_123", true, &planID)
+		ts.billingSvc.EXPECT().GetActiveSubscription(mock.Anything, uint(1)).Return(mockSubscriber, nil).Once()
+
+		// Mock gateway
+		mockGateway := pluginCore.NewMockPaymentGateway(tb)
+		ts.billingSvc.EXPECT().GetGateway(mock.Anything, "stripe").Return(mockGateway, nil).Once()
+
+		// Mock error from GetManagementURL
+		mockGateway.EXPECT().GetManagementURL(mock.Anything, uint(1), pluginCore.OperationCustomerPortal).Return(nil, fmt.Errorf("portal session creation failed")).Once()
+
+		// Create authenticated request
+		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/account/billing/customer-portal", nil, "1")
+		assert.NoError(tb, err, "Failed to create authenticated request")
+
+		w := httptest.NewRecorder()
+
+		// Execute
+		ts.router.ServeHTTP(w, req)
+
+		// Verify - should return 500 Internal Server Error
+		assert.Equal(tb, http.StatusInternalServerError, w.Code)
+
+		var errResponse map[string]any
+		err = json.Unmarshal(w.Body.Bytes(), &errResponse)
+		require.NoError(tb, err)
+		assert.Contains(tb, errResponse["error"], "failed to get customer portal URL")
+
+	}, getUserAPITestOptions())
+}
+
 // SSE API Tests
 
 // sseTestHelper provides utilities for SSE testing

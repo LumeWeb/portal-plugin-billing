@@ -455,8 +455,10 @@ func (g *StripeGateway) createPortalSession(ctx context.Context, userID uint, re
 
 	// Create a billing portal session
 	params := &stripe.BillingPortalSessionCreateParams{
-		Customer:  stripe.String(subscriber.ExternalID),
-		ReturnURL: stripe.String(returnUrl),
+		Customer: stripe.String(subscriber.ExternalID),
+	}
+	if returnUrl != "" {
+		params.ReturnURL = stripe.String(returnUrl)
 	}
 
 	// Set portal configuration if available for the user's plan
@@ -2819,18 +2821,20 @@ func (g *StripeGateway) GetManagementInfo(ctx context.Context, userID uint) (*pl
 
 	// User operations: portal-based management (via customer portal deep link)
 	userOperations := map[pluginCore.ManagementOperation]bool{
-		pluginCore.OperationCancel:     true,
-		pluginCore.OperationChangePlan: true,
-		pluginCore.OperationPause:      true,
-		pluginCore.OperationResume:     true,
+		pluginCore.OperationCancel:          true,
+		pluginCore.OperationChangePlan:      true,
+		pluginCore.OperationPause:           true,
+		pluginCore.OperationResume:          true,
+		pluginCore.OperationCustomerPortal:  true,
 	}
 
 	// Admin operations: backend API calls (includes pause/resume for direct admin control)
 	adminOperations := map[pluginCore.ManagementOperation]bool{
-		pluginCore.OperationCancel:     true,
-		pluginCore.OperationChangePlan: true,
-		pluginCore.OperationPause:      true,
-		pluginCore.OperationResume:     true,
+		pluginCore.OperationCancel:         true,
+		pluginCore.OperationChangePlan:     true,
+		pluginCore.OperationPause:          true,
+		pluginCore.OperationResume:         true,
+		pluginCore.OperationCustomerPortal: true,
 	}
 
 	return &pluginCore.ManagementCapabilities{
@@ -2917,7 +2921,7 @@ func (g *StripeGateway) buildFlowData(operation pluginCore.ManagementOperation, 
 		}
 
 	default:
-		// Pause/resume and other unsupported operations fall back to the generic portal
+		// Pause/resume and customer_portal fall back to the generic portal
 		return nil
 	}
 }

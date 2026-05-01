@@ -311,6 +311,26 @@ func (e *APIExtension) Configure(gRouter router.Router, accessSvc core.AccessSer
 			router.WithMiddlewares(authMw, accessMw),
 			router.WithCors(),
 		),
+		// Customer portal generic access
+		router.NewRoute(http.MethodPost, pluginCore.CustomerPortalEndpointPath, e.handleCustomerPortal,
+			router.WithSwagger(
+				router.WithSummary("Access Customer Portal"),
+				router.WithDescription("Returns a URL to access the generic customer portal for managing subscription"),
+				router.WithTags("Billing"),
+				router.WithSuccessResponse(http.StatusOK, "Customer portal URL returned successfully",
+					router.WithJSONContent(dto.ManagementResultResponse{})),
+				router.WithErrorResponses(
+					router.DefineSwaggerErrorResponses(
+						router.DefineSwaggerErrorResponse(http.StatusUnauthorized, "Authentication required"),
+						router.DefineSwaggerErrorResponse(http.StatusNotFound, "No subscription found"),
+						router.DefineSwaggerErrorResponse(http.StatusInternalServerError, "Failed to get customer portal URL"),
+					),
+				),
+			),
+			router.WithAccess(core.ACCESS_USER_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
+			router.WithCors(),
+		),
 		// Checkout UI endpoint
 		router.NewRoute(http.MethodGet, "/api/account/billing/checkout/ui/:planId", e.handleGetCheckoutUI,
 			router.WithSwagger(
