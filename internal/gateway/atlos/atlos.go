@@ -1061,13 +1061,11 @@ func (g *AtlosGateway) generateProratedCheckoutUI(
 		return nil, fmt.Errorf("failed to get user: %w", err)
 	}
 
-	// Build script fragment
-	scriptFragment, err := g.buildScriptFragment()
+	// Build SDK script fragment
+	sdkScriptFragment, err := g.buildScriptFragment()
 	if err != nil {
-		return nil, fmt.Errorf("failed to build script fragment: %w", err)
+		return nil, fmt.Errorf("failed to build SDK script fragment: %w", err)
 	}
-
-	fragments := []pluginCore.CheckoutUIFragment{scriptFragment}
 
 	userName := fmt.Sprintf("%s %s", user.FirstName, user.LastName)
 
@@ -1085,7 +1083,27 @@ func (g *AtlosGateway) generateProratedCheckoutUI(
 	if err != nil {
 		return nil, fmt.Errorf("failed to build prorated button fragment: %w", err)
 	}
-	fragments = append(fragments, buttonFragment)
+
+	// Build button initialization script fragment
+	buttonScriptFragment, err := g.buildProratedButtonScriptFragment(
+		orderID,
+		calc.NewPeriod,
+		calc.NewPlan.Currency,
+		userName,
+		user.Email,
+		calc.NetAmountDue,
+		calc.ProrationResult.UnusedCredit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build prorated button script fragment: %w", err)
+	}
+
+	// Order: SDK script loads first, then button, then button script initializes it
+	fragments := []pluginCore.CheckoutUIFragment{
+		sdkScriptFragment,
+		buttonFragment,
+		buttonScriptFragment,
+	}
 
 	response := &pluginCore.CheckoutUIResponse{
 		SessionID: orderID,
@@ -1366,13 +1384,11 @@ func (g *AtlosGateway) GetCheckoutUI(ctx context.Context, userID uint, planID ui
 				return nil, fmt.Errorf("failed to get user: %w", err)
 			}
 
-			// 5. Build response with script fragment
-			scriptFragment, err := g.buildScriptFragment()
+			// 5. Build response with SDK script fragment
+			sdkScriptFragment, err := g.buildScriptFragment()
 			if err != nil {
-				return nil, fmt.Errorf("failed to build script fragment: %w", err)
+				return nil, fmt.Errorf("failed to build SDK script fragment: %w", err)
 			}
-
-			fragments := []pluginCore.CheckoutUIFragment{scriptFragment}
 
 			userName := fmt.Sprintf("%s %s", user.FirstName, user.LastName)
 
@@ -1382,7 +1398,19 @@ func (g *AtlosGateway) GetCheckoutUI(ctx context.Context, userID uint, planID ui
 			if err != nil {
 				return nil, fmt.Errorf("failed to build button fragment for period %d: %w", periodID, err)
 			}
-			fragments = append(fragments, buttonFragment)
+
+			// 7. Build button initialization script fragment
+			buttonScriptFragment, err := g.buildButtonScriptFragment(orderID, matchedPeriod, plan.Currency, userName, user.Email)
+			if err != nil {
+				return nil, fmt.Errorf("failed to build button script fragment: %w", err)
+			}
+
+			// Order: SDK script loads first, then button, then button script initializes it
+			fragments := []pluginCore.CheckoutUIFragment{
+				sdkScriptFragment,
+				buttonFragment,
+				buttonScriptFragment,
+			}
 
 			response := &pluginCore.CheckoutUIResponse{
 				SessionID: orderID,
@@ -1494,27 +1522,45 @@ func buildPaymentConfigData(merchantID string, orderID string, period *billingMo
 func (g *AtlosGateway) buildButtonFragmentForPeriod(orderID string, period *billingModels.PricingPlanPeriod, currency string, userName string, userEmail string) (pluginCore.CheckoutUIFragment, error) {
 	data := buildPaymentConfigData(g.getMerchantID(), orderID, period, currency, userName, userEmail, g.getPostbackURL())
 
+	buttonHTML := fmt.Sprintf(`<button id="%s">Pay %s %.2f - %s billing</button>`, data.ButtonID, currency, period.PriceUSD, period.Cadence)
+
+	return pluginCore.CheckoutUIFragment{
+		Type: pluginCore.FragmentTypeButton,
+		HTML: buttonHTML,
+	}, nil
+}
+
+// buildPaymentButtonScript generates the JavaScript code for button initialization
+func (g *AtlosGateway) buildPaymentButtonScript(data atlosPaymentConfigData) (string, error) {
 	tmpl, err := template.New("atlosPaymentConfig").Funcs(template.FuncMap{
 		"quote": func(s string) string {
 			return fmt.Sprintf("%q", s)
 		},
 	}).ParseFS(templatesFS, "templates/payment_button.tpl")
 	if err != nil {
-		return pluginCore.CheckoutUIFragment{}, fmt.Errorf("failed to parse template: %w", err)
+		return "", fmt.Errorf("failed to parse template: %w", err)
 	}
 
 	var scriptBuf strings.Builder
 	if err := tmpl.ExecuteTemplate(&scriptBuf, paymentButtonTemplate, data); err != nil {
-		return pluginCore.CheckoutUIFragment{}, fmt.Errorf("failed to execute template: %w", err)
+		return "", fmt.Errorf("failed to execute template: %w", err)
 	}
 
-	buttonHTML := fmt.Sprintf(`<button id="%s">Pay %s %.2f - %s billing</button>`, data.ButtonID, currency, period.PriceUSD, period.Cadence)
-	scriptHTML := fmt.Sprintf(`<script>%s</script>`, scriptBuf.String())
+	return scriptBuf.String(), nil
+}
+
+// buildButtonScriptFragment creates a script fragment for button initialization
+func (g *AtlosGateway) buildButtonScriptFragment(orderID string, period *billingModels.PricingPlanPeriod, currency string, userName string, userEmail string) (pluginCore.CheckoutUIFragment, error) {
+	data := buildPaymentConfigData(g.getMerchantID(), orderID, period, currency, userName, userEmail, g.getPostbackURL())
+
+	script, err := g.buildPaymentButtonScript(data)
+	if err != nil {
+		return pluginCore.CheckoutUIFragment{}, err
+	}
 
 	return pluginCore.CheckoutUIFragment{
-		Type:   pluginCore.FragmentTypeButton,
-		HTML:   buttonHTML,
-		Script: scriptHTML,
+		Type:   pluginCore.FragmentTypeScript,
+		Script: script,
 	}, nil
 }
 
@@ -1523,40 +1569,12 @@ func (g *AtlosGateway) buildButtonFragment(orderID string, amount float64, curre
 	// Generate unique button ID
 	buttonID := fmt.Sprintf("atlos-pay-btn-%s", orderID)
 
-	// Use FuncMap with printf "%q" for proper string quoting
-	tmpl, err := template.New("atlosPaymentConfig").Funcs(template.FuncMap{
-		"quote": func(s string) string {
-			return fmt.Sprintf("%q", s)
-		},
-	}).ParseFS(templatesFS, "templates/payment_button.tpl")
-	if err != nil {
-		return pluginCore.CheckoutUIFragment{}, fmt.Errorf("failed to parse template: %w", err)
-	}
-
-	data := atlosPaymentConfigData{
-		ButtonID:    buttonID,
-		MerchantID:  g.getMerchantID(),
-		OrderID:     orderID,
-		Amount:      amount,
-		Currency:    currency,
-		UserName:    userName,
-		UserEmail:   userEmail,
-		PostbackURL: g.getPostbackURL(),
-	}
-
-	var scriptBuf strings.Builder
-	if err := tmpl.ExecuteTemplate(&scriptBuf, paymentButtonTemplate, data); err != nil {
-		return pluginCore.CheckoutUIFragment{}, fmt.Errorf("failed to execute template: %w", err)
-	}
-
-	// Build button HTML with unique ID and script with event listener
+	// Build button HTML with unique ID
 	buttonHTML := fmt.Sprintf(`<button id="%s">Pay with Crypto</button>`, buttonID)
-	scriptHTML := fmt.Sprintf(`<script>%s</script>`, scriptBuf.String())
 
 	return pluginCore.CheckoutUIFragment{
-		Type:   pluginCore.FragmentTypeButton,
-		HTML:   buttonHTML,
-		Script: scriptHTML,
+		Type: pluginCore.FragmentTypeButton,
+		HTML: buttonHTML,
 	}, nil
 }
 
@@ -1586,52 +1604,49 @@ func (g *AtlosGateway) buildProratedButtonFragment(
 	// Generate unique button ID
 	buttonID := fmt.Sprintf("atlos-pay-btn-%s", orderID)
 
-	data := atlosPaymentConfigData{
-		ButtonID:       buttonID,
-		MerchantID:     g.getMerchantID(),
-		OrderID:        orderID,
-		Amount:         netAmount.InexactFloat64(), // KEY: Prorated net amount
-		Currency:       currency,
-		UserName:       userName,
-		UserEmail:      userEmail,
-		PostbackURL:    g.getPostbackURL(),
-		CreditAmount:   creditAmount.InexactFloat64(),
-		RecurringAmount: period.PriceUSD,
-		RecurringUnit:  period.Cadence,
-		RecurringInterval: 1,
-	}
-
-	tmpl, err := template.New("atlosPaymentConfig").Funcs(template.FuncMap{
-		"quote": func(s string) string {
-			return fmt.Sprintf("%q", s)
-		},
-	}).ParseFS(templatesFS, "templates/payment_button.tpl")
-	if err != nil {
-		return pluginCore.CheckoutUIFragment{}, fmt.Errorf("failed to parse template: %w", err)
-	}
-
-	var scriptBuf strings.Builder
-	if err := tmpl.ExecuteTemplate(&scriptBuf, paymentButtonTemplate, data); err != nil {
-		return pluginCore.CheckoutUIFragment{}, fmt.Errorf("failed to execute template: %w", err)
-	}
-
 	// Build button HTML with prorated amount display
 	var buttonLabel string
 	if creditAmount.GreaterThan(decimal.Zero) {
-		buttonLabel = fmt.Sprintf(`Pay %s %.2f - Prorated from %s %s billing`, 
+		buttonLabel = fmt.Sprintf(`Pay %s %.2f - Prorated from %s %s billing`,
 			currency, netAmount.InexactFloat64(), currency, period.Cadence)
 	} else {
-		buttonLabel = fmt.Sprintf(`Pay %s %.2f - %s billing`, 
+		buttonLabel = fmt.Sprintf(`Pay %s %.2f - %s billing`,
 			currency, netAmount.InexactFloat64(), period.Cadence)
 	}
 
 	buttonHTML := fmt.Sprintf(`<button id="%s">%s</button>`, buttonID, buttonLabel)
-	scriptHTML := fmt.Sprintf(`<script>%s</script>`, scriptBuf.String())
 
 	return pluginCore.CheckoutUIFragment{
-		Type:   pluginCore.FragmentTypeButton,
-		HTML:   buttonHTML,
-		Script: scriptHTML,
+		Type: pluginCore.FragmentTypeButton,
+		HTML: buttonHTML,
+	}, nil
+}
+
+// buildProratedButtonScriptFragment creates a script fragment for prorated button initialization
+func (g *AtlosGateway) buildProratedButtonScriptFragment(
+	orderID string,
+	period *billingModels.PricingPlanPeriod,
+	currency string,
+	userName string,
+	userEmail string,
+	netAmount decimal.Decimal,
+	creditAmount decimal.Decimal,
+) (pluginCore.CheckoutUIFragment, error) {
+	data := buildPaymentConfigData(g.getMerchantID(), orderID, period, currency, userName, userEmail, g.getPostbackURL())
+	data.Amount = netAmount.InexactFloat64()
+	data.CreditAmount = creditAmount.InexactFloat64()
+	data.RecurringAmount = period.PriceUSD
+	data.RecurringUnit = period.Cadence
+	data.RecurringInterval = 1
+
+	script, err := g.buildPaymentButtonScript(data)
+	if err != nil {
+		return pluginCore.CheckoutUIFragment{}, err
+	}
+
+	return pluginCore.CheckoutUIFragment{
+		Type:   pluginCore.FragmentTypeScript,
+		Script: script,
 	}, nil
 }
 
