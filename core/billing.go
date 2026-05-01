@@ -72,5 +72,5 @@ type BillingService interface {
 
 // GatewayRegistry provides access to gateway information
 type GatewayRegistry interface {
-	GetAllGateways() map[string]GatewayIdentity
+	GetAllGateways() *OrderedMap[string, GatewayIdentity]
 }

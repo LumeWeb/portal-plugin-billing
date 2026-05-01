@@ -60,16 +60,16 @@ func (s *SyncManager) SyncPricingPlan(ctx context.Context, planID uint) (*SyncGa
 
 	s.ctx.Logger().Debug("syncing plan to gateways",
 		zap.Uint("plan_id", planID),
-		zap.Int("gateway_count", len(allGateways)))
+		zap.Int("gateway_count", allGateways.Len()))
 
 	results := &SyncGatewayPlanResults{
 		PlanID:        planID,
-		TotalGateways: len(allGateways),
+		TotalGateways: allGateways.Len(),
 		Results:       make(map[string]*pluginCore.SyncResult),
 		Errors:        make(map[string]error),
 	}
 
-	for gatewayID, gateway := range allGateways {
+	allGateways.Range(func(gatewayID string, gateway pluginCore.GatewayIdentity) bool {
 		syncResult, syncErr := s.syncGatewayAttempt(ctx, gateway, plan, gatewayID)
 
 		if syncErr != nil {
@@ -81,7 +81,8 @@ func (s *SyncManager) SyncPricingPlan(ctx context.Context, planID uint) (*SyncGa
 		} else {
 			results.FailureCount++
 		}
-	}
+		return true
+	})
 
 	s.ctx.Logger().Info("sync completed",
 		zap.Uint("plan_id", planID),

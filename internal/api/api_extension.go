@@ -684,10 +684,10 @@ func (e *APIExtension) handleGetGateways(c echo.Context) error {
 	// Query registry for all gateways and their metadata
 	response := dto.GatewayListResponse{}
 
-	// Get active gateways
+	// Get active gateways (ordered by registration)
 	allGateways := registry.GetAllGateways()
 
-	for id, gateway := range allGateways {
+	allGateways.Range(func(id string, gateway pluginCore.GatewayIdentity) bool {
 		response = append(response, dto.GatewayPublicInfo{
 			ID:          id,
 			Name:        gateway.GetName(reqCtx),
@@ -695,7 +695,8 @@ func (e *APIExtension) handleGetGateways(c echo.Context) error {
 			LogoURL:     fmt.Sprintf("/api/billing/gateways/%s/logo", id),
 			IsActive:    true,
 		})
-	}
+		return true
+	})
 
 	return httputil.EncodeResponse(ctx, &response, &response)
 }

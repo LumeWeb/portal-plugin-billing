@@ -12,14 +12,14 @@ import (
 
 // Registry maintains a collection of payment gateways
 type Registry struct {
-	gateways map[string]pluginCore.GatewayIdentity
+	gateways *pluginCore.OrderedMap[string, pluginCore.GatewayIdentity]
 	mu       sync.RWMutex
 }
 
 // NewRegistry creates a new empty gateway registry
 func NewRegistry() *Registry {
 	return &Registry{
-		gateways: make(map[string]pluginCore.GatewayIdentity),
+		gateways: pluginCore.NewOrderedMap[string, pluginCore.GatewayIdentity](),
 	}
 }
 
@@ -33,7 +33,7 @@ func GetRegistry() *Registry {
 func (r *Registry) Reset() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.gateways = make(map[string]pluginCore.GatewayIdentity)
+	r.gateways = pluginCore.NewOrderedMap[string, pluginCore.GatewayIdentity]()
 }
 
 var (
@@ -64,11 +64,11 @@ func (r *Registry) Register(ctx context.Context, gateway pluginCore.GatewayIdent
 		GatewayRegistered.WithLabelValues("", LabelStatusError).Inc()
 		return fmt.Errorf("gateway ID cannot be empty")
 	}
-	if _, exists := r.gateways[id]; exists {
+	if _, exists := r.gateways.Get(id); exists {
 		GatewayRegistered.WithLabelValues(id, LabelStatusError).Inc()
 		return fmt.Errorf("%w: %s", ErrGatewayAlreadyRegistered, id)
 	}
-	r.gateways[id] = gateway
+	r.gateways.Set(id, gateway)
 	GatewayRegistered.WithLabelValues(id, LabelStatusSuccess).Inc()
 	return nil
 }
@@ -78,8 +78,7 @@ func (r *Registry) Get(id string) (pluginCore.GatewayIdentity, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	gateway, exists := r.gateways[id]
-	return gateway, exists
+	return r.gateways.Get(id)
 }
 
 // GetAll returns all registered payment gateways
@@ -87,24 +86,20 @@ func (r *Registry) GetAll() []pluginCore.GatewayIdentity {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	gateways := make([]pluginCore.GatewayIdentity, 0, len(r.gateways))
-	for _, gateway := range r.gateways {
+	gateways := make([]pluginCore.GatewayIdentity, 0, r.gateways.Len())
+	r.gateways.Range(func(_ string, gateway pluginCore.GatewayIdentity) bool {
 		gateways = append(gateways, gateway)
-	}
+		return true
+	})
 	return gateways
 }
 
-// GetAllGateways returns all registered payment gateways as a map of ID to gateway
-func (r *Registry) GetAllGateways() map[string]pluginCore.GatewayIdentity {
+// GetAllGateways returns all registered payment gateways in insertion order
+func (r *Registry) GetAllGateways() *pluginCore.OrderedMap[string, pluginCore.GatewayIdentity] {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	// Create a new map to avoid external mutation
-	result := make(map[string]pluginCore.GatewayIdentity, len(r.gateways))
-	for id, gateway := range r.gateways {
-		result[id] = gateway
-	}
-	return result
+	return r.gateways
 }
 
 // ValidateWebhook validates a webhook for a specific gateway
