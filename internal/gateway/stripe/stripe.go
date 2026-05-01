@@ -1096,6 +1096,26 @@ func (g *StripeGateway) handleCheckoutSessionCompleted(ctx context.Context, even
 			}
 			customerID = session.Customer.ID
 
+			// Check if subscriber already exists (race condition: invoice.paid may have already activated)
+			existingSubscriber, err := g.billing.GetSubscriberBySubscriptionID(ctx, subscriptionID, GatewayID)
+			if err != nil {
+				g.logger.Warn("failed to check for existing subscriber during checkout",
+					zap.Error(err),
+					zap.String("session_id", session.ID),
+					zap.String("subscription_id", subscriptionID))
+				// Continue - we'll try to create/update anyway
+			}
+
+			if existingSubscriber != nil && existingSubscriber.IsActive {
+				// Race condition: invoice.paid arrived first and already activated
+				// Skip to avoid clobbering the active state
+				g.logger.Info("checkout completed but subscription already active (invoice.paid won race)",
+					zap.String("session_id", session.ID),
+					zap.String("subscription_id", subscriptionID),
+					zap.Uint("user_id", userIDUint))
+				return nil
+			}
+
 			// Fetch the subscription to get period_id from price metadata
 			subscription, err := g.getExpandedSubscription(ctx, subscriptionID)
 			if err != nil {
@@ -1113,7 +1133,7 @@ func (g *StripeGateway) handleCheckoutSessionCompleted(ctx context.Context, even
 			}
 
 			// Create pending subscriber entry for this subscription
-			// This will be activated when invoice.paid fires
+			// This will be activated when invoice.paid fires (or may already be active if we lost the race)
 			if err := g.billing.CreateOrUpdateSubscriber(
 				ctx,
 				userIDUint,
@@ -1152,6 +1172,79 @@ func (g *StripeGateway) calculateNetInvoiceAmount(invoice *stripe.Invoice) decim
 	return amount
 }
 
+// resolveSubscriberForInvoice attempts to resolve a subscriber when the primary lookup by subscription ID fails.
+// This handles the race condition where invoice.paid arrives before checkout.session.completed.
+//
+// Fallback chain:
+//  1. GetSubscriberByExternalID — checkout may have created the record under the customer ID
+//  2. GetActiveSubscription — user may already have an active subscription from another flow
+//  3. Create a new pending subscriber — extract userID from subscription metadata
+func (g *StripeGateway) resolveSubscriberForInvoice(ctx context.Context, subscriptionID, customerID string, subscription *stripe.Subscription) (*pluginCore.Subscriber, error) {
+	// Fallback 1: lookup by external ID (customer ID)
+	subscriber, err := g.billing.GetSubscriberByExternalID(ctx, customerID, GatewayID)
+	if err != nil {
+		g.logger.Warn("failed to look up subscriber by external ID during race fallback",
+			zap.String("customer_id", customerID),
+			zap.Error(err))
+	} else if subscriber != nil {
+		g.logger.Debug("resolved subscriber by external ID during race fallback",
+			zap.String("customer_id", customerID),
+			zap.Uint("user_id", subscriber.UserID))
+		return subscriber, nil
+	}
+
+	// Extract userID from subscription to enable remaining fallbacks
+	userID, err := g.extractUserIDFromSubscription(ctx, subscription)
+	if err != nil || userID == 0 {
+		g.logger.Warn("cannot resolve subscriber without user ID from subscription",
+			zap.String("subscription_id", subscriptionID),
+			zap.Error(err))
+		return nil, nil
+	}
+
+	// Fallback 2: check if user already has an active subscription
+	activeSub, err := g.billing.GetActiveSubscription(ctx, userID)
+	if err != nil {
+		g.logger.Warn("failed to check for active subscription during race fallback",
+			zap.Uint("user_id", userID),
+			zap.Error(err))
+	} else if activeSub != nil {
+		g.logger.Debug("resolved subscriber via active subscription during race fallback",
+			zap.Uint("user_id", userID),
+			zap.String("active_subscription_id", activeSub.SubscriptionID))
+		return activeSub, nil
+	}
+
+	// Fallback 3: create a pending subscriber on the spot
+	var periodID *uint
+	if pid, found, _ := findPeriodIDFromSubscription(subscription); found {
+		periodID = &pid
+	}
+
+	if err := g.billing.CreateOrUpdateSubscriber(
+		ctx,
+		userID,
+		GatewayID,
+		customerID,
+		subscriptionID,
+		false,
+		periodID,
+	); err != nil {
+		return nil, fmt.Errorf("failed to create pending subscriber during race fallback: %w", err)
+	}
+
+	g.logger.Info("created pending subscriber during race fallback with invoice.paid",
+		zap.Uint("user_id", userID),
+		zap.String("subscription_id", subscriptionID),
+		zap.String("customer_id", customerID))
+
+	subscriber, err = g.billing.GetSubscriberBySubscriptionID(ctx, subscriptionID, GatewayID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch newly created subscriber: %w", err)
+	}
+	return subscriber, nil
+}
+
 // handleInvoicePaid processes a successful invoice payment.
 // This is the single source of truth for issuing credits and activating subscriptions.
 //
@@ -1170,7 +1263,8 @@ func (g *StripeGateway) calculateNetInvoiceAmount(invoice *stripe.Invoice) decim
 // Error conditions:
 //   - Missing Customer or Customer ID: returns error
 //   - No subscription ID in invoice lines: logs warning and returns nil (no-op)
-//   - No pending subscriber found: logs warning and returns nil (no-op)
+//   - No pending subscriber found: attempts fallback resolution (external ID, active subscription, auto-create)
+//     If all fallbacks fail, logs warning and returns nil (no-op)
 //   - Credit issuance failure: returns error
 func (g *StripeGateway) handleInvoicePaid(ctx context.Context, event stripe.Event) error {
 	ctx, span := core.TraceMethod(ctx, "StripeGateway.handleInvoicePaid")
@@ -1231,6 +1325,7 @@ func (g *StripeGateway) handleInvoicePaid(ctx context.Context, event stripe.Even
 			}
 
 			// Look up local pending subscriber entry
+			var subscription *stripe.Subscription
 			subscriber, err := g.billing.GetSubscriberBySubscriptionID(ctx, subscriptionID, GatewayID)
 			if err != nil {
 				g.logger.Error("failed to look up subscriber by subscription ID",
@@ -1241,22 +1336,49 @@ func (g *StripeGateway) handleInvoicePaid(ctx context.Context, event stripe.Even
 			}
 
 			if subscriber == nil {
-				g.logger.Warn("invoice paid but no pending subscriber found - cannot activate",
+				// Race condition: invoice.paid arrived before checkout.session.completed
+				// Try fallbacks to resolve or create the subscriber
+				subscription, err = g.getExpandedSubscription(ctx, subscriptionID)
+				if err != nil {
+					g.logger.Warn("invoice paid but no subscriber found and failed to fetch subscription for fallback",
+						zap.String("subscription_id", subscriptionID),
+						zap.String("invoice_id", invoice.ID),
+						zap.Error(err))
+					return nil
+				}
+
+				subscriber, err = g.resolveSubscriberForInvoice(ctx, subscriptionID, customerIDStr, subscription)
+				if err != nil {
+					g.logger.Error("invoice paid but failed to resolve subscriber via fallbacks",
+						zap.String("subscription_id", subscriptionID),
+						zap.String("invoice_id", invoice.ID),
+						zap.Error(err))
+					return nil
+				}
+				if subscriber == nil {
+					g.logger.Warn("invoice paid but no subscriber could be resolved - cannot activate",
+						zap.String("subscription_id", subscriptionID),
+						zap.String("invoice_id", invoice.ID))
+					return nil
+				}
+				g.logger.Info("resolved subscriber via fallback after race with checkout",
 					zap.String("subscription_id", subscriptionID),
-					zap.String("invoice_id", invoice.ID))
-				return nil
+					zap.String("invoice_id", invoice.ID),
+					zap.Uint("user_id", subscriber.UserID))
 			}
 
 			// Verify this invoice is for the same user
 			userID := subscriber.UserID
 
 			// Expand subscription to get product/price details for operation detection and validation
-			subscription, err := g.getExpandedSubscription(ctx, subscriptionID)
-			if err != nil {
-				g.logger.Warn("failed to fetch subscription for validation",
-					zap.String("subscription_id", subscriptionID),
-					zap.Error(err))
-				return nil
+			if subscription == nil {
+				subscription, err = g.getExpandedSubscription(ctx, subscriptionID)
+				if err != nil {
+					g.logger.Warn("failed to fetch subscription for validation",
+						zap.String("subscription_id", subscriptionID),
+						zap.Error(err))
+					return nil
+				}
 			}
 
 			// Determine operation type and validate before issuing credit
@@ -1402,26 +1524,11 @@ func (g *StripeGateway) handleInvoicePaid(ctx context.Context, event stripe.Even
 							zap.String("period_start", billingCycleStart.Format("2006-01-02")),
 							zap.String("period_end", billingCycleEnd.Format("2006-01-02")),
 							zap.String("amount", periodPrice.String()))
-
-						// Assign quota plan after debiting period cost
-						if period.QuotaPlanID != 0 {
-							if g.quota == nil {
-								g.logger.Error("quota service not configured, cannot assign quota plan",
-									zap.Uint("pricing_plan_period_id", planPeriodID),
-									zap.Uint("quota_plan_id", period.QuotaPlanID))
-							} else if err := g.quota.AssignUserToPlan(ctx, userID, period.QuotaPlanID); err != nil {
-								g.logger.Error("failed to assign quota plan",
-									zap.Error(err),
-									zap.Uint("user_id", userID),
-									zap.Uint("pricing_plan_period_id", planPeriodID),
-									zap.Uint("quota_plan_id", period.QuotaPlanID))
-							}
-						}
 					}
 				}
 			}
 
-			// Activate subscription now that payment is confirmed and balance is sufficient
+			// Activate subscription - assignUserToPlan is called inside activateSubscriptionWithPeriodID
 			return g.activateSubscription(ctx, userID, subscription, event)
 		},
 	)

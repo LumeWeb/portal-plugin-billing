@@ -1204,6 +1204,9 @@ func TestStripeGateway_HandleWebhook_CheckoutSessionCompleted(t *testing.T) {
 		}
 		mockSubService.SetupGetSuccess(&subscription)
 
+		// Check for existing subscriber (no race condition - still inactive)
+		mockBilling.EXPECT().GetSubscriberBySubscriptionID(mock.Anything, subscriptionID, "stripe").Return(nil, nil)
+
 		// Billing service creates a pending (inactive) subscriber with period ID
 		mockBilling.EXPECT().CreateOrUpdateSubscriber(
 			mock.Anything,
@@ -1731,6 +1734,252 @@ func TestStripeGateway_HandleWebhook_InvoicePaid_InsufficientBalance(t *testing.
 		err := gw.handleInvoicePaid(ctx, event)
 		assert.NoError(t, err)
 		mockBilling.AssertNotCalled(t, "CreateOrUpdateSubscriber", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, true, mock.Anything, mock.Anything)
+	})
+}
+
+func TestStripeGateway_HandleWebhook_InvoicePaid_RaceWithCheckout(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockQuota, mockUsers, mockBilling, mockPricing := setupMockServices(ctx)
+		mockCredit := core.GetService[*pluginCore.MockCreditService](ctx, pluginCore.CREDIT_SERVICE)
+
+		subscriptionID := TestSubscriptionID
+		customerID := TestCustomerID
+		invoiceID := "in_test_race"
+		pricingPlanPeriodID := uint(200)
+		userID := TestUserID
+
+		planID := uint(pricingPlanPeriodID)
+		mockSubscriber := &pluginCore.Subscriber{
+			UserID:              userID,
+			GatewayType:         "stripe",
+			ExternalID:          customerID,
+			SubscriptionID:      subscriptionID,
+			IsActive:            false,
+			PricingPlanPeriodID: &planID,
+		}
+
+		// First call returns nil (race condition), second call returns subscriber (after creation)
+		mockBilling.On("GetSubscriberBySubscriptionID", mock.Anything, subscriptionID, "stripe").
+			Return(nil, nil).Once()
+		mockBilling.On("GetSubscriberBySubscriptionID", mock.Anything, subscriptionID, "stripe").
+			Return(mockSubscriber, nil).Once()
+
+		// Fallback 1: GetSubscriberByExternalID also returns nil (no subscriber yet)
+		mockBilling.On("GetSubscriberByExternalID", mock.Anything, customerID, "stripe").Return(nil, nil).Maybe()
+
+		// Fallback 2: GetActiveSubscription returns nil (no active subscription)
+		mockBilling.On("GetActiveSubscription", mock.Anything, userID).Return(nil, nil).Maybe()
+
+		// Fallback 3: CreateOrUpdateSubscriber is called to create the pending subscriber
+		mockBilling.On("CreateOrUpdateSubscriber", mock.Anything, userID, "stripe", customerID, subscriptionID, false, mock.Anything).Return(nil).Maybe()
+
+		mockUsers.EXPECT().AccountExists(mock.Anything, userID).Return(true, createTestUser(userID), nil).Maybe()
+
+		mockPricing.EXPECT().GetPricingPlanPeriod(mock.Anything, pricingPlanPeriodID).Return(&billingModels.PricingPlanPeriod{
+			Model:         gorm.Model{ID: pricingPlanPeriodID},
+			PricingPlanID: 1,
+			Cadence:       "monthly",
+			PriceUSD:      19.99,
+			QuotaPlanID:   100,
+		}, nil)
+
+		subscription := createTestSubscriptionWithPeriod("123", "", fmt.Sprintf("%d", pricingPlanPeriodID))
+		mockSubService := &MockSubscriptionRetriever{}
+		mockSubService.SetupGetSuccess(&subscription)
+
+		mockCredit.EXPECT().ValidateSubscriptionChange(mock.Anything, uint64(userID), pluginCore.ChangeTypeRenewal, mock.Anything).Return(nil)
+		mockCredit.EXPECT().IssueCreditWithIdempotency(
+			mock.Anything,
+			uint64(userID),
+			pluginCore.TransactionTypeCharge,
+			mock.Anything,
+			pluginCore.ReferenceTypeStripeInvoice,
+			invoiceID,
+			mock.AnythingOfType("string"),
+			uint64(0),
+		).Return(nil).Times(1)
+
+		mockCredit.EXPECT().GetUserBalance(mock.Anything, uint64(userID)).Return(decimal.NewFromFloat(19.99), nil).Times(1)
+
+		mockCredit.EXPECT().IssueUsageCredit(
+			mock.Anything,
+			uint64(userID),
+			pluginCore.TransactionTypeTime,
+			mock.Anything,
+			invoiceID,
+			mock.AnythingOfType("string"),
+			uint64(0),
+		).Return(nil).Times(1)
+
+		mockQuota.EXPECT().AssignUserToPlan(mock.Anything, userID, uint(100)).Return(nil).Maybe()
+		mockBilling.On("CreateOrUpdateSubscriber", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+
+		gw := NewWithConfig(ctx.Logger(), ctx, testConfig(), mockQuota, mockUsers, mockBilling, mockPricing, mockCredit)
+		gw.subService = mockSubService
+
+		event := createTestInvoiceEvent(invoiceID, customerID, subscriptionID, 19.99)
+
+		err := gw.handleInvoicePaid(ctx, event)
+		assert.NoError(t, err)
+	})
+}
+
+func TestStripeGateway_HandleWebhook_InvoicePaid_RaceWithCheckout_ActiveSubFallback(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockQuota, mockUsers, mockBilling, mockPricing := setupMockServices(ctx)
+		mockCredit := core.GetService[*pluginCore.MockCreditService](ctx, pluginCore.CREDIT_SERVICE)
+
+		subscriptionID := TestSubscriptionID
+		customerID := TestCustomerID
+		invoiceID := "in_test_race_active"
+		pricingPlanPeriodID := uint(200)
+		userID := TestUserID
+
+		planID := uint(pricingPlanPeriodID)
+
+		// Simulate race: GetSubscriberBySubscriptionID returns nil
+		mockBilling.EXPECT().GetSubscriberBySubscriptionID(mock.Anything, subscriptionID, "stripe").Return(nil, nil)
+
+		// Fallback 1: GetSubscriberByExternalID also returns nil
+		mockBilling.EXPECT().GetSubscriberByExternalID(mock.Anything, customerID, "stripe").Return(nil, nil)
+
+		// Fallback 2: GetActiveSubscription returns an existing active subscriber
+		activeSubscriber := &pluginCore.Subscriber{
+			UserID:              userID,
+			GatewayType:         "stripe",
+			ExternalID:          customerID,
+			SubscriptionID:      subscriptionID,
+			IsActive:            true,
+			PricingPlanPeriodID: &planID,
+		}
+		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, userID).Return(activeSubscriber, nil)
+
+		mockUsers.EXPECT().AccountExists(mock.Anything, userID).Return(true, createTestUser(userID), nil).Maybe()
+
+		mockPricing.EXPECT().GetPricingPlanPeriod(mock.Anything, pricingPlanPeriodID).Return(&billingModels.PricingPlanPeriod{
+			Model:         gorm.Model{ID: pricingPlanPeriodID},
+			PricingPlanID: 1,
+			Cadence:       "monthly",
+			PriceUSD:      19.99,
+			QuotaPlanID:   100,
+		}, nil)
+
+		subscription := createTestSubscriptionWithPeriod("123", "", fmt.Sprintf("%d", pricingPlanPeriodID))
+		mockSubService := &MockSubscriptionRetriever{}
+		mockSubService.SetupGetSuccess(&subscription)
+
+		mockCredit.EXPECT().ValidateSubscriptionChange(mock.Anything, uint64(userID), pluginCore.ChangeTypeRenewal, mock.Anything).Return(nil)
+		mockCredit.EXPECT().IssueCreditWithIdempotency(
+			mock.Anything,
+			uint64(userID),
+			pluginCore.TransactionTypeCharge,
+			mock.Anything,
+			pluginCore.ReferenceTypeStripeInvoice,
+			invoiceID,
+			mock.AnythingOfType("string"),
+			uint64(0),
+		).Return(nil).Times(1)
+
+		mockCredit.EXPECT().GetUserBalance(mock.Anything, uint64(userID)).Return(decimal.NewFromFloat(19.99), nil).Times(1)
+
+		mockCredit.EXPECT().IssueUsageCredit(
+			mock.Anything,
+			uint64(userID),
+			pluginCore.TransactionTypeTime,
+			mock.Anything,
+			invoiceID,
+			mock.AnythingOfType("string"),
+			uint64(0),
+		).Return(nil).Times(1)
+
+		mockQuota.EXPECT().AssignUserToPlan(mock.Anything, userID, uint(100)).Return(nil).Maybe()
+		mockBilling.On("CreateOrUpdateSubscriber", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+
+		gw := NewWithConfig(ctx.Logger(), ctx, testConfig(), mockQuota, mockUsers, mockBilling, mockPricing, mockCredit)
+		gw.subService = mockSubService
+
+		event := createTestInvoiceEvent(invoiceID, customerID, subscriptionID, 19.99)
+
+		err := gw.handleInvoicePaid(ctx, event)
+		assert.NoError(t, err)
+	})
+}
+
+func TestStripeGateway_HandleWebhook_InvoicePaid_RaceWithCheckout_ExternalIDFallback(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockQuota, mockUsers, mockBilling, mockPricing := setupMockServices(ctx)
+		mockCredit := core.GetService[*pluginCore.MockCreditService](ctx, pluginCore.CREDIT_SERVICE)
+
+		subscriptionID := TestSubscriptionID
+		customerID := TestCustomerID
+		invoiceID := "in_test_race_ext"
+		pricingPlanPeriodID := uint(200)
+		userID := TestUserID
+
+		planID := uint(pricingPlanPeriodID)
+		mockSubscriber := &pluginCore.Subscriber{
+			UserID:              userID,
+			GatewayType:         "stripe",
+			ExternalID:          customerID,
+			SubscriptionID:      "sub_other",
+			IsActive:            false,
+			PricingPlanPeriodID: &planID,
+		}
+
+		// Simulate race: GetSubscriberBySubscriptionID returns nil
+		mockBilling.EXPECT().GetSubscriberBySubscriptionID(mock.Anything, subscriptionID, "stripe").Return(nil, nil)
+
+		// Fallback 1: GetSubscriberByExternalID finds the subscriber
+		mockBilling.EXPECT().GetSubscriberByExternalID(mock.Anything, customerID, "stripe").Return(mockSubscriber, nil)
+
+		mockUsers.EXPECT().AccountExists(mock.Anything, userID).Return(true, createTestUser(userID), nil).Maybe()
+
+		mockPricing.EXPECT().GetPricingPlanPeriod(mock.Anything, pricingPlanPeriodID).Return(&billingModels.PricingPlanPeriod{
+			Model:         gorm.Model{ID: pricingPlanPeriodID},
+			PricingPlanID: 1,
+			Cadence:       "monthly",
+			PriceUSD:      19.99,
+			QuotaPlanID:   100,
+		}, nil)
+
+		subscription := createTestSubscriptionWithPeriod("123", "", fmt.Sprintf("%d", pricingPlanPeriodID))
+		mockSubService := &MockSubscriptionRetriever{}
+		mockSubService.SetupGetSuccess(&subscription)
+
+		mockCredit.EXPECT().ValidateSubscriptionChange(mock.Anything, uint64(userID), pluginCore.ChangeTypeRenewal, mock.Anything).Return(nil)
+		mockCredit.EXPECT().IssueCreditWithIdempotency(
+			mock.Anything,
+			uint64(userID),
+			pluginCore.TransactionTypeCharge,
+			mock.Anything,
+			pluginCore.ReferenceTypeStripeInvoice,
+			invoiceID,
+			mock.AnythingOfType("string"),
+			uint64(0),
+		).Return(nil).Times(1)
+
+		mockCredit.EXPECT().GetUserBalance(mock.Anything, uint64(userID)).Return(decimal.NewFromFloat(19.99), nil).Times(1)
+
+		mockCredit.EXPECT().IssueUsageCredit(
+			mock.Anything,
+			uint64(userID),
+			pluginCore.TransactionTypeTime,
+			mock.Anything,
+			invoiceID,
+			mock.AnythingOfType("string"),
+			uint64(0),
+		).Return(nil).Times(1)
+
+		mockQuota.EXPECT().AssignUserToPlan(mock.Anything, userID, uint(100)).Return(nil).Maybe()
+		mockBilling.On("CreateOrUpdateSubscriber", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+
+		gw := NewWithConfig(ctx.Logger(), ctx, testConfig(), mockQuota, mockUsers, mockBilling, mockPricing, mockCredit)
+		gw.subService = mockSubService
+
+		event := createTestInvoiceEvent(invoiceID, customerID, subscriptionID, 19.99)
+
+		err := gw.handleInvoicePaid(ctx, event)
+		assert.NoError(t, err)
 	})
 }
 
