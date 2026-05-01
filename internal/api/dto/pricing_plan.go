@@ -1,6 +1,7 @@
 package dto
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -56,6 +57,7 @@ type PricingPlanResponse struct {
 	Currency        string                   `json:"currency"`
 	IsActive        bool                     `json:"is_active"`
 	IsPublic        bool                     `json:"is_public"`
+	Features        []string                 `json:"features"`
 	PricingPeriods  []PricingPlanPeriodDTO   `json:"pricing_periods"`
 	CreatedAt       time.Time                `json:"created_at"`
 	UpdatedAt       time.Time                `json:"updated_at"`
@@ -76,6 +78,14 @@ func (r *PricingPlanResponse) FromModel(plan *models.PricingPlan) error {
 	r.IsPublic = plan.IsPublic
 	r.CreatedAt = plan.CreatedAt
 	r.UpdatedAt = plan.UpdatedAt
+
+	// Parse FeaturesJSON
+	if plan.FeaturesJSON != "" {
+		var features []string
+		if err := json.Unmarshal([]byte(plan.FeaturesJSON), &features); err == nil {
+			r.Features = features
+		}
+	}
 
 	return nil
 }
@@ -132,6 +142,7 @@ type PublicPricingPlanResponse struct {
 	Name           string                      `json:"name"`
 	Description    string                      `json:"description"`
 	Currency       string                      `json:"currency"`
+	Features       []string                    `json:"features"`
 	PricingPeriods []PublicPricingPlanPeriodDTO `json:"pricing_periods"`
 }
 
@@ -146,6 +157,14 @@ func (r *PublicPricingPlanResponse) FromModel(plan *models.PricingPlan) error {
 	r.Name = plan.Name
 	r.Description = plan.Description
 	r.Currency = plan.Currency
+
+	// Parse FeaturesJSON
+	if plan.FeaturesJSON != "" {
+		var features []string
+		if err := json.Unmarshal([]byte(plan.FeaturesJSON), &features); err == nil {
+			r.Features = features
+		}
+	}
 
 	return nil
 }
