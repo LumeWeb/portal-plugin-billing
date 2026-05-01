@@ -1108,9 +1108,9 @@ func TestAtlosGateway_GetLogo(t *testing.T) {
 	gw := New(ctx, pluginConfig.AtlosConfig{APIKey: TestAPISecret, MerchantID: TestMerchantID}, nil, nil, nil, nil, nil, nil)
 
 	logo, err := gw.GetLogo(context.Background())
-	assert.NoError(t, err)
+	assert.NoError(t, err, "GetLogo should not return an error - check that assets/atlos.svg exists in the embedded filesystem")
 	assert.NotNil(t, logo)
-	assert.NotEmpty(t, logo)
+	assert.True(t, len(logo) > 0, "logo should contain valid SVG data")
 }
 
 func createTestUser(id uint) *portalModels.User {

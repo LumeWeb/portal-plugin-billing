@@ -2186,3 +2186,15 @@ func TestStripeGateway_GetManagementURL_Resume_GenericPortal(t *testing.T) {
 		assert.Equal(t, "https://billing.stripe.com/p/session_generic", result.URL)
 	})
 }
+
+func TestStripeGateway_GetLogo_EmbeddedFile(t *testing.T) {
+	ctx, _ := coreTesting.NewTestContext(t)
+	gw := NewWithConfig(ctx.Logger(), ctx, testConfig(), nil, nil, nil, nil, nil)
+
+	// This test verifies that the embedded logo file can be read
+	// Will fail if the file is not named correctly (should be "stripe.svg" not "logo.svg")
+	logo, err := gw.GetLogo(context.Background())
+	assert.NoError(t, err, "GetLogo should not return an error - check that assets/stripe.svg exists")
+	assert.NotNil(t, logo)
+	assert.True(t, len(logo) > 0, "logo should contain valid SVG data")
+}
