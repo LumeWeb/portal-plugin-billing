@@ -23,6 +23,6 @@ type MockableBillingService interface {
 
 // GatewayRegistry is a subset of the billing service for accessing gateways in tests
 type GatewayRegistry interface {
-	GetAllGateways() map[string]pluginCore.GatewayIdentity
+	GetAllGateways() *pluginCore.OrderedMap[string, pluginCore.GatewayIdentity]
 	GetRegistry(ctx context.Context) GatewayRegistry
 }

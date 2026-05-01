@@ -60,7 +60,7 @@ func (j *CancellationReconciliationJob) Run(ctx core.Context, eventCtx context.C
 		return fmt.Errorf("gateway registry not available")
 	}
 
-	// Get all registered gateways
+	// Get all registered gateways (ordered by registration)
 	gateways := gatewayRegistry.GetAllGateways()
 
 	now := time.Now().UTC()
@@ -68,7 +68,7 @@ func (j *CancellationReconciliationJob) Run(ctx core.Context, eventCtx context.C
 	totalErrors := 0
 
 	// Reconcile cancellations for each gateway
-	for gatewayID, gateway := range gateways {
+	gateways.Range(func(gatewayID string, gateway pluginCore.GatewayIdentity) bool {
 		ctx.Logger().Debug("Processing gateway for cancellation reconciliation",
 			zap.String("gateway_type", gatewayID))
 
@@ -77,7 +77,7 @@ func (j *CancellationReconciliationJob) Run(ctx core.Context, eventCtx context.C
 		if !ok {
 			ctx.Logger().Debug("Gateway cannot be cast to PaymentGateway, skipping",
 				zap.String("gateway_type", gatewayID))
-			continue
+			return true
 		}
 
 		processed, err := reconcileGatewayCancellations(ctx, paymentGateway, now)
@@ -86,7 +86,7 @@ func (j *CancellationReconciliationJob) Run(ctx core.Context, eventCtx context.C
 				zap.String("gateway_type", gatewayID),
 				zap.Error(err))
 			totalErrors++
-			continue
+			return true
 		}
 
 		if processed > 0 {
@@ -96,7 +96,8 @@ func (j *CancellationReconciliationJob) Run(ctx core.Context, eventCtx context.C
 		}
 
 		totalProcessed += processed
-	}
+		return true
+	})
 
 	ctx.Logger().Info("Cancellation reconciliation completed",
 		zap.Int("total_processed", totalProcessed),

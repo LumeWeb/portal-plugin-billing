@@ -32,8 +32,12 @@ func (m *MockBillingServiceAdapter) GetRegistry(ctx context.Context) pluginCore.
 	return m
 }
 
-func (m *MockBillingServiceAdapter) GetAllGateways() map[string]pluginCore.GatewayIdentity {
-	return m.gateways
+func (m *MockBillingServiceAdapter) GetAllGateways() *pluginCore.OrderedMap[string, pluginCore.GatewayIdentity] {
+	orderedMap := pluginCore.NewOrderedMap[string, pluginCore.GatewayIdentity]()
+	for k, v := range m.gateways {
+		orderedMap.Set(k, v)
+	}
+	return orderedMap
 }
 
 // setupSyncTestContext provides common setup for sync tests
