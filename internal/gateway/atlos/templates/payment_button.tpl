@@ -15,6 +15,9 @@
 
   var buttonId = {{.ButtonID | quote}};
 
+  // Raw payment configuration data from backend (JSON serialized)
+  var rawConfigData = {{.ConfigJSON}};
+
   function dispatchPaymentEvent(eventName, detail) {
     var event = new CustomEvent(eventName, {
       detail: detail,
@@ -49,21 +52,9 @@
 
     button.addEventListener('click', function() {
       try {
+        // Merge raw config data with UI event handlers
         var paymentConfig = {
-          merchantId: {{.MerchantID | quote}},
-          orderId: {{.OrderID | quote}},
-          orderAmount: {{.Amount}},
-          orderCurrency: {{.Currency | quote}},
-          userName: {{.UserName | quote}},
-          userEmail: {{.UserEmail | quote}},
-          captureEmail: false,
-          postbackUrl: {{.PostbackURL | quote}}{{if .RecurringAmount}},
-          subscription: [{
-            amount: {{.RecurringAmount}},
-            unit: {{.RecurringUnit | quote}},
-            interval: {{.RecurringInterval}},
-            startInterval: 1
-          }]{{end}},
+          ...rawConfigData,
           onSuccess: function(response) {
             console.log('Payment successful:', response);
             dispatchPaymentEvent('paymentSuccess', null);
@@ -79,9 +70,7 @@
           onError: function(error) {
             console.error('Payment error:', error);
             dispatchPaymentEvent('paymentError', { error: error.message || error });
-          },
-          language: 'en',
-          theme: 'light'
+          }
         };
 
         window.atlos.Pay(paymentConfig);

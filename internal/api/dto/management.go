@@ -3,6 +3,7 @@ package dto
 import (
 	"time"
 
+	"github.com/samber/lo"
 	"github.com/shopspring/decimal"
 	"go.lumeweb.com/httputil"
 	z "github.com/Oudwins/zog"
@@ -205,13 +206,24 @@ func (r *ChangePlanRequest) ToModel() (*ChangePlanRequest, error) {
 	return r, nil
 }
 
+// CheckoutUIFragmentResponse represents a single UI fragment for checkout
+type CheckoutUIFragmentResponse struct {
+	Type     string                 `json:"type"`
+	HTML     string                 `json:"html,omitempty"`
+	Script   string                 `json:"script,omitempty"`
+	Link     string                 `json:"link,omitempty"`
+	CSS      string                 `json:"css,omitempty"`
+	Metadata map[string]interface{} `json:"metadata,omitempty"`
+}
+
 // PlanChangeResultResponse represents the result of a plan change operation
 type PlanChangeResultResponse struct {
-	Action        string          `json:"action"`
-	CheckoutLink  string          `json:"checkout_link,omitempty"`
-	CreditApplied decimal.Decimal `json:"credit_applied"`
-	ChargeDue     decimal.Decimal `json:"charge_due"`
-	EffectiveDate *time.Time      `json:"effective_date,omitempty"`
+	Action        string                       `json:"action"`
+	CheckoutLink  string                       `json:"checkout_link,omitempty"`
+	CreditApplied decimal.Decimal              `json:"credit_applied"`
+	ChargeDue     decimal.Decimal              `json:"charge_due"`
+	EffectiveDate *time.Time                   `json:"effective_date,omitempty"`
+	Fragments     []CheckoutUIFragmentResponse `json:"fragments,omitempty"`
 }
 
 // FromModel converts PlanChangeResult to response DTO
@@ -225,6 +237,18 @@ func (r *PlanChangeResultResponse) FromModel(result *pluginCore.PlanChangeResult
 	r.CreditApplied = result.CreditApplied
 	r.ChargeDue = result.ChargeDue
 	r.EffectiveDate = result.EffectiveDate
+
+	// Convert fragments
+	r.Fragments = lo.Map(result.Fragments, func(frag pluginCore.CheckoutUIFragment, _ int) CheckoutUIFragmentResponse {
+		return CheckoutUIFragmentResponse{
+			Type:     string(frag.Type),
+			HTML:     frag.HTML,
+			Script:   frag.Script,
+			Link:     frag.Link,
+			CSS:      frag.CSS,
+			Metadata: frag.Metadata,
+		}
+	})
 
 	return nil
 }
