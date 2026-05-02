@@ -288,6 +288,7 @@ func TestAtlosGateway_HandleWebhook_Success(t *testing.T) {
 		notification.OrderId = orderID
 		notification.TransactionId = TestTransactionID
 		notification.SubscriptionId = TestSubscriptionID
+		notification.OrderAmount = 10.0
 		notification.PaidAmount = 10.0
 		payload, _ := json.Marshal(notification)
 
@@ -437,6 +438,107 @@ func TestAtlosGateway_HandleWebhook_PlanNotActive(t *testing.T) {
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "plan is not active")
+	})
+}
+
+func TestAtlosGateway_HandleWebhook_AmountMismatch_CreditsWithoutSubscription(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockPricing := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
+		mockCredit := core.GetService[*pluginCore.MockCreditService](ctx, pluginCore.CREDIT_SERVICE)
+		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+
+		userID := uint(456)
+		periodID := uint(2)
+		orderID := GenerateOrderID(userID, periodID)
+
+		notification := atlos.CreateTestPostback(TestMerchantID)
+		notification.OrderId = orderID
+		notification.TransactionId = TestTransactionID
+		notification.SubscriptionId = TestSubscriptionID
+		notification.OrderAmount = 5.0   // Tampered in widget config
+		notification.PaidAmount = 5.0    // ATLOS-calculated fiat from actual crypto paid
+		payload, _ := json.Marshal(notification)
+
+		// Plan price is $10 but PaidAmount is $5 (underpayment via tampered widget)
+		period := &billingModels.PricingPlanPeriod{
+			Model:        gorm.Model{ID: periodID},
+			PricingPlanID: 1,
+			Cadence:       "monthly",
+			PriceUSD:      10.0,
+		}
+		pricingPlan := &billingModels.PricingPlan{
+			Model:       gorm.Model{ID: 1},
+			Name:        "Test Plan",
+			Description: "Test Description",
+			IsActive:    true,
+		}
+
+		mockPricing.EXPECT().GetPricingPlanPeriod(mock.AnythingOfType("*context.valueCtx"), periodID).Return(period, nil)
+		mockPricing.EXPECT().GetPricingPlan(mock.AnythingOfType("*context.valueCtx"), uint(1)).Return(pricingPlan, nil)
+
+		// Credit is issued for the paid amount, but NO subscription is created
+		mockCredit.EXPECT().IssueCreditWithIdempotency(
+			mock.AnythingOfType("*context.valueCtx"),
+			uint64(userID),
+			pluginCore.TransactionTypeCharge,
+			mock.AnythingOfType("decimal.Decimal"),
+			pluginCore.ReferenceTypeAtlosPayment,
+			TestTransactionID,
+			mock.AnythingOfType("string"),
+			uint64(0),
+		).Return(nil)
+
+		// Billing should NOT be called — no subscription created
+		mockBilling.EXPECT().GetActiveSubscriber(mock.Anything, mock.Anything, mock.Anything).Maybe()
+		mockBilling.EXPECT().CreateOrUpdateSubscriber(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Maybe()
+
+		gw := New(ctx, pluginConfig.AtlosConfig{APIKey: TestAPISecret, MerchantID: TestMerchantID}, nil, nil, nil, mockBilling, mockPricing, mockCredit)
+		err := gw.HandleWebhook(context.Background(), payload)
+
+		assert.NoError(t, err)
+	})
+}
+
+func TestAtlosGateway_HandleWebhook_AmountMismatch_ZeroPaidAmount(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockPricing := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
+		mockCredit := core.GetService[*pluginCore.MockCreditService](ctx, pluginCore.CREDIT_SERVICE)
+
+		userID := uint(456)
+		periodID := uint(2)
+		orderID := GenerateOrderID(userID, periodID)
+
+		notification := atlos.CreateTestPostback(TestMerchantID)
+		notification.OrderId = orderID
+		notification.TransactionId = TestTransactionID
+		notification.SubscriptionId = TestSubscriptionID
+		notification.OrderAmount = 5.0   // Tampered
+		notification.PaidAmount = 0.0    // Nothing paid
+		payload, _ := json.Marshal(notification)
+
+		period := &billingModels.PricingPlanPeriod{
+			Model:        gorm.Model{ID: periodID},
+			PricingPlanID: 1,
+			Cadence:       "monthly",
+			PriceUSD:      10.0,
+		}
+		pricingPlan := &billingModels.PricingPlan{
+			Model:       gorm.Model{ID: 1},
+			Name:        "Test Plan",
+			Description: "Test Description",
+			IsActive:    true,
+		}
+
+		mockPricing.EXPECT().GetPricingPlanPeriod(mock.AnythingOfType("*context.valueCtx"), periodID).Return(period, nil)
+		mockPricing.EXPECT().GetPricingPlan(mock.AnythingOfType("*context.valueCtx"), uint(1)).Return(pricingPlan, nil)
+
+		// No credit issued when PaidAmount is 0
+		mockCredit.EXPECT().IssueCreditWithIdempotency(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Maybe()
+
+		gw := New(ctx, pluginConfig.AtlosConfig{APIKey: TestAPISecret, MerchantID: TestMerchantID}, nil, nil, nil, nil, mockPricing, mockCredit)
+		err := gw.HandleWebhook(context.Background(), payload)
+
+		assert.NoError(t, err)
 	})
 }
 
