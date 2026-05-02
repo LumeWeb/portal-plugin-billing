@@ -1,5 +1,18 @@
 {{- define "paymentButtonScript" -}}
 (function() {
+  // Patch customElements.define to prevent NotSupportedError when ATLOS widget
+  // tries to register elements that may already be defined from a previous load.
+  if (typeof customElements !== 'undefined' && !customElements.__patched) {
+    const originalDefine = customElements.define;
+    customElements.define = function(name, constructor, options) {
+      if (!customElements.get(name)) {
+        originalDefine.call(this, name, constructor, options);
+      }
+      // Silently skip if already defined
+    };
+    customElements.__patched = true;
+  }
+
   var buttonId = {{.ButtonID | quote}};
 
   function dispatchPaymentEvent(eventName, detail) {

@@ -40,6 +40,20 @@ var (
 	defaultRegistry = NewRegistry()
 )
 
+// WebhookPath is the base path for gateway webhook endpoints
+const WebhookPath = "/api/account/billing/webhooks"
+
+// WebhookGatewayParam is the path parameter name for gateway type
+const WebhookGatewayParam = ":gatewayType"
+
+// WebhookPathPattern includes the gateway path parameter for route registration
+const WebhookPathPattern = WebhookPath + "/" + WebhookGatewayParam
+
+// BuildWebhookPath returns the full webhook path for a specific gateway type
+func BuildWebhookPath(gatewayType string) string {
+	return WebhookPath + "/" + gatewayType
+}
+
 // Predefined errors for registry operations
 var (
 	ErrGatewayAlreadyRegistered = errors.New("gateway already registered")

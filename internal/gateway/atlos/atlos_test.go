@@ -13,6 +13,7 @@ import (
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
 	pluginConfig "go.lumeweb.com/portal-plugin-billing/internal/config"
 	billingModels "go.lumeweb.com/portal-plugin-billing/internal/db/models"
+	"go.lumeweb.com/portal-plugin-billing/internal/gateway"
 	"go.lumeweb.com/portal-plugin-billing/pkg/subscription"
 	quotaCore "go.lumeweb.com/portal-plugin-quota/core"
 	core "go.lumeweb.com/portal/core"
@@ -480,7 +481,7 @@ func TestBuildPaymentConfigData(t *testing.T) {
 	userEmail := "test@example.com"
 	merchantID := "merchant_123"
 	orderID := GenerateOrderID(456, 2)
-	postbackURL := "https://example.com/api/billing/webhook/atlos"
+	postbackURL := "https://example.com" + gateway.WebhookPath + "/atlos"
 	currency := "USD"
 
 	data := buildPaymentConfigData(merchantID, orderID, period, currency, userName, userEmail, postbackURL)
