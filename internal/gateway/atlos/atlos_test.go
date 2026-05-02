@@ -2,6 +2,9 @@ package atlos
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"testing"
 	"time"
@@ -223,19 +226,18 @@ func TestAtlosGateway_ValidateWebhook(t *testing.T) {
 		{
 			name: "valid signature",
 			payload: func() []byte {
-				notification := atlos.CreateTestPostback(TestMerchantID)
+				notification := atlos.CreateTestPostback(TestMerchantID, atlos.WithDefaults())
 				payload, _ := json.Marshal(notification)
 				return payload
 			}(),
 			signature: func() string {
-				notification := atlos.CreateTestPostback(TestMerchantID)
-				valid, _ := notification.VerifySignature(TestAPISecret, "")
-				if valid {
-					return ""
-				}
-				return "test_signature"
+				notification := atlos.CreateTestPostback(TestMerchantID, atlos.WithDefaults())
+				payload, _ := json.Marshal(notification)
+				h := hmac.New(sha256.New, []byte(TestAPISecret))
+				h.Write(payload)
+				return base64.StdEncoding.EncodeToString(h.Sum(nil))
 			}(),
-			expectError: true,
+			expectError: false,
 		},
 		{
 			name: "missing signature",

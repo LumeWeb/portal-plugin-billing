@@ -1128,16 +1128,7 @@ func (g *AtlosGateway) ValidateWebhook(ctx context.Context, signature string, pa
 		return fmt.Errorf("missing signature header")
 	}
 
-	var notification atlos.PostbackNotification
-	if err := json.Unmarshal(payload, &notification); err != nil {
-		return fmt.Errorf("failed to parse postback notification: %w", err)
-	}
-
-	valid, err := notification.VerifySignature(g.config.APIKey, signature)
-	if err != nil {
-		return fmt.Errorf("signature verification failed: %w", err)
-	}
-	if !valid {
+	if !atlos.VerifySignatureFromBytes(g.config.APIKey, signature, payload) {
 		return fmt.Errorf("invalid signature")
 	}
 
