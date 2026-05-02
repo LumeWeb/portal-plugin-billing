@@ -688,17 +688,31 @@ func (e *APIExtension) handleGetGateways(c echo.Context) error {
 	allGateways := registry.GetAllGateways()
 
 	allGateways.Range(func(id string, gateway pluginCore.GatewayIdentity) bool {
+		abilities := dto.GatewayAbilities{}
+		abilities.FromModel(getPublicAbilities(gateway))
+
 		response = append(response, dto.GatewayPublicInfo{
 			ID:          id,
 			Name:        gateway.GetName(reqCtx),
 			Description: gateway.GetDescription(reqCtx),
 			LogoURL:     fmt.Sprintf("/api/billing/gateways/%s/logo", id),
 			IsActive:    true,
+			Abilities:   abilities,
 		})
 		return true
 	})
 
 	return httputil.EncodeResponse(ctx, &response, &response)
+}
+
+// getPublicAbilities returns public abilities for a gateway
+// Derived from interface checks - gateways declare capabilities by implementing interfaces
+func getPublicAbilities(gateway pluginCore.GatewayIdentity) pluginCore.PublicAbilities {
+	return pluginCore.PublicAbilities{
+		Checkout:       pluginCore.IsCheckoutProvider(gateway),
+		SessionStatus:  pluginCore.IsSessionStatusProvider(gateway),
+		CustomerPortal: pluginCore.IsCustomerPortal(gateway),
+	}
 }
 
 // handleGetGatewayLogo returns embedded logo for gateway
