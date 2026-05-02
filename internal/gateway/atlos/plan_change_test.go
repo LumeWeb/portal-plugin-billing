@@ -25,13 +25,28 @@ func TestCalculatePlanChangeProration_UpgradeWithPayment(t *testing.T) {
 		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
 
 		gateway := &AtlosGateway{
-			coreCtx:  ctx,
+			coreCtx: ctx,
 
 			pricing: mockPricing,
 			billing: mockBilling,
 		}
 		userID := uint(1)
 		newPeriodID := uint(2)
+
+		oldPeriodID := uint(1)
+		now := time.Now().UTC()
+		endTime := now.AddDate(0, 1, 0)
+		currentSub := &billingModels.Subscriber{
+			Model:               gorm.Model{ID: 1},
+			UserID:              userID,
+			GatewayType:         GatewayID,
+			PricingPlanPeriodID: &oldPeriodID,
+			BillingPeriodStart:  &now,
+			BillingPeriodEnd:    &endTime,
+			SubscriptionID:      "sub-123",
+			ExternalID:          "ext-123",
+		}
+		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, userID).Return(currentSub, nil).Once()
 
 		newPeriod := &billingModels.PricingPlanPeriod{
 			Model:         gorm.Model{ID: 2},
@@ -48,21 +63,6 @@ func TestCalculatePlanChangeProration_UpgradeWithPayment(t *testing.T) {
 			IsActive:    true,
 		}
 		mockPricing.EXPECT().GetPricingPlan(mock.Anything, uint(2)).Return(plan, nil).Once()
-
-		oldPeriodID := uint(1)
-		now := time.Now().UTC()
-		endTime := now.AddDate(0, 1, 0)
-		currentSub := &billingModels.Subscriber{
-			Model:               gorm.Model{ID: 1},
-			UserID:              userID,
-			GatewayType:         GatewayID,
-			PricingPlanPeriodID: &oldPeriodID,
-			BillingPeriodStart:  &now,
-			BillingPeriodEnd:    &endTime,
-			SubscriptionID:      "sub-123",
-			ExternalID:          "ext-123",
-		}
-		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, userID).Return(currentSub, nil).Once()
 
 		oldPeriod := &billingModels.PricingPlanPeriod{
 			Model:         gorm.Model{ID: 1},
@@ -93,13 +93,28 @@ func TestCalculatePlanChangeProration_UpgradeWithCredit(t *testing.T) {
 		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
 
 		gateway := &AtlosGateway{
-			coreCtx:  ctx,
+			coreCtx: ctx,
 
 			pricing: mockPricing,
 			billing: mockBilling,
 		}
 		userID := uint(1)
 		newPeriodID := uint(2)
+
+		oldPeriodID := uint(1)
+		now := time.Now().UTC()
+		endTime := now.AddDate(0, 1, 0)
+		currentSub := &billingModels.Subscriber{
+			Model:               gorm.Model{ID: 1},
+			UserID:              userID,
+			GatewayType:         GatewayID,
+			PricingPlanPeriodID: &oldPeriodID,
+			BillingPeriodStart:  &now,
+			BillingPeriodEnd:    &endTime,
+			SubscriptionID:      "sub-123",
+			ExternalID:          "ext-123",
+		}
+		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, userID).Return(currentSub, nil).Once()
 
 		newPeriod := &billingModels.PricingPlanPeriod{
 			Model:         gorm.Model{ID: 2},
@@ -116,21 +131,6 @@ func TestCalculatePlanChangeProration_UpgradeWithCredit(t *testing.T) {
 			IsActive:    true,
 		}
 		mockPricing.EXPECT().GetPricingPlan(mock.Anything, uint(2)).Return(plan, nil).Once()
-
-		oldPeriodID := uint(1)
-		now := time.Now().UTC()
-		endTime := now.AddDate(0, 1, 0)
-		currentSub := &billingModels.Subscriber{
-			Model:               gorm.Model{ID: 1},
-			UserID:              userID,
-			GatewayType:         GatewayID,
-			PricingPlanPeriodID: &oldPeriodID,
-			BillingPeriodStart:  &now,
-			BillingPeriodEnd:    &endTime,
-			SubscriptionID:      "sub-123",
-			ExternalID:          "ext-123",
-		}
-		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, userID).Return(currentSub, nil).Once()
 
 		oldPeriod := &billingModels.PricingPlanPeriod{
 			Model:         gorm.Model{ID: 1},
@@ -156,13 +156,28 @@ func TestCalculatePlanChangeProration_ZeroAmount(t *testing.T) {
 		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
 
 		gateway := &AtlosGateway{
-			coreCtx:  ctx,
+			coreCtx: ctx,
 
 			pricing: mockPricing,
 			billing: mockBilling,
 		}
 		userID := uint(1)
 		newPeriodID := uint(2)
+
+		oldPeriodID := uint(1)
+		now := time.Now().UTC()
+		endTime := now.AddDate(0, 1, 0)
+		currentSub := &billingModels.Subscriber{
+			Model:               gorm.Model{ID: 1},
+			UserID:              userID,
+			GatewayType:         GatewayID,
+			PricingPlanPeriodID: &oldPeriodID,
+			BillingPeriodStart:  &now,
+			BillingPeriodEnd:    &endTime,
+			SubscriptionID:      "sub-123",
+			ExternalID:          "ext-123",
+		}
+		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, userID).Return(currentSub, nil).Once()
 
 		newPeriod := &billingModels.PricingPlanPeriod{
 			Model:         gorm.Model{ID: 2},
@@ -179,21 +194,6 @@ func TestCalculatePlanChangeProration_ZeroAmount(t *testing.T) {
 			IsActive:    true,
 		}
 		mockPricing.EXPECT().GetPricingPlan(mock.Anything, uint(2)).Return(plan, nil).Once()
-
-		oldPeriodID := uint(1)
-		now := time.Now().UTC()
-		endTime := now.AddDate(0, 1, 0)
-		currentSub := &billingModels.Subscriber{
-			Model:               gorm.Model{ID: 1},
-			UserID:              userID,
-			GatewayType:         GatewayID,
-			PricingPlanPeriodID: &oldPeriodID,
-			BillingPeriodStart:  &now,
-			BillingPeriodEnd:    &endTime,
-			SubscriptionID:      "sub-123",
-			ExternalID:          "ext-123",
-		}
-		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, userID).Return(currentSub, nil).Once()
 
 		oldPeriod := &billingModels.PricingPlanPeriod{
 			Model:         gorm.Model{ID: 1},
@@ -215,14 +215,31 @@ func TestCalculatePlanChangeProration_ZeroAmount(t *testing.T) {
 func TestCalculatePlanChangeProration_InvalidNewPeriod(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		mockPricing := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
+		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
 
 		gateway := &AtlosGateway{
-			coreCtx:  ctx,
+			coreCtx: ctx,
 
 			pricing: mockPricing,
+			billing: mockBilling,
 		}
 		userID := uint(1)
 		newPeriodID := uint(999)
+
+		oldPeriodID := uint(1)
+		now := time.Now().UTC()
+		endTime := now.AddDate(0, 1, 0)
+		currentSub := &billingModels.Subscriber{
+			Model:               gorm.Model{ID: 1},
+			UserID:              userID,
+			GatewayType:         GatewayID,
+			PricingPlanPeriodID: &oldPeriodID,
+			BillingPeriodStart:  &now,
+			BillingPeriodEnd:    &endTime,
+			SubscriptionID:      "sub-123",
+			ExternalID:          "ext-123",
+		}
+		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, userID).Return(currentSub, nil).Once()
 
 		mockPricing.EXPECT().GetPricingPlanPeriod(mock.Anything, newPeriodID).Return(nil, nil).Once()
 
@@ -237,14 +254,31 @@ func TestCalculatePlanChangeProration_InvalidNewPeriod(t *testing.T) {
 func TestCalculatePlanChangeProration_InactivePlan(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		mockPricing := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
+		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
 
 		gateway := &AtlosGateway{
-			coreCtx:  ctx,
+			coreCtx: ctx,
 
 			pricing: mockPricing,
+			billing: mockBilling,
 		}
 		userID := uint(1)
 		newPeriodID := uint(2)
+
+		oldPeriodID := uint(1)
+		now := time.Now().UTC()
+		endTime := now.AddDate(0, 1, 0)
+		currentSub := &billingModels.Subscriber{
+			Model:               gorm.Model{ID: 1},
+			UserID:              userID,
+			GatewayType:         GatewayID,
+			PricingPlanPeriodID: &oldPeriodID,
+			BillingPeriodStart:  &now,
+			BillingPeriodEnd:    &endTime,
+			SubscriptionID:      "sub-123",
+			ExternalID:          "ext-123",
+		}
+		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, userID).Return(currentSub, nil).Once()
 
 		newPeriod := &billingModels.PricingPlanPeriod{
 			Model:         gorm.Model{ID: 2},
@@ -277,7 +311,7 @@ func TestExecutePlanChange_ProratedFlow(t *testing.T) {
 		mockUsers := core.GetService[*coreTesting.MockUserService](ctx, core.USER_SERVICE)
 
 		gateway := &AtlosGateway{
-			coreCtx:  ctx,
+			coreCtx: ctx,
 
 			pricing: mockPricing,
 			billing: mockBilling,
@@ -316,7 +350,7 @@ func TestExecutePlanChange_CreditOnlyFlow(t *testing.T) {
 		mockCredit := core.GetService[*pluginCore.MockCreditService](ctx, pluginCore.CREDIT_SERVICE)
 
 		gateway := &AtlosGateway{
-			coreCtx:  ctx,
+			coreCtx: ctx,
 
 			pricing: mockPricing,
 			billing: mockBilling,
@@ -338,16 +372,6 @@ func TestExecutePlanChange_CreditOnlyFlow(t *testing.T) {
 			Cadence:       "monthly",
 		}
 
-		mockPricing.EXPECT().GetPricingPlanPeriod(mock.Anything, newPeriodID).Return(newPeriod, nil).Once()
-
-		plan := &billingModels.PricingPlan{
-			Model:       gorm.Model{ID: 2},
-			Name:        "Basic Plan",
-			Description: "",
-			IsActive:    true,
-		}
-		mockPricing.EXPECT().GetPricingPlan(mock.Anything, uint(2)).Return(plan, nil).Once()
-
 		oldPeriodID := uint(1)
 		now := time.Now().UTC()
 		endTime := now.AddDate(0, 1, 0)
@@ -362,6 +386,17 @@ func TestExecutePlanChange_CreditOnlyFlow(t *testing.T) {
 			ExternalID:          "ext-123",
 		}
 		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, userID).Return(currentSub, nil).Once()
+
+		mockPricing.EXPECT().GetPricingPlanPeriod(mock.Anything, newPeriodID).Return(newPeriod, nil).Once()
+
+		plan := &billingModels.PricingPlan{
+			Model:       gorm.Model{ID: 2},
+			Name:        "Basic Plan",
+			Description: "",
+			IsActive:    true,
+		}
+		mockPricing.EXPECT().GetPricingPlan(mock.Anything, uint(2)).Return(plan, nil).Once()
+
 		mockPricing.EXPECT().GetPricingPlanPeriod(mock.Anything, oldPeriodID).Return(oldPeriod, nil).Once()
 
 		var issuedCredit decimal.Decimal
@@ -387,6 +422,21 @@ func TestExecutePlanChange_CreditOnlyFlow(t *testing.T) {
 }
 
 func setupProrationMocks(mockPricing *pluginCore.MockPricingService, mockBilling *pluginCore.MockBillingService, userID uint, newPeriodID uint, oldPriceUSD, newPriceUSD float64) {
+	oldPeriodID := uint(1)
+	now := time.Now().UTC()
+	endTime := now.AddDate(0, 1, 0)
+	currentSub := &billingModels.Subscriber{
+		Model:               gorm.Model{ID: 1},
+		UserID:              userID,
+		GatewayType:         GatewayID,
+		PricingPlanPeriodID: &oldPeriodID,
+		BillingPeriodStart:  &now,
+		BillingPeriodEnd:    &endTime,
+		SubscriptionID:      "sub-123",
+		ExternalID:          "ext-123",
+	}
+	mockBilling.EXPECT().GetActiveSubscription(mock.Anything, userID).Return(currentSub, nil).Once()
+
 	newPeriod := &billingModels.PricingPlanPeriod{
 		Model:         gorm.Model{ID: 2},
 		PricingPlanID: 2,
@@ -402,21 +452,6 @@ func setupProrationMocks(mockPricing *pluginCore.MockPricingService, mockBilling
 		IsActive:    true,
 	}
 	mockPricing.EXPECT().GetPricingPlan(mock.Anything, uint(2)).Return(plan, nil).Once()
-
-	oldPeriodID := uint(1)
-	now := time.Now().UTC()
-	endTime := now.AddDate(0, 1, 0)
-	currentSub := &billingModels.Subscriber{
-		Model:               gorm.Model{ID: 1},
-		UserID:              userID,
-		GatewayType:         GatewayID,
-		PricingPlanPeriodID: &oldPeriodID,
-		BillingPeriodStart:  &now,
-		BillingPeriodEnd:    &endTime,
-		SubscriptionID:      "sub-123",
-		ExternalID:          "ext-123",
-	}
-	mockBilling.EXPECT().GetActiveSubscription(mock.Anything, userID).Return(currentSub, nil).Once()
 
 	oldPeriod := &billingModels.PricingPlanPeriod{
 		Model:         gorm.Model{ID: 1},
