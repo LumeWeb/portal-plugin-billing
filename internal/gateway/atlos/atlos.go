@@ -105,19 +105,55 @@ func ParseOrderID(orderID string) (uint, uint, bool, error) {
 
 // atlosPaymentConfigData contains configuration for ATLOS payment widget templates
 type atlosPaymentConfigData struct {
-	ButtonID         string
-	MerchantID       string
-	OrderID          string
-	Amount           float64
-	Currency         string
-	UserName         string
-	UserEmail        string
-	PostbackURL      string
-	// Proration fields
-	CreditAmount     float64 // For display in UI
-	RecurringAmount  float64 // Full recurring amount for future billing
-	RecurringUnit    string  // e.g., "month", "year"
-	RecurringInterval int     // e.g., 1 for monthly, 1 for yearly
+	ButtonID    string
+	ConfigJSON  string // Serialized JSON configuration for the widget
+}
+
+// ATLOS recurrence unit constants
+// See https://atlos.io/docs/subscriptions/advanced
+// Values: RECURRENCE_NONE: 0, RECURRENCE_DAY: 1, RECURRENCE_WEEK: 2, RECURRENCE_MONTH: 3, RECURRENCE_YEAR: 4
+const (
+	atlosRecurrenceNone  = 0
+	atlosRecurrenceDay   = 1
+	atlosRecurrenceWeek  = 2
+	atlosRecurrenceMonth = 3
+	atlosRecurrenceYear  = 4
+)
+
+// cadenceToAtlosUnit converts a cadence string to ATLOS unit constant
+func cadenceToAtlosUnit(cadence string) int {
+	switch cadence {
+	case "monthly":
+		return atlosRecurrenceMonth
+	case "yearly":
+		return atlosRecurrenceYear
+	default:
+		return atlosRecurrenceMonth
+	}
+}
+
+// atlOSConfig represents the raw config data structure for ATLOS widget
+// This is serialized to JSON and passed to the frontend for Object.assign merging
+type atlOSConfig struct {
+	MerchantID     string `json:"merchantId"`
+	OrderID        string `json:"orderId"`
+	OrderAmount    float64 `json:"orderAmount"`
+	OrderCurrency  string `json:"orderCurrency"`
+	UserName       string `json:"userName"`
+	UserEmail      string `json:"userEmail"`
+	CaptureEmail   bool   `json:"captureEmail"`
+	PostbackURL    string `json:"postbackUrl"`
+	Subscription   []atlOSSubscriptionItem `json:"subscription,omitempty"`
+	Language       string `json:"language"`
+	Theme          string `json:"theme"`
+}
+
+// atlOSSubscriptionItem represents a single subscription item
+type atlOSSubscriptionItem struct {
+	Amount     float64 `json:"amount"`
+	Unit       int     `json:"unit"`
+	Interval   int     `json:"interval"`
+	StartInterval int  `json:"startInterval"`
 }
 
 // PlanChangeCalculation contains the business logic results for a plan change
@@ -724,6 +760,7 @@ func (g *AtlosGateway) ExecutePlanChange(
 			CreditApplied: calc.ProrationResult.UnusedCredit,
 			ChargeDue:     calc.NetAmountDue,
 			EffectiveDate: &calc.EffectiveDate,
+			Fragments:     checkoutUI.Fragments,
 		}, nil
 
 	default:
@@ -1494,24 +1531,93 @@ func (g *AtlosGateway) buildScriptFragment() (pluginCore.CheckoutUIFragment, err
 	}, nil
 }
 
-// buildPaymentConfigData creates the configuration data for the ATLOS payment button template
-func buildPaymentConfigData(merchantID string, orderID string, period *billingModels.PricingPlanPeriod, currency string, userName string, userEmail string, postbackURL string) atlosPaymentConfigData {
-	buttonID := fmt.Sprintf("atlos-pay-btn-%s", orderID)
-	return atlosPaymentConfigData{
-		ButtonID:    buttonID,
-		MerchantID:  merchantID,
-		OrderID:     orderID,
-		Amount:      period.PriceUSD,
-		Currency:    currency,
-		UserName:    userName,
-		UserEmail:   userEmail,
-		PostbackURL: postbackURL,
+// buildATLConfig builds the ATLOS config struct.
+// creditAmount is ignored; it's a UX display detail, not part of the ATLOS API.
+func buildATLConfig(
+	merchantID string,
+	orderID string,
+	period *billingModels.PricingPlanPeriod,
+	currency string,
+	userName string,
+	userEmail string,
+	postbackURL string,
+	orderAmount float64,
+) atlOSConfig {
+	return atlOSConfig{
+		MerchantID:    merchantID,
+		OrderID:       orderID,
+		OrderAmount:   orderAmount,
+		OrderCurrency: currency,
+		UserName:      userName,
+		UserEmail:     userEmail,
+		CaptureEmail:  false,
+		PostbackURL:   postbackURL,
+		Subscription: []atlOSSubscriptionItem{
+			{
+				Amount:        period.PriceUSD,
+				Unit:          cadenceToAtlosUnit(period.Cadence),
+				Interval:      1,
+				StartInterval: 1,
+			},
+		},
+		Language: "en",
+		Theme:    "light",
 	}
+}
+
+// buildPaymentConfigData creates the configuration data for the ATLOS payment button template.
+// Returns the button data with a serialized JSON config that the frontend will Object.assign with event handlers.
+func buildPaymentConfigData(merchantID string, orderID string, period *billingModels.PricingPlanPeriod, currency string, userName string, userEmail string, postbackURL string) (atlosPaymentConfigData, error) {
+	buttonID := fmt.Sprintf("atlos-pay-btn-%s", orderID)
+
+	config := buildATLConfig(merchantID, orderID, period, currency, userName, userEmail, postbackURL, period.PriceUSD)
+
+	configJSON, err := json.Marshal(config)
+	if err != nil {
+		return atlosPaymentConfigData{}, fmt.Errorf("failed to marshal payment config: %w", err)
+	}
+
+	return atlosPaymentConfigData{
+		ButtonID:   buttonID,
+		ConfigJSON: string(configJSON),
+	}, nil
+}
+
+// buildPaymentConfigDataWithProration creates config data for prorated payments.
+// Uses buildATLConfig with the net amount due instead of the full period price.
+func buildPaymentConfigDataWithProration(
+	merchantID string,
+	orderID string,
+	period *billingModels.PricingPlanPeriod,
+	currency string,
+	userName string,
+	userEmail string,
+	postbackURL string,
+	netAmount float64,
+	creditAmount float64,
+) (atlosPaymentConfigData, error) {
+	buttonID := fmt.Sprintf("atlos-pay-btn-%s", orderID)
+
+	// Use net amount for the order, full amount for subscription
+	config := buildATLConfig(merchantID, orderID, period, currency, userName, userEmail, postbackURL, netAmount)
+
+	configJSON, err := json.Marshal(config)
+	if err != nil {
+		return atlosPaymentConfigData{}, fmt.Errorf("failed to marshal prorated config: %w", err)
+	}
+
+	return atlosPaymentConfigData{
+		ButtonID:   buttonID,
+		ConfigJSON: string(configJSON),
+	}, nil
 }
 
 // buildButtonFragmentForPeriod creates a button fragment that initializes and triggers the ATLOS payment widget for a specific pricing period
 func (g *AtlosGateway) buildButtonFragmentForPeriod(orderID string, period *billingModels.PricingPlanPeriod, currency string, userName string, userEmail string) (pluginCore.CheckoutUIFragment, error) {
-	data := buildPaymentConfigData(g.getMerchantID(), orderID, period, currency, userName, userEmail, g.getPostbackURL())
+	data, err := buildPaymentConfigData(g.getMerchantID(), orderID, period, currency, userName, userEmail, g.getPostbackURL())
+	if err != nil {
+		return pluginCore.CheckoutUIFragment{}, err
+	}
 
 	buttonHTML := fmt.Sprintf(`<button id="%s">Pay %s %.2f - %s billing</button>`, data.ButtonID, currency, period.PriceUSD, period.Cadence)
 
@@ -1542,7 +1648,10 @@ func (g *AtlosGateway) buildPaymentButtonScript(data atlosPaymentConfigData) (st
 
 // buildButtonScriptFragment creates a script fragment for button initialization
 func (g *AtlosGateway) buildButtonScriptFragment(orderID string, period *billingModels.PricingPlanPeriod, currency string, userName string, userEmail string) (pluginCore.CheckoutUIFragment, error) {
-	data := buildPaymentConfigData(g.getMerchantID(), orderID, period, currency, userName, userEmail, g.getPostbackURL())
+	data, err := buildPaymentConfigData(g.getMerchantID(), orderID, period, currency, userName, userEmail, g.getPostbackURL())
+	if err != nil {
+		return pluginCore.CheckoutUIFragment{}, err
+	}
 
 	script, err := g.buildPaymentButtonScript(data)
 	if err != nil {
@@ -1623,13 +1732,25 @@ func (g *AtlosGateway) buildProratedButtonScriptFragment(
 	netAmount decimal.Decimal,
 	creditAmount decimal.Decimal,
 ) (pluginCore.CheckoutUIFragment, error) {
-	data := buildPaymentConfigData(g.getMerchantID(), orderID, period, currency, userName, userEmail, g.getPostbackURL())
-	data.Amount = netAmount.InexactFloat64()
-	data.CreditAmount = creditAmount.InexactFloat64()
-	data.RecurringAmount = period.PriceUSD
-	data.RecurringUnit = period.Cadence
-	data.RecurringInterval = 1
+	data, err := buildPaymentConfigDataWithProration(
+		g.getMerchantID(),
+		orderID,
+		period,
+		currency,
+		userName,
+		userEmail,
+		g.getPostbackURL(),
+		netAmount.InexactFloat64(),
+		creditAmount.InexactFloat64(),
+	)
+	if err != nil {
+		return pluginCore.CheckoutUIFragment{}, err
+	}
 
+	// Generate button HTML
+	buttonHTML := fmt.Sprintf(`<button id="%s" class="atlos-payment-button">Pay Prorated Amount</button>`, data.ButtonID)
+
+	// Build script using the template
 	script, err := g.buildPaymentButtonScript(data)
 	if err != nil {
 		return pluginCore.CheckoutUIFragment{}, err
@@ -1637,6 +1758,7 @@ func (g *AtlosGateway) buildProratedButtonScriptFragment(
 
 	return pluginCore.CheckoutUIFragment{
 		Type:   pluginCore.FragmentTypeScript,
+		HTML:   buttonHTML,
 		Script: script,
 	}, nil
 }

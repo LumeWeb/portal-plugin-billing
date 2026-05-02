@@ -242,6 +242,9 @@ type PlanChangeResult struct {
 
 	// EffectiveDate is when the plan change takes effect
 	EffectiveDate *time.Time
+
+	// Fragments contains UI fragments for ActionCheckoutRequired (e.g., payment widget scripts and buttons)
+	Fragments []CheckoutUIFragment
 }
 
 // CancellationExecutor defines the interface for subscription cancellation operations.
