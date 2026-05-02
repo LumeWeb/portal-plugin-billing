@@ -1260,7 +1260,7 @@ func TestAtlosGateway_ExecutePlanChange_CheckoutRequired_WithFragments(t *testin
 			IsActive:    true,
 		}
 
-		// Get subscriber
+		// Get subscriber (checked first now)
 		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, userID).Return(mockSubscriber, nil)
 
 		// Get new period and plan
@@ -1295,19 +1295,19 @@ func TestAtlosGateway_ExecutePlanChange_CheckoutRequired_WithFragments(t *testin
 
 		// Verify fragments are present
 		scriptFound := false
-		htmlFound := false
+		buttonFound := false
 		for _, frag := range result.Fragments {
 			if frag.Type == pluginCore.FragmentTypeScript {
 				scriptFound = true
 				assert.NotEmpty(tb, frag.Script)
 			}
-			if frag.Type == pluginCore.FragmentTypeHTML {
-				htmlFound = true
+			if frag.Type == pluginCore.FragmentTypeButton {
+				buttonFound = true
 				assert.NotEmpty(tb, frag.HTML)
 			}
 		}
 		assert.True(tb, scriptFound, "script fragment should be present")
-		assert.True(tb, htmlFound, "html fragment should be present")
+		assert.True(tb, buttonFound, "button fragment should be present")
 	})
 }
 
