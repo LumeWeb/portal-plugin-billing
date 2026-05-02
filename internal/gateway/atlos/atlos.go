@@ -775,7 +775,22 @@ func (g *AtlosGateway) calculatePlanChangeProration(
 	userID uint,
 	newPeriodID uint,
 ) (*PlanChangeCalculation, error) {
-	// 1. Validate and get new pricing period
+	// 1. Get current subscriber first (fail fast if no subscription)
+	currentSub, err := g.billing.GetActiveSubscription(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get current subscription: %w", err)
+	}
+	if currentSub == nil {
+		return nil, fmt.Errorf("no active subscription found")
+	}
+	if currentSub.GatewayType != GatewayID {
+		return nil, fmt.Errorf("active subscription is not from ATLOS")
+	}
+	if currentSub.PricingPlanPeriodID == nil {
+		return nil, fmt.Errorf("current subscription has no pricing period")
+	}
+
+	// 2. Validate and get new pricing period
 	newPeriod, err := g.pricing.GetPricingPlanPeriod(ctx, newPeriodID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get new pricing plan period: %w", err)
@@ -791,21 +806,6 @@ func (g *AtlosGateway) calculatePlanChangeProration(
 	}
 	if plan == nil || !plan.IsActive {
 		return nil, fmt.Errorf("new plan is not active")
-	}
-
-	// 2. Get current subscriber
-	currentSub, err := g.billing.GetActiveSubscription(ctx, userID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get current subscription: %w", err)
-	}
-	if currentSub == nil {
-		return nil, fmt.Errorf("no active subscription found")
-	}
-	if currentSub.GatewayType != GatewayID {
-		return nil, fmt.Errorf("active subscription is not from ATLOS")
-	}
-	if currentSub.PricingPlanPeriodID == nil {
-		return nil, fmt.Errorf("current subscription has no pricing period")
 	}
 
 	// 3. Get old pricing period
