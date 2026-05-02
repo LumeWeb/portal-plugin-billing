@@ -1215,6 +1215,57 @@ func (g *AtlosGateway) HandleWebhook(ctx context.Context, payload []byte) error 
 		return fmt.Errorf("plan is not active")
 	}
 
+	// Verify the payment amount matches the expected plan price to prevent
+	// checkout config tampering (e.g. a user modifying the widget's orderAmount).
+	// We use PaidAmount (ATLOS-calculated fiat value from actual crypto received)
+	// rather than OrderAmount (echoed from widget config) for greater reliability.
+	// If the amounts don't match, credit the user's account for what they paid
+	// but do NOT create or update any subscription.
+	expectedPrice := decimal.NewFromFloat(period.PriceUSD)
+	paidAmount := decimal.NewFromFloat(notification.PaidAmount)
+	if !paidAmount.Equal(expectedPrice) {
+		g.coreCtx.Logger().Warn("webhook paid amount does not match plan price — crediting payment without subscription",
+			zap.Uint("user_id", userID),
+			zap.Uint("period_id", periodID),
+			zap.String("expected_price", expectedPrice.String()),
+			zap.String("paid_amount", paidAmount.String()),
+			zap.String("order_amount", strconv.FormatFloat(notification.OrderAmount, 'f', -1, 64)),
+			zap.String("transaction_id", notification.TransactionId),
+		)
+
+		if g.credit != nil && notification.PaidAmount > 0 {
+			paidAmount, decErr := decimal.NewFromString(strconv.FormatFloat(notification.PaidAmount, 'f', -1, 64))
+			if decErr != nil {
+				g.coreCtx.Logger().Error("failed to convert PaidAmount to decimal during amount mismatch handling",
+					zap.Uint("user_id", userID),
+					zap.String("transaction_id", notification.TransactionId),
+					zap.Error(decErr))
+				return fmt.Errorf("failed to convert PaidAmount to decimal: %w", decErr)
+			}
+
+			if err := g.credit.IssueCreditWithIdempotency(
+				ctx,
+				uint64(userID),
+				pluginCore.TransactionTypeCharge,
+				paidAmount,
+				pluginCore.ReferenceTypeAtlosPayment,
+				notification.TransactionId,
+				fmt.Sprintf("Payment credited (paid amount %s did not match plan price %s)", paidAmount.String(), expectedPrice.String()),
+				uint64(0),
+			); err != nil {
+				return fmt.Errorf("failed to issue credit for amount-mismatched payment: %w", err)
+			}
+
+			g.coreCtx.Logger().Info("amount-mismatched payment credited successfully",
+				zap.Uint("user_id", userID),
+				zap.String("transaction_id", notification.TransactionId),
+				zap.String("credited_amount", paidAmount.String()),
+			)
+		}
+
+		return nil
+	}
+
 	// TransactionId is the external account identifier
 	// SubscriptionId is the subscription object ID for cancellation
 	externalID := notification.TransactionId
