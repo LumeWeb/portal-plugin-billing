@@ -40,6 +40,6 @@ func TestBuildAbsoluteURL_PostbackURL_Secure(t *testing.T) {
 	mockHTTP := mocks.NewMockHTTPService(t)
 	mockHTTP.EXPECT().APISubdomain("dashboard", false).Return("account.example.com")
 
-	result := BuildAbsoluteURL(mockHTTP, DashboardPluginID, "/api/billing/webhook/atlos", true)
-	assert.Equal(t, "https://account.example.com/api/billing/webhook/atlos", result)
+	result := BuildAbsoluteURL(mockHTTP, DashboardPluginID, WebhookPath+"/atlos", true)
+	assert.Equal(t, "https://account.example.com/api/account/billing/webhooks/atlos", result)
 }

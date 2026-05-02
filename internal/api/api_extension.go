@@ -21,6 +21,7 @@ import (
 	"go.lumeweb.com/portal-plugin-billing/internal/api/dto"
 	"go.lumeweb.com/portal-plugin-billing/internal/db/models"
 	billingEvent "go.lumeweb.com/portal-plugin-billing/internal/event"
+	"go.lumeweb.com/portal-plugin-billing/internal/gateway"
 	router "go.lumeweb.com/portal-router"
 	"go.lumeweb.com/portal/config"
 	"go.lumeweb.com/portal/core"
@@ -108,7 +109,7 @@ func (e *APIExtension) Configure(gRouter router.Router, accessSvc core.AccessSer
 	// Define dashboard API billing routes
 	dashboardRoutes := router.DefineRoutes(
 		// Webhook endpoint
-		router.NewRoute(http.MethodPost, "/api/account/billing/webhooks/:gatewayType", e.handleWebhook,
+		router.NewRoute(http.MethodPost, gateway.WebhookPathPattern, e.handleWebhook,
 			router.WithSwagger(
 				router.WithSummary("Process payment gateway webhook"),
 				router.WithDescription("Handles incoming webhooks from payment gateways such as Stripe, PayPal, etc."),

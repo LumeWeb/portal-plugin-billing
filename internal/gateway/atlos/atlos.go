@@ -1587,7 +1587,7 @@ func (g *AtlosGateway) getMerchantID() string {
 // Uses the HTTP service to build full URL with account subdomain and protocol
 func (g *AtlosGateway) getPostbackURL() string {
 	secure := g.coreCtx.Config().Config().Core.Secure
-	return gateway.BuildAbsoluteURL(g.http, gateway.DashboardPluginID, "/api/billing/webhook/atlos", secure)
+	return gateway.BuildAbsoluteURL(g.http, gateway.DashboardPluginID, gateway.BuildWebhookPath(GatewayID), secure)
 }
 
 // buildProratedButtonFragment creates a button fragment for prorated plan changes.
