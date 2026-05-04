@@ -62,6 +62,7 @@ func GetPluginInfo() core.PluginInfo {
 			&models.CreditActiveView{},
 			&models.CreditsBalanceView{},
 			&models.PricingPlanPeriod{},
+			&models.SubscriptionHistory{},
 		},
 		Migrations: core.DBMigration{
 			core.DB_TYPE_MYSQL:  migrations.GetMySQL(),

@@ -200,6 +200,26 @@ SELECT
 FROM billing_credits
 WHERE deleted_at IS NULL;
 
+-- Subscription History Table
+-- Tracks ended subscriptions for audit trail and proration calculations
+CREATE TABLE IF NOT EXISTS billing_subscription_histories (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    user_id BIGINT UNSIGNED NOT NULL,
+    pricing_plan_id BIGINT UNSIGNED NOT NULL,
+    pricing_plan_period_id BIGINT UNSIGNED NOT NULL,
+    payment_gateway_type VARCHAR(255) NOT NULL,
+    billing_period_start TIMESTAMP NULL,
+    billing_period_end TIMESTAMP NULL,
+    started_at TIMESTAMP NOT NULL,
+    ended_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMP NULL DEFAULT NULL,
+    INDEX idx_user_id (user_id),
+    INDEX idx_pricing_plan_period_id (pricing_plan_period_id),
+    INDEX idx_ended_at (ended_at)
+);
+
 -- User balance view (pre-computed balances)
 CREATE VIEW billing_credits_balance AS
 SELECT
