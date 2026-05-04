@@ -59,6 +59,13 @@ type BillingService interface {
 	GetSubscriberByID(ctx context.Context, id uint) (*Subscriber, error)
 	// GetSubscribersByUserID returns all subscribers for a specific user
 	GetSubscribersByUserID(ctx context.Context, userID uint) ([]Subscriber, error)
+	// GetSubscriberByUserAndPeriod returns a subscriber matching the given user ID and
+	// pricing plan period ID, regardless of active status. This allows lookups of
+	// cancelled or inactive subscriptions needed for proration verification.
+	GetSubscriberByUserAndPeriod(ctx context.Context, userID uint, periodID uint) (*Subscriber, error)
+	// GetSubscriptionHistoryByUserAndPeriod returns subscription history by user ID and
+	// pricing plan period ID. Used for proration calculations and audit purposes.
+	GetSubscriptionHistoryByUserAndPeriod(ctx context.Context, userID uint, periodID uint) (*models.SubscriptionHistory, error)
 	// ListSubscribers returns a paginated list of subscribers with optional filtering
 	ListSubscribers(ctx context.Context, filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination) ([]Subscriber, int64, error)
 	// GetRegistry returns the gateway registry for querying available gateways

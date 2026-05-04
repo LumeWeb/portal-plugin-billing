@@ -6,12 +6,15 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 	"go.lumeweb.com/atlos-sdk"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
 	pluginConfig "go.lumeweb.com/portal-plugin-billing/internal/config"
@@ -35,6 +38,20 @@ const (
 )
 
 var TestAPISecret string
+
+// mustGenerateOrderID generates an HMAC-signed order ID using the provided gateway.
+// Panics on error for test convenience. The gateway must have been created with
+// a context that has a valid identity for HMAC derivation.
+func mustGenerateOrderID(tb testing.TB, gw *AtlosGateway, userID, periodID uint) string {
+	if tb != nil {
+		tb.Helper()
+	}
+	orderID, err := gw.GenerateOrderID(userID, periodID)
+	if err != nil {
+		panic(fmt.Sprintf("failed to generate order ID: %v", err))
+	}
+	return orderID
+}
 
 func TestMain(m *testing.M) {
 	// Set test API secret for tests
@@ -116,58 +133,61 @@ func TestAtlosGateway_GetCustomerPortalMetadata(t *testing.T) {
 
 func TestAtlosGateway_ExtractEventID(t *testing.T) {
 	tests := []struct {
-		name        string
-		payload     []byte
-		expectedID  string
-		expectError bool
+		name         string
+		setupPayload func(*AtlosGateway) ([]byte, string)
+		expectError  bool
 	}{
 		{
 			name: "valid postback notification",
-			payload: func() []byte {
+			setupPayload: func(gw *AtlosGateway) ([]byte, string) {
 				notification := atlos.PostbackNotification{
 					TransactionId: TestTransactionID,
-					OrderId:       GenerateOrderID(123, 1),
+					OrderId:       mustGenerateOrderID(nil, gw, 123, 1),
 					Amount:        10.0,
 					Status:        100,
 				}
 				payload, _ := json.Marshal(notification)
-				return payload
-			}(),
-			expectedID: TestTransactionID,
-		},
-		{
-			name:        "invalid json payload",
-			payload:     []byte("invalid json"),
-			expectError: true,
+				return payload, TestTransactionID
+			},
+			expectError: false,
 		},
 		{
 			name: "empty transaction ID",
-			payload: func() []byte {
+			setupPayload: func(gw *AtlosGateway) ([]byte, string) {
 				notification := atlos.PostbackNotification{
 					TransactionId: "",
-					OrderId:       GenerateOrderID(123, 1),
+					OrderId:       mustGenerateOrderID(nil, gw, 123, 1),
 					Amount:        10.0,
 					Status:        100,
 				}
 				payload, _ := json.Marshal(notification)
-				return payload
-			}(),
+				return payload, ""
+			},
+			expectError: true,
+		},
+		{
+			name: "invalid json payload",
+			setupPayload: func(gw *AtlosGateway) ([]byte, string) {
+				return []byte("invalid json"), ""
+			},
 			expectError: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx, _ := coreTesting.NewTestContext(t)
-			gw := New(ctx, pluginConfig.AtlosConfig{APIKey: TestAPISecret, MerchantID: TestMerchantID}, nil, nil, nil, nil, nil, nil)
+			coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+				gw := New(ctx, pluginConfig.AtlosConfig{APIKey: TestAPISecret, MerchantID: TestMerchantID}, nil, nil, nil, nil, nil, nil)
+				payload, expectedID := tt.setupPayload(gw)
 
-			eventID, err := gw.ExtractEventID(context.Background(), tt.payload)
-			if tt.expectError {
-				assert.Error(t, err)
-			} else {
-				assert.NoError(t, err)
-				assert.Equal(t, tt.expectedID, eventID)
-			}
+				eventID, err := gw.ExtractEventID(context.Background(), payload)
+				if tt.expectError {
+					assert.Error(t, err)
+				} else {
+					assert.NoError(t, err)
+					assert.Equal(t, expectedID, eventID)
+				}
+			})
 		})
 	}
 }
@@ -175,43 +195,46 @@ func TestAtlosGateway_ExtractEventID(t *testing.T) {
 func TestAtlosGateway_ExtractEventType(t *testing.T) {
 	tests := []struct {
 		name         string
-		payload      []byte
-		expectedType string
+		setupPayload func(*AtlosGateway) ([]byte, string)
 		expectError  bool
 	}{
 		{
 			name: "valid postback notification",
-			payload: func() []byte {
+			setupPayload: func(gw *AtlosGateway) ([]byte, string) {
 				notification := atlos.PostbackNotification{
 					TransactionId: TestTransactionID,
-					OrderId:       GenerateOrderID(123, 1),
+					OrderId:       mustGenerateOrderID(nil, gw, 123, 1),
 					Amount:        10.0,
 					Status:        100,
 				}
 				payload, _ := json.Marshal(notification)
-				return payload
-			}(),
-			expectedType: "payment.confirmed",
+				return payload, "payment.confirmed"
+			},
+			expectError: false,
 		},
 		{
-			name:        "invalid json payload",
-			payload:     []byte("invalid json"),
+			name: "invalid json payload",
+			setupPayload: func(gw *AtlosGateway) ([]byte, string) {
+				return []byte("invalid json"), ""
+			},
 			expectError: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx, _ := coreTesting.NewTestContext(t)
-			gw := New(ctx, pluginConfig.AtlosConfig{APIKey: TestAPISecret, MerchantID: TestMerchantID}, nil, nil, nil, nil, nil, nil)
+			coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+				gw := New(ctx, pluginConfig.AtlosConfig{APIKey: TestAPISecret, MerchantID: TestMerchantID}, nil, nil, nil, nil, nil, nil)
+				payload, expectedType := tt.setupPayload(gw)
 
-			eventType, err := gw.ExtractEventType(context.Background(), tt.payload)
-			if tt.expectError {
-				assert.Error(t, err)
-			} else {
-				assert.NoError(t, err)
-				assert.Equal(t, tt.expectedType, eventType)
-			}
+				eventType, err := gw.ExtractEventType(context.Background(), payload)
+				if tt.expectError {
+					assert.Error(t, err)
+				} else {
+					assert.NoError(t, err)
+					assert.Equal(t, expectedType, eventType)
+				}
+			})
 		})
 	}
 }
@@ -282,7 +305,9 @@ func TestAtlosGateway_HandleWebhook_Success(t *testing.T) {
 
 		userID := uint(456)
 		periodID := uint(2)
-		orderID := GenerateOrderID(userID, periodID)
+		gwForOrder := New(ctx, pluginConfig.AtlosConfig{APIKey: TestAPISecret, MerchantID: TestMerchantID}, nil, nil, nil, nil, nil, nil)
+		orderID, err := gwForOrder.GenerateOrderID(userID, periodID)
+		require.NoError(t, err)
 
 		notification := atlos.CreateTestPostback(TestMerchantID)
 		notification.OrderId = orderID
@@ -357,10 +382,221 @@ func TestAtlosGateway_HandleWebhook_Success(t *testing.T) {
 			uint64(0),
 		).Return(nil)
 
-		gw := New(ctx, pluginConfig.AtlosConfig{APIKey: TestAPISecret, MerchantID: TestMerchantID}, nil, mockQuota, mockUsers, mockBilling, mockPricing, mockCredit)
-		err := gw.HandleWebhook(context.Background(), payload)
+		handlerGw := New(ctx, pluginConfig.AtlosConfig{APIKey: TestAPISecret, MerchantID: TestMerchantID}, nil, mockQuota, mockUsers, mockBilling, mockPricing, mockCredit)
+		err = handlerGw.HandleWebhook(context.Background(), payload)
 
 		assert.NoError(t, err)
+	})
+}
+
+func TestAtlosGateway_ExecutePlanChange_SamePeriod_ReturnsError(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+		mockPricing := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
+
+		userID := uint(1)
+		currentPeriodID := uint(20)
+
+		start := time.Now().AddDate(0, -1, 0).UTC()
+		end := time.Now().AddDate(0, 1, 0).UTC()
+
+		mockSubscriber := &pluginCore.Subscriber{
+			UserID:              userID,
+			GatewayType:         GatewayID,
+			ExternalID:          TestTransactionID,
+			SubscriptionID:      TestSubscriptionID,
+			IsActive:            true,
+			PricingPlanPeriodID: &currentPeriodID,
+			BillingPeriodStart:  &start,
+			BillingPeriodEnd:    &end,
+		}
+
+		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, userID).Return(mockSubscriber, nil)
+
+		gw := New(ctx, pluginConfig.AtlosConfig{APIKey: TestAPISecret, MerchantID: TestMerchantID}, nil, nil, nil, mockBilling, mockPricing, nil)
+		result, err := gw.ExecutePlanChange(context.Background(), userID, currentPeriodID)
+
+		assert.Error(tb, err)
+		assert.Nil(tb, result)
+		assert.Contains(tb, err.Error(), "already on the requested plan period")
+	})
+}
+
+func TestAtlosGateway_ExecutePlanChange_CreditOnly_Downgrade_RoundedAmounts(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+		mockPricing := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
+		mockCredit := core.GetService[*pluginCore.MockCreditService](ctx, pluginCore.CREDIT_SERVICE)
+
+		userID := uint(1)
+		oldPeriodID := uint(20)
+		newPeriodID := uint(21)
+
+		start := time.Now().AddDate(0, -1, 0).UTC()
+		end := time.Now().AddDate(0, 1, 0).UTC()
+
+		mockSubscriber := &pluginCore.Subscriber{
+			UserID:              userID,
+			GatewayType:         GatewayID,
+			ExternalID:          TestTransactionID,
+			SubscriptionID:      TestSubscriptionID,
+			IsActive:            true,
+			PricingPlanPeriodID: &oldPeriodID,
+			BillingPeriodStart:  &start,
+			BillingPeriodEnd:    &end,
+		}
+
+		oldPeriod := &billingModels.PricingPlanPeriod{
+			Model:         gorm.Model{ID: oldPeriodID},
+			PricingPlanID: 1,
+			Cadence:       "monthly",
+			PriceUSD:      2.0,
+		}
+		newPeriod := &billingModels.PricingPlanPeriod{
+			Model:         gorm.Model{ID: newPeriodID},
+			PricingPlanID: 2,
+			Cadence:       "monthly",
+			PriceUSD:      1.0,
+		}
+		newPlan := &billingModels.PricingPlan{
+			Model:       gorm.Model{ID: 2},
+			Name:        "Budget $1",
+			Description: "Budget",
+			IsActive:    true,
+		}
+
+		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, userID).Return(mockSubscriber, nil)
+		mockPricing.EXPECT().GetPricingPlanPeriod(mock.Anything, newPeriodID).Return(newPeriod, nil)
+		mockPricing.EXPECT().GetPricingPlan(mock.Anything, uint(2)).Return(newPlan, nil)
+		mockPricing.EXPECT().GetPricingPlanPeriod(mock.Anything, oldPeriodID).Return(oldPeriod, nil)
+
+		mockCredit.EXPECT().IssueCreditWithIdempotency(
+			mock.Anything,
+			uint64(userID),
+			pluginCore.TransactionTypeRefund,
+			mock.MatchedBy(func(amount decimal.Decimal) bool {
+				s := amount.String()
+				return len(s)-strings.Index(s, ".")-1 <= 2
+			}),
+			pluginCore.ReferenceTypeAtlosPayment,
+			mock.Anything,
+			mock.Anything,
+			mock.Anything,
+		).Return(nil)
+
+		mockBilling.EXPECT().DeactivateSubscriber(mock.Anything, userID, GatewayID).Return(nil)
+		mockBilling.EXPECT().CreateOrUpdateSubscriber(
+			mock.Anything,
+			userID,
+			GatewayID,
+			mock.Anything,
+			mock.Anything,
+			true,
+			&newPeriodID,
+			mock.Anything,
+			mock.Anything,
+		).Return(nil)
+
+		gw := New(ctx, pluginConfig.AtlosConfig{APIKey: TestAPISecret, MerchantID: TestMerchantID}, nil, nil, nil, mockBilling, mockPricing, mockCredit)
+		result, err := gw.ExecutePlanChange(context.Background(), userID, newPeriodID)
+
+		require.NoError(tb, err)
+		require.NotNil(tb, result)
+		assert.Equal(tb, pluginCore.PlanChangeActionComplete, result.Action)
+
+		creditStr := result.CreditApplied.String()
+		if strings.Contains(creditStr, ".") {
+			decimalPlaces := len(creditStr) - strings.Index(creditStr, ".") - 1
+			assert.LessOrEqual(tb, decimalPlaces, 2, "CreditApplied should be rounded to 2 decimal places, got %s", creditStr)
+		}
+
+		chargeStr := result.ChargeDue.String()
+		if strings.Contains(chargeStr, ".") {
+			decimalPlaces := len(chargeStr) - strings.Index(chargeStr, ".") - 1
+			assert.LessOrEqual(tb, decimalPlaces, 2, "ChargeDue should be rounded to 2 decimal places, got %s", chargeStr)
+		}
+	})
+}
+
+func TestAtlosGateway_ExecutePlanChange_CreditOnly_StableReferenceID(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+		mockPricing := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
+		mockCredit := core.GetService[*pluginCore.MockCreditService](ctx, pluginCore.CREDIT_SERVICE)
+
+		userID := uint(1)
+		oldPeriodID := uint(20)
+		newPeriodID := uint(21)
+
+		start := time.Now().AddDate(0, -1, 0).UTC()
+		end := time.Now().AddDate(0, 1, 0).UTC()
+
+		mockSubscriber := &pluginCore.Subscriber{
+			UserID:              userID,
+			GatewayType:         GatewayID,
+			ExternalID:          TestTransactionID,
+			SubscriptionID:      TestSubscriptionID,
+			IsActive:            true,
+			PricingPlanPeriodID: &oldPeriodID,
+			BillingPeriodStart:  &start,
+			BillingPeriodEnd:    &end,
+		}
+
+		oldPeriod := &billingModels.PricingPlanPeriod{
+			Model:         gorm.Model{ID: oldPeriodID},
+			PricingPlanID: 1,
+			Cadence:       "monthly",
+			PriceUSD:      2.0,
+		}
+		newPeriod := &billingModels.PricingPlanPeriod{
+			Model:         gorm.Model{ID: newPeriodID},
+			PricingPlanID: 2,
+			Cadence:       "monthly",
+			PriceUSD:      1.0,
+		}
+		newPlan := &billingModels.PricingPlan{
+			Model:       gorm.Model{ID: 2},
+			Name:        "Budget $1",
+			Description: "Budget",
+			IsActive:    true,
+		}
+
+		expectedRefID := fmt.Sprintf("plan-change-credit-%d-%d", oldPeriodID, newPeriodID)
+
+		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, userID).Return(mockSubscriber, nil)
+		mockPricing.EXPECT().GetPricingPlanPeriod(mock.Anything, newPeriodID).Return(newPeriod, nil)
+		mockPricing.EXPECT().GetPricingPlan(mock.Anything, uint(2)).Return(newPlan, nil)
+		mockPricing.EXPECT().GetPricingPlanPeriod(mock.Anything, oldPeriodID).Return(oldPeriod, nil)
+
+		mockCredit.EXPECT().IssueCreditWithIdempotency(
+			mock.Anything,
+			uint64(userID),
+			pluginCore.TransactionTypeRefund,
+			mock.Anything,
+			pluginCore.ReferenceTypeAtlosPayment,
+			expectedRefID,
+			mock.Anything,
+			mock.Anything,
+		).Return(nil)
+
+		mockBilling.EXPECT().DeactivateSubscriber(mock.Anything, userID, GatewayID).Return(nil)
+		mockBilling.EXPECT().CreateOrUpdateSubscriber(
+			mock.Anything,
+			userID,
+			GatewayID,
+			mock.Anything,
+			mock.Anything,
+			true,
+			&newPeriodID,
+			mock.Anything,
+			mock.Anything,
+		).Return(nil)
+
+		gw := New(ctx, pluginConfig.AtlosConfig{APIKey: TestAPISecret, MerchantID: TestMerchantID}, nil, nil, nil, mockBilling, mockPricing, mockCredit)
+		result, err := gw.ExecutePlanChange(context.Background(), userID, newPeriodID)
+
+		require.NoError(tb, err)
+		require.NotNil(tb, result)
 	})
 }
 
@@ -394,8 +630,10 @@ func TestAtlosGateway_HandleWebhook_PeriodNotFound(t *testing.T) {
 		mockPricing := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
 
 		periodID := uint(999)
+		gwForOrder := New(ctx, pluginConfig.AtlosConfig{APIKey: TestAPISecret, MerchantID: TestMerchantID}, nil, nil, nil, nil, nil, nil)
+		orderID, _ := gwForOrder.GenerateOrderID(123, periodID)
 		notification := atlos.CreateTestPostback(TestMerchantID)
-		notification.OrderId = GenerateOrderID(123, periodID)
+		notification.OrderId = orderID
 		payload, _ := json.Marshal(notification)
 
 		mockPricing.EXPECT().GetPricingPlanPeriod(mock.Anything, periodID).Return(nil, nil)
@@ -414,8 +652,10 @@ func TestAtlosGateway_HandleWebhook_PlanNotActive(t *testing.T) {
 
 		periodID := uint(3)
 		planID := uint(2)
+		gwForOrder := New(ctx, pluginConfig.AtlosConfig{APIKey: TestAPISecret, MerchantID: TestMerchantID}, nil, nil, nil, nil, nil, nil)
+		orderID, _ := gwForOrder.GenerateOrderID(123, periodID)
 		notification := atlos.CreateTestPostback(TestMerchantID)
-		notification.OrderId = GenerateOrderID(123, periodID)
+		notification.OrderId = orderID
 		payload, _ := json.Marshal(notification)
 
 		period := &billingModels.PricingPlanPeriod{
@@ -449,14 +689,16 @@ func TestAtlosGateway_HandleWebhook_AmountMismatch_CreditsWithoutSubscription(t 
 
 		userID := uint(456)
 		periodID := uint(2)
-		orderID := GenerateOrderID(userID, periodID)
+		gwForOrder := New(ctx, pluginConfig.AtlosConfig{APIKey: TestAPISecret, MerchantID: TestMerchantID}, nil, nil, nil, nil, nil, nil)
+		orderID, err := gwForOrder.GenerateOrderID(userID, periodID)
+		require.NoError(t, err)
 
 		notification := atlos.CreateTestPostback(TestMerchantID)
 		notification.OrderId = orderID
 		notification.TransactionId = TestTransactionID
 		notification.SubscriptionId = TestSubscriptionID
-		notification.OrderAmount = 5.0   // Tampered in widget config
-		notification.PaidAmount = 5.0    // ATLOS-calculated fiat from actual crypto paid
+		notification.OrderAmount = 5.0 // Tampered in widget config
+		notification.PaidAmount = 5.0  // ATLOS-calculated fiat from actual crypto paid
 		payload, _ := json.Marshal(notification)
 
 		// Plan price is $10 but PaidAmount is $5 (underpayment via tampered widget)
@@ -492,8 +734,143 @@ func TestAtlosGateway_HandleWebhook_AmountMismatch_CreditsWithoutSubscription(t 
 		mockBilling.EXPECT().GetActiveSubscriber(mock.Anything, mock.Anything, mock.Anything).Maybe()
 		mockBilling.EXPECT().CreateOrUpdateSubscriber(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Maybe()
 
-		gw := New(ctx, pluginConfig.AtlosConfig{APIKey: TestAPISecret, MerchantID: TestMerchantID}, nil, nil, nil, mockBilling, mockPricing, mockCredit)
-		err := gw.HandleWebhook(context.Background(), payload)
+		handlerGw := New(ctx, pluginConfig.AtlosConfig{APIKey: TestAPISecret, MerchantID: TestMerchantID}, nil, nil, nil, mockBilling, mockPricing, mockCredit)
+		err = handlerGw.HandleWebhook(context.Background(), payload)
+
+		assert.NoError(t, err)
+	})
+}
+
+// TestAtlosGateway_HandleWebhook_ProratedUpgrade_WithCredit_MaliciousMismatch verifies that
+// a prorated upgrade with existing credit applied correctly rejects a malicious payment that
+// doesn't match the expected checkout amount. The scenario:
+//   - Full proration = $2.00 (upgrade from $1/mo to $5/mo at midpoint)
+//   - User has $0.50 credit → checkout amount sent to ATLOS = $1.50
+//   - Malicious actor sends PaidAmount = $1.00 (underpayment relative to $1.50 expected)
+//   - Handler should: credit the user for the paid amount, NOT create a subscription,
+//     and NOT debit the existing credit (since the price match failed).
+func TestAtlosGateway_HandleWebhook_ProratedUpgrade_WithCredit_MaliciousMismatch(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+		mockPricing := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
+		mockCredit := core.GetService[*pluginCore.MockCreditService](ctx, pluginCore.CREDIT_SERVICE)
+
+		userID := uint(1)
+		oldPeriodID := uint(20)
+		newPeriodID := uint(21)
+		oldPlanID := uint(17)
+		newPlanID := uint(18)
+
+		gwForOrder := New(ctx, pluginConfig.AtlosConfig{APIKey: TestAPISecret, MerchantID: TestMerchantID}, nil, nil, nil, nil, nil, nil)
+		orderID, err := gwForOrder.GenerateProratedOrderID(userID, oldPeriodID, newPeriodID)
+		require.NoError(t, err)
+
+		// Use 15 days ago (exactly halfway through 30-day monthly billing period) to get
+		// a prorated amount that's exactly representable in float64:
+		// - Remaining credit = $0.50 (exactly)
+		// - New plan prorated charge = $2.50 (exactly)
+		// - Net charge = $2.00 (exactly representable)
+		now := time.Now().UTC()
+		fifteenDaysAgo := now.Add(-15 * 24 * time.Hour)
+		billingPeriodStart := fifteenDaysAgo
+		billingPeriodEnd := subscription.CalculateFirstCycle(billingPeriodStart, subscription.CadenceMonthly).EndAt
+		endedAt := now
+
+		// Calculate expected proration using same logic as recalculateProrationAmount
+		oldCycle := subscription.BillingCycle{
+			StartAt: billingPeriodStart,
+			EndAt:   billingPeriodEnd,
+			Cadence: subscription.CadenceMonthly,
+		}
+		oldPrice := subscription.Price{Amount: decimal.NewFromFloat(1.00), Cadence: subscription.CadenceMonthly}
+		newPrice := subscription.Price{Amount: decimal.NewFromFloat(5.00), Cadence: subscription.CadenceMonthly}
+		prorationResult, err := subscription.ProratedChange(oldPrice, newPrice, oldCycle, endedAt, subscription.ProrationBehaviorCreateProrations)
+		require.NoError(t, err)
+		expectedProration := subscription.NetResult(prorationResult)
+
+		prorationFloat, _ := expectedProration.Float64()
+
+		// Simulate: user had $0.50 credit, checkout was $1.50, but malicious webhook
+		// sends PaidAmount = $1.00 (underpayment). The handler should infer $0.50 credit
+		// from user balance, compute expectedPrice = $2.00 - $0.50 = $1.50, then detect
+		// that PaidAmount ($1.00) does NOT match expectedPrice ($1.50).
+		userCreditBalance := decimal.NewFromFloat(0.50)
+		maliciousPaidAmount := 1.00 // Should be $1.50 after credit deduction
+
+		notification := atlos.CreateTestPostback(TestMerchantID)
+		notification.OrderId = orderID
+		notification.TransactionId = TestTransactionID
+		notification.SubscriptionId = TestSubscriptionID
+		notification.OrderAmount = prorationFloat
+		notification.PaidAmount = maliciousPaidAmount
+		payload, _ := json.Marshal(notification)
+
+		oldPeriod := &billingModels.PricingPlanPeriod{
+			Model:         gorm.Model{ID: oldPeriodID},
+			PricingPlanID: oldPlanID,
+			Cadence:       "monthly",
+			PriceUSD:      1.00,
+		}
+		newPeriod := &billingModels.PricingPlanPeriod{
+			Model:         gorm.Model{ID: newPeriodID},
+			PricingPlanID: newPlanID,
+			Cadence:       "monthly",
+			PriceUSD:      5.00,
+		}
+		newPlan := &billingModels.PricingPlan{
+			Model:       gorm.Model{ID: newPlanID},
+			Name:        "Premium Plan",
+			Description: "Premium Description",
+			IsActive:    true,
+		}
+
+		history := &billingModels.SubscriptionHistory{
+			UserID:              userID,
+			PricingPlanID:       oldPlanID,
+			PricingPlanPeriodID: oldPeriodID,
+			PaymentGatewayType:  GatewayID,
+			BillingPeriodStart:  &billingPeriodStart,
+			BillingPeriodEnd:    &billingPeriodEnd,
+			StartedAt:           fifteenDaysAgo,
+			EndedAt:             endedAt,
+		}
+
+		mockPricing.EXPECT().GetPricingPlanPeriod(mock.AnythingOfType("*context.valueCtx"), newPeriodID).Return(newPeriod, nil)
+		mockPricing.EXPECT().GetPricingPlan(mock.AnythingOfType("*context.valueCtx"), newPlanID).Return(newPlan, nil)
+		mockBilling.EXPECT().GetSubscriptionHistoryByUserAndPeriod(mock.AnythingOfType("*context.valueCtx"), userID, oldPeriodID).Return(history, nil)
+		mockPricing.EXPECT().GetPricingPlanPeriod(mock.AnythingOfType("*context.valueCtx"), oldPeriodID).Return(oldPeriod, nil)
+		mockPricing.EXPECT().GetPricingPlanPeriod(mock.AnythingOfType("*context.valueCtx"), newPeriodID).Return(newPeriod, nil)
+
+		// Handler will check user balance to infer credit applied
+		mockCredit.EXPECT().GetUserBalance(mock.AnythingOfType("*context.valueCtx"), uint64(userID)).Return(userCreditBalance, nil)
+
+		// Price mismatch: PaidAmount ($1.00) != expectedPrice ($1.50) after credit deduction.
+		// Handler credits the paid amount but does NOT create subscription and does NOT debit credit.
+		mockCredit.EXPECT().IssueCreditWithIdempotency(
+			mock.AnythingOfType("*context.valueCtx"),
+			uint64(userID),
+			pluginCore.TransactionTypeCharge,
+			mock.MatchedBy(func(amount decimal.Decimal) bool {
+				return amount.Equal(decimal.NewFromFloat(1.00))
+			}),
+			pluginCore.ReferenceTypeAtlosPayment,
+			TestTransactionID,
+			mock.AnythingOfType("string"),
+			uint64(0),
+		).Return(nil)
+
+		// Billing should NOT be called — no subscription created for mismatched payment
+		mockBilling.EXPECT().GetActiveSubscriber(mock.Anything, mock.Anything, mock.Anything).Maybe()
+		mockBilling.EXPECT().CreateOrUpdateSubscriber(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Maybe()
+
+		// IssueUsageCredit (debit) should NOT be called — credit is NOT debited on mismatch
+		mockCredit.EXPECT().IssueUsageCredit(
+			mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+			mock.Anything, mock.Anything, mock.Anything,
+		).Maybe()
+
+		handlerGw := New(ctx, pluginConfig.AtlosConfig{APIKey: TestAPISecret, MerchantID: TestMerchantID}, nil, nil, nil, mockBilling, mockPricing, mockCredit)
+		err = handlerGw.HandleWebhook(context.Background(), payload)
 
 		assert.NoError(t, err)
 	})
@@ -506,14 +883,15 @@ func TestAtlosGateway_HandleWebhook_AmountMismatch_ZeroPaidAmount(t *testing.T) 
 
 		userID := uint(456)
 		periodID := uint(2)
-		orderID := GenerateOrderID(userID, periodID)
+		gwForOrder := New(ctx, pluginConfig.AtlosConfig{APIKey: TestAPISecret, MerchantID: TestMerchantID}, nil, nil, nil, nil, nil, nil)
+		orderID, _ := gwForOrder.GenerateOrderID(userID, periodID)
 
 		notification := atlos.CreateTestPostback(TestMerchantID)
 		notification.OrderId = orderID
 		notification.TransactionId = TestTransactionID
 		notification.SubscriptionId = TestSubscriptionID
-		notification.OrderAmount = 5.0   // Tampered
-		notification.PaidAmount = 0.0    // Nothing paid
+		notification.OrderAmount = 5.0 // Tampered
+		notification.PaidAmount = 0.0  // Nothing paid
 		payload, _ := json.Marshal(notification)
 
 		period := &billingModels.PricingPlanPeriod{
@@ -575,20 +953,22 @@ func TestAtlosGateway_GetCheckoutUI_UserNotFound(t *testing.T) {
 }
 
 func TestBuildPaymentConfigData(t *testing.T) {
-	period := &billingModels.PricingPlanPeriod{
-		Model:        gorm.Model{ID: 2},
-		PricingPlanID: 1,
-		Cadence:       "monthly",
-		PriceUSD:      15.99,
-	}
-	userName := "Test User"
-	userEmail := "test@example.com"
-	merchantID := "merchant_123"
-	orderID := GenerateOrderID(456, 2)
-	postbackURL := "https://example.com" + gateway.WebhookPath + "/atlos"
-	currency := "USD"
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		period := &billingModels.PricingPlanPeriod{
+			Model:         gorm.Model{ID: 2},
+			PricingPlanID: 1,
+			Cadence:       "monthly",
+			PriceUSD:      15.99,
+		}
+		userName := "Test User"
+		userEmail := "test@example.com"
+		merchantID := "merchant_123"
+		gw := New(ctx, pluginConfig.AtlosConfig{APIKey: TestAPISecret, MerchantID: TestMerchantID}, nil, nil, nil, nil, nil, nil)
+		orderID, _ := gw.GenerateOrderID(456, 2)
+		postbackURL := "https://example.com" + gateway.WebhookPath + "/atlos"
+		currency := "USD"
 
-	data, err := buildPaymentConfigData(merchantID, orderID, period, currency, userName, userEmail, postbackURL)
+		data, err := buildPaymentConfigData(merchantID, orderID, period, currency, userName, userEmail, postbackURL)
 
 	assert.NoError(t, err, "buildPaymentConfigData should not error")
 	assert.Equal(t, "atlos-pay-btn-"+orderID, data.ButtonID, "button ID should be prefixed with atlos-pay-btn- and order ID")
@@ -606,15 +986,16 @@ func TestBuildPaymentConfigData(t *testing.T) {
 	assert.Equal(t, userEmail, config["userEmail"], "user email should match")
 	assert.Equal(t, postbackURL, config["postbackUrl"], "postback URL should match")
 
-	// Verify subscription has proper unit value (3 = atlos.RECURRENCE_MONTH)
-	subscription := config["subscription"].([]interface{})[0].(map[string]interface{})
-	assert.Equal(t, 15.99, subscription["amount"], "subscription amount should match period price")
-	assert.Equal(t, float64(3), subscription["unit"], "subscription unit should be RECURRENCE_MONTH (3)")
-	assert.Equal(t, float64(1), subscription["interval"], "subscription interval should be 1")
+		// Verify subscription has proper unit value (3 = atlos.RECURRENCE_MONTH)
+		subscription := config["subscription"].([]interface{})[0].(map[string]interface{})
+		assert.Equal(t, 15.99, subscription["amount"], "subscription amount should match period price")
+		assert.Equal(t, float64(3), subscription["unit"], "subscription unit should be RECURRENCE_MONTH (3)")
+		assert.Equal(t, float64(1), subscription["interval"], "subscription interval should be 1")
 
-	// Verify UI settings are in the config
-	assert.Equal(t, "en", config["language"], "language should be 'en'")
-	assert.Equal(t, "light", config["theme"], "theme should be 'light'")
+		// Verify UI settings are in the config
+		assert.Equal(t, "en", config["language"], "language should be 'en'")
+		assert.Equal(t, "light", config["theme"], "theme should be 'light'")
+	})
 }
 
 func TestAtlosGateway_GetCheckoutUI_PeriodNotFound(t *testing.T) {
@@ -1372,6 +1753,9 @@ func TestAtlosGateway_ExecutePlanChange_CheckoutRequired_WithFragments(t *testin
 		// Get current period for proration calculation
 		mockPricing.EXPECT().GetPricingPlanPeriod(mock.Anything, currentPeriodID).Return(currentPeriod, nil)
 
+		// Check existing credit balance — user has no credit, so checkout is still required
+		mockCredit.EXPECT().GetUserBalance(mock.Anything, uint64(userID)).Return(decimal.Zero, nil)
+
 		// User lookup for checkout UI generation
 		mockUsers.EXPECT().AccountExists(mock.Anything, userID).Return(true, &portalModels.User{
 			Model: gorm.Model{ID: userID},
@@ -1527,5 +1911,385 @@ func TestAtlosGateway_ExecutePlanChange_PlanNotActive(t *testing.T) {
 		assert.Error(tb, err)
 		assert.Nil(tb, result)
 		assert.Contains(tb, err.Error(), "not active")
+	})
+}
+
+// TestAtlosGateway_HandleWebhook_ProratedUpgrade_MonthlyDollarPlan tests the prorated
+// upgrade webhook flow: user signs up for $1/mo, then upgrades to $5/mo within 30 minutes.
+// After the fix, recalculateProrationAmount uses EndedAt as prorationTime, producing
+// the correct proration amount that matches PaidAmount, allowing subscription creation.
+func TestAtlosGateway_HandleWebhook_ProratedUpgrade_MonthlyDollarPlan(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+		mockPricing := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
+		mockCredit := core.GetService[*pluginCore.MockCreditService](ctx, pluginCore.CREDIT_SERVICE)
+
+		userID := uint(1)
+		oldPeriodID := uint(20)
+		newPeriodID := uint(21)
+		oldPlanID := uint(17)
+		newPlanID := uint(18)
+
+		gwForOrder := New(ctx, pluginConfig.AtlosConfig{APIKey: TestAPISecret, MerchantID: TestMerchantID}, nil, nil, nil, nil, nil, nil)
+		orderID, err := gwForOrder.GenerateProratedOrderID(userID, oldPeriodID, newPeriodID)
+		require.NoError(t, err)
+
+		// Use 15 days ago (exactly halfway through 30-day monthly billing period) to get
+		// a prorated amount that's exactly representable in float64:
+		// - Remaining credit = $0.50 (exactly)
+		// - New plan prorated charge = $2.50 (exactly)
+		// - Net charge = $2.00 (exactly representable)
+		now := time.Now().UTC()
+		fifteenDaysAgo := now.Add(-15 * 24 * time.Hour)
+		billingPeriodStart := fifteenDaysAgo
+		billingPeriodEnd := subscription.CalculateFirstCycle(billingPeriodStart, subscription.CadenceMonthly).EndAt
+		endedAt := now
+
+		// Calculate expected proration using same logic as recalculateProrationAmount
+		oldCycle := subscription.BillingCycle{
+			StartAt: billingPeriodStart,
+			EndAt:   billingPeriodEnd,
+			Cadence: subscription.CadenceMonthly,
+		}
+		oldPrice := subscription.Price{Amount: decimal.NewFromFloat(1.00), Cadence: subscription.CadenceMonthly}
+		newPrice := subscription.Price{Amount: decimal.NewFromFloat(5.00), Cadence: subscription.CadenceMonthly}
+		prorationResult, err := subscription.ProratedChange(oldPrice, newPrice, oldCycle, endedAt, subscription.ProrationBehaviorCreateProrations)
+		require.NoError(t, err)
+		expectedProration := subscription.NetResult(prorationResult)
+
+		prorationFloat, _ := expectedProration.Float64()
+
+		notification := atlos.CreateTestPostback(TestMerchantID)
+		notification.OrderId = orderID
+		notification.TransactionId = TestTransactionID
+		notification.SubscriptionId = TestSubscriptionID
+		notification.OrderAmount = prorationFloat
+		notification.PaidAmount = prorationFloat
+		payload, _ := json.Marshal(notification)
+
+		oldPeriod := &billingModels.PricingPlanPeriod{
+			Model:         gorm.Model{ID: oldPeriodID},
+			PricingPlanID: oldPlanID,
+			Cadence:       "monthly",
+			PriceUSD:      1.00,
+		}
+		newPeriod := &billingModels.PricingPlanPeriod{
+			Model:         gorm.Model{ID: newPeriodID},
+			PricingPlanID: newPlanID,
+			Cadence:       "monthly",
+			PriceUSD:      5.00,
+		}
+		newPlan := &billingModels.PricingPlan{
+			Model:       gorm.Model{ID: newPlanID},
+			Name:        "Premium Plan",
+			Description: "Premium Description",
+			IsActive:    true,
+		}
+
+		history := &billingModels.SubscriptionHistory{
+			UserID:              userID,
+			PricingPlanID:       oldPlanID,
+			PricingPlanPeriodID: oldPeriodID,
+			PaymentGatewayType:  GatewayID,
+			BillingPeriodStart:  &billingPeriodStart,
+			BillingPeriodEnd:    &billingPeriodEnd,
+			StartedAt:           fifteenDaysAgo,
+			EndedAt:             endedAt,
+		}
+
+		mockPricing.EXPECT().GetPricingPlanPeriod(mock.AnythingOfType("*context.valueCtx"), newPeriodID).Return(newPeriod, nil)
+		mockPricing.EXPECT().GetPricingPlan(mock.AnythingOfType("*context.valueCtx"), newPlanID).Return(newPlan, nil)
+		mockBilling.EXPECT().GetSubscriptionHistoryByUserAndPeriod(mock.AnythingOfType("*context.valueCtx"), userID, oldPeriodID).Return(history, nil)
+		mockPricing.EXPECT().GetPricingPlanPeriod(mock.AnythingOfType("*context.valueCtx"), oldPeriodID).Return(oldPeriod, nil)
+		mockPricing.EXPECT().GetPricingPlanPeriod(mock.AnythingOfType("*context.valueCtx"), newPeriodID).Return(newPeriod, nil)
+
+		// After fix: expectedPrice matches PaidAmount → normal subscription flow
+		mockBilling.EXPECT().GetActiveSubscriber(mock.AnythingOfType("*context.valueCtx"), userID, GatewayID).Return(nil, nil)
+
+		// Usage credit (debit) for subscription period
+		mockCredit.EXPECT().IssueUsageCredit(
+			mock.AnythingOfType("*context.valueCtx"),
+			uint64(userID),
+			pluginCore.TransactionTypeTime,
+			mock.MatchedBy(func(amount decimal.Decimal) bool {
+				return amount.Equal(decimal.NewFromFloat(5.00))
+			}),
+			TestTransactionID,
+			mock.AnythingOfType("string"),
+			uint64(0),
+		).Return(nil)
+
+		// Create subscriber
+		mockBilling.EXPECT().CreateOrUpdateSubscriber(
+			mock.Anything,
+			userID,
+			GatewayID,
+			TestTransactionID,
+			TestSubscriptionID,
+			true,
+			&newPeriodID,
+			mock.Anything,
+			mock.Anything,
+		).Return(nil)
+
+		// Payment credit
+		mockCredit.EXPECT().IssueCreditWithIdempotency(
+			mock.AnythingOfType("*context.valueCtx"),
+			uint64(userID),
+			pluginCore.TransactionTypeCharge,
+			mock.MatchedBy(func(amount decimal.Decimal) bool {
+				// Matches the expected proration amount ($2.00) after float64 round-trip
+				return amount.Equal(decimal.NewFromFloat(2.00))
+			}),
+			pluginCore.ReferenceTypeAtlosPayment,
+			TestTransactionID,
+			"ATLOS payment completed",
+			uint64(0),
+		).Return(nil)
+
+		handlerGw := New(ctx, pluginConfig.AtlosConfig{APIKey: TestAPISecret, MerchantID: TestMerchantID}, nil, nil, nil, mockBilling, mockPricing, mockCredit)
+		err = handlerGw.HandleWebhook(context.Background(), payload)
+
+		assert.NoError(t, err)
+	})
+}
+
+
+
+// TestAtlosGateway_HandleWebhook_ProratedCancel_MonthlyDollarPlan tests a user who
+// signs up for $1/mo, upgrades to $5/mo (prorated), then cancels.
+// This test verifies the upgrade webhook portion uses the correct proration time.
+func TestAtlosGateway_HandleWebhook_ProratedCancel_MonthlyDollarPlan(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+		mockPricing := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
+		mockCredit := core.GetService[*pluginCore.MockCreditService](ctx, pluginCore.CREDIT_SERVICE)
+
+		userID := uint(1)
+		oldPeriodID := uint(20)
+		newPeriodID := uint(21)
+		oldPlanID := uint(17)
+		newPlanID := uint(18)
+
+		gwForOrder := New(ctx, pluginConfig.AtlosConfig{APIKey: TestAPISecret, MerchantID: TestMerchantID}, nil, nil, nil, nil, nil, nil)
+		orderID, err := gwForOrder.GenerateProratedOrderID(userID, oldPeriodID, newPeriodID)
+		require.NoError(t, err)
+
+		// Use 15 days ago (exactly halfway through 30-day monthly billing period) to get
+		// a prorated amount that's exactly representable in float64:
+		// - Remaining credit = $0.50 (exactly)
+		// - New plan prorated charge = $2.50 (exactly)
+		// - Net charge = $2.00 (exactly representable)
+		now := time.Now().UTC()
+		fifteenDaysAgo := now.Add(-15 * 24 * time.Hour)
+		billingPeriodStart := fifteenDaysAgo
+		billingPeriodEnd := subscription.CalculateFirstCycle(billingPeriodStart, subscription.CadenceMonthly).EndAt
+		endedAt := now
+
+		// Calculate expected proration using same logic as recalculateProrationAmount
+		oldCycle := subscription.BillingCycle{
+			StartAt: billingPeriodStart,
+			EndAt:   billingPeriodEnd,
+			Cadence: subscription.CadenceMonthly,
+		}
+		oldPrice := subscription.Price{Amount: decimal.NewFromFloat(1.00), Cadence: subscription.CadenceMonthly}
+		newPrice := subscription.Price{Amount: decimal.NewFromFloat(5.00), Cadence: subscription.CadenceMonthly}
+		prorationResult, err := subscription.ProratedChange(oldPrice, newPrice, oldCycle, endedAt, subscription.ProrationBehaviorCreateProrations)
+		require.NoError(t, err)
+		expectedProration := subscription.NetResult(prorationResult)
+
+		prorationFloat, _ := expectedProration.Float64()
+
+		notification := atlos.CreateTestPostback(TestMerchantID)
+		notification.OrderId = orderID
+		notification.TransactionId = TestTransactionID
+		notification.SubscriptionId = TestSubscriptionID
+		notification.OrderAmount = prorationFloat
+		notification.PaidAmount = prorationFloat
+		payload, _ := json.Marshal(notification)
+
+		oldPeriod := &billingModels.PricingPlanPeriod{
+			Model:         gorm.Model{ID: oldPeriodID},
+			PricingPlanID: oldPlanID,
+			Cadence:       "monthly",
+			PriceUSD:      1.00,
+		}
+		newPeriod := &billingModels.PricingPlanPeriod{
+			Model:         gorm.Model{ID: newPeriodID},
+			PricingPlanID: newPlanID,
+			Cadence:       "monthly",
+			PriceUSD:      5.00,
+		}
+		newPlan := &billingModels.PricingPlan{
+			Model:       gorm.Model{ID: newPlanID},
+			Name:        "Premium Plan",
+			Description: "Premium Description",
+			IsActive:    true,
+		}
+		history := &billingModels.SubscriptionHistory{
+			UserID:              userID,
+			PricingPlanID:       oldPlanID,
+			PricingPlanPeriodID: oldPeriodID,
+			PaymentGatewayType:  GatewayID,
+			BillingPeriodStart:  &billingPeriodStart,
+			BillingPeriodEnd:    &billingPeriodEnd,
+			StartedAt:           fifteenDaysAgo,
+			EndedAt:             endedAt,
+		}
+
+		mockPricing.EXPECT().GetPricingPlanPeriod(mock.AnythingOfType("*context.valueCtx"), newPeriodID).Return(newPeriod, nil)
+		mockPricing.EXPECT().GetPricingPlan(mock.AnythingOfType("*context.valueCtx"), newPlanID).Return(newPlan, nil)
+		mockBilling.EXPECT().GetSubscriptionHistoryByUserAndPeriod(mock.AnythingOfType("*context.valueCtx"), userID, oldPeriodID).Return(history, nil)
+		mockPricing.EXPECT().GetPricingPlanPeriod(mock.AnythingOfType("*context.valueCtx"), oldPeriodID).Return(oldPeriod, nil)
+		mockPricing.EXPECT().GetPricingPlanPeriod(mock.AnythingOfType("*context.valueCtx"), newPeriodID).Return(newPeriod, nil)
+
+		// After fix: expectedPrice matches PaidAmount → normal subscription flow
+		mockBilling.EXPECT().GetActiveSubscriber(mock.AnythingOfType("*context.valueCtx"), userID, GatewayID).Return(nil, nil)
+
+		mockCredit.EXPECT().IssueUsageCredit(
+			mock.AnythingOfType("*context.valueCtx"),
+			uint64(userID),
+			pluginCore.TransactionTypeTime,
+			mock.MatchedBy(func(amount decimal.Decimal) bool {
+				return amount.Equal(decimal.NewFromFloat(5.00))
+			}),
+			TestTransactionID,
+			mock.AnythingOfType("string"),
+			uint64(0),
+		).Return(nil)
+
+		mockBilling.EXPECT().CreateOrUpdateSubscriber(
+			mock.Anything,
+			userID,
+			GatewayID,
+			TestTransactionID,
+			TestSubscriptionID,
+			true,
+			&newPeriodID,
+			mock.Anything,
+			mock.Anything,
+		).Return(nil)
+
+		mockCredit.EXPECT().IssueCreditWithIdempotency(
+			mock.AnythingOfType("*context.valueCtx"),
+			uint64(userID),
+			pluginCore.TransactionTypeCharge,
+			mock.MatchedBy(func(amount decimal.Decimal) bool {
+				// The net proration should be exactly $2.00 (paid $2.50 for new plan - $0.50 credit remaining)
+				return amount.Equal(decimal.NewFromFloat(2.00))
+			}),
+			pluginCore.ReferenceTypeAtlosPayment,
+			TestTransactionID,
+			"ATLOS payment completed",
+			uint64(0),
+		).Return(nil)
+
+		handlerGw := New(ctx, pluginConfig.AtlosConfig{APIKey: TestAPISecret, MerchantID: TestMerchantID}, nil, nil, nil, mockBilling, mockPricing, mockCredit)
+		err = handlerGw.HandleWebhook(context.Background(), payload)
+
+		assert.NoError(t, err)
+	})
+}
+
+
+// TestAtlosGateway_HandleWebhook_ProratedDowngrade_MonthlyDollarPlan verifies the downgrade
+// scenario where a downgrade produces a net credit. Since ATLOS PaidAmount is always positive
+// but the expectedPrice is negative (net credit), the handler credits the user for $0
+// and does NOT create a subscription — which is correct because downgrade credits are issued
+// via handleCreditOnlyPlanChange, not checkout txns.
+// This test verifies that the proration calculation function returns the correct (negative) value.
+func TestAtlosGateway_HandleWebhook_ProratedDowngrade_MonthlyDollarPlan(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+		mockPricing := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
+		mockCredit := core.GetService[*pluginCore.MockCreditService](ctx, pluginCore.CREDIT_SERVICE)
+
+		userID := uint(1)
+		oldPeriodID := uint(22)
+		newPeriodID := uint(21)
+		oldPlanID := uint(19)
+		newPlanID := uint(18)
+
+		gwForOrder := New(ctx, pluginConfig.AtlosConfig{APIKey: TestAPISecret, MerchantID: TestMerchantID}, nil, nil, nil, nil, nil, nil)
+		orderID, err := gwForOrder.GenerateProratedOrderID(userID, oldPeriodID, newPeriodID)
+		require.NoError(t, err)
+
+		// Use 15 days ago (exactly halfway through 30-day monthly billing period) to get
+		// predictable proration values
+		now := time.Now().UTC()
+		fifteenDaysAgo := now.Add(-15 * 24 * time.Hour)
+		billingPeriodStart := fifteenDaysAgo
+		billingPeriodEnd := subscription.CalculateFirstCycle(billingPeriodStart, subscription.CadenceMonthly).EndAt
+		endedAt := now
+
+		// Calculate expected proration using same logic as recalculateProrationAmount
+		oldCycle := subscription.BillingCycle{
+			StartAt: billingPeriodStart,
+			EndAt:   billingPeriodEnd,
+			Cadence: subscription.CadenceMonthly,
+		}
+		oldPrice := subscription.Price{Amount: decimal.NewFromFloat(10.00), Cadence: subscription.CadenceMonthly}
+		newPrice := subscription.Price{Amount: decimal.NewFromFloat(5.00), Cadence: subscription.CadenceMonthly}
+		prorationResult, err := subscription.ProratedChange(oldPrice, newPrice, oldCycle, endedAt, subscription.ProrationBehaviorCreateProrations)
+		require.NoError(t, err)
+		expectedProration := subscription.NetResult(prorationResult)
+
+		// Downgrade produces negative net result (net credit to user)
+		// Expected price will be negative, PaidAmount is 0 (no payment made for credit-only)
+		require.True(t, expectedProration.IsNegative(), "downgrade should produce negative net result")
+
+		notification := atlos.CreateTestPostback(TestMerchantID)
+		notification.OrderId = orderID
+		notification.TransactionId = TestTransactionID
+		notification.SubscriptionId = TestSubscriptionID
+		notification.OrderAmount = 0
+		notification.PaidAmount = 0 // No payment for pure credit case
+		payload, _ := json.Marshal(notification)
+
+		oldPeriod := &billingModels.PricingPlanPeriod{
+			Model:         gorm.Model{ID: oldPeriodID},
+			PricingPlanID: oldPlanID,
+			Cadence:       "monthly",
+			PriceUSD:      10.00,
+		}
+		newPeriod := &billingModels.PricingPlanPeriod{
+			Model:         gorm.Model{ID: newPeriodID},
+			PricingPlanID: newPlanID,
+			Cadence:       "monthly",
+			PriceUSD:      5.00,
+		}
+		newPlan := &billingModels.PricingPlan{
+			Model:       gorm.Model{ID: newPlanID},
+			Name:        "Standard Plan",
+			Description: "Standard Description",
+			IsActive:    true,
+		}
+		history := &billingModels.SubscriptionHistory{
+			UserID:              userID,
+			PricingPlanID:       oldPlanID,
+			PricingPlanPeriodID: oldPeriodID,
+			PaymentGatewayType:  GatewayID,
+			BillingPeriodStart:  &billingPeriodStart,
+			BillingPeriodEnd:    &billingPeriodEnd,
+			StartedAt:           fifteenDaysAgo,
+			EndedAt:             endedAt,
+		}
+
+		mockPricing.EXPECT().GetPricingPlanPeriod(mock.AnythingOfType("*context.valueCtx"), newPeriodID).Return(newPeriod, nil)
+		mockPricing.EXPECT().GetPricingPlan(mock.AnythingOfType("*context.valueCtx"), newPlanID).Return(newPlan, nil)
+		mockBilling.EXPECT().GetSubscriptionHistoryByUserAndPeriod(mock.AnythingOfType("*context.valueCtx"), userID, oldPeriodID).Return(history, nil)
+		mockPricing.EXPECT().GetPricingPlanPeriod(mock.AnythingOfType("*context.valueCtx"), oldPeriodID).Return(oldPeriod, nil)
+		mockPricing.EXPECT().GetPricingPlanPeriod(mock.AnythingOfType("*context.valueCtx"), newPeriodID).Return(newPeriod, nil)
+
+		// PaidAmount (0) != expectedPrice (negative), so it takes the credit-only path
+		// No subscription created, no credit issued (since PaidAmount is 0)
+		mockBilling.EXPECT().GetActiveSubscriber(mock.Anything, mock.Anything, mock.Anything).Maybe()
+		mockBilling.EXPECT().CreateOrUpdateSubscriber(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Maybe()
+		mockCredit.EXPECT().IssueCreditWithIdempotency(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Maybe()
+
+		handlerGw := New(ctx, pluginConfig.AtlosConfig{APIKey: TestAPISecret, MerchantID: TestMerchantID}, nil, nil, nil, mockBilling, mockPricing, mockCredit)
+		err = handlerGw.HandleWebhook(context.Background(), payload)
+
+		assert.NoError(t, err)
 	})
 }

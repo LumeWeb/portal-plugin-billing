@@ -9,6 +9,7 @@ import (
 	"time"
 
 	mock "github.com/stretchr/testify/mock"
+	"go.lumeweb.com/portal-plugin-billing/internal/db/models"
 	"go.lumeweb.com/portal/config"
 	"go.lumeweb.com/portal/core"
 	"go.lumeweb.com/queryutil"
@@ -1245,6 +1246,80 @@ func (_c *MockBillingService_GetSubscriberBySubscriptionID_Call) RunAndReturn(ru
 	return _c
 }
 
+// GetSubscriberByUserAndPeriod provides a mock function for the type MockBillingService
+func (_mock *MockBillingService) GetSubscriberByUserAndPeriod(ctx context.Context, userID uint, periodID uint) (*Subscriber, error) {
+	ret := _mock.Called(ctx, userID, periodID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetSubscriberByUserAndPeriod")
+	}
+
+	var r0 *Subscriber
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uint, uint) (*Subscriber, error)); ok {
+		return returnFunc(ctx, userID, periodID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uint, uint) *Subscriber); ok {
+		r0 = returnFunc(ctx, userID, periodID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*Subscriber)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, uint, uint) error); ok {
+		r1 = returnFunc(ctx, userID, periodID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockBillingService_GetSubscriberByUserAndPeriod_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetSubscriberByUserAndPeriod'
+type MockBillingService_GetSubscriberByUserAndPeriod_Call struct {
+	*mock.Call
+}
+
+// GetSubscriberByUserAndPeriod is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID uint
+//   - periodID uint
+func (_e *MockBillingService_Expecter) GetSubscriberByUserAndPeriod(ctx interface{}, userID interface{}, periodID interface{}) *MockBillingService_GetSubscriberByUserAndPeriod_Call {
+	return &MockBillingService_GetSubscriberByUserAndPeriod_Call{Call: _e.mock.On("GetSubscriberByUserAndPeriod", ctx, userID, periodID)}
+}
+
+func (_c *MockBillingService_GetSubscriberByUserAndPeriod_Call) Run(run func(ctx context.Context, userID uint, periodID uint)) *MockBillingService_GetSubscriberByUserAndPeriod_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 uint
+		if args[1] != nil {
+			arg1 = args[1].(uint)
+		}
+		var arg2 uint
+		if args[2] != nil {
+			arg2 = args[2].(uint)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockBillingService_GetSubscriberByUserAndPeriod_Call) Return(v *Subscriber, err error) *MockBillingService_GetSubscriberByUserAndPeriod_Call {
+	_c.Call.Return(v, err)
+	return _c
+}
+
+func (_c *MockBillingService_GetSubscriberByUserAndPeriod_Call) RunAndReturn(run func(ctx context.Context, userID uint, periodID uint) (*Subscriber, error)) *MockBillingService_GetSubscriberByUserAndPeriod_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetSubscribersByUserID provides a mock function for the type MockBillingService
 func (_mock *MockBillingService) GetSubscribersByUserID(ctx context.Context, userID uint) ([]Subscriber, error) {
 	ret := _mock.Called(ctx, userID)
@@ -1309,6 +1384,80 @@ func (_c *MockBillingService_GetSubscribersByUserID_Call) Return(vs []Subscriber
 }
 
 func (_c *MockBillingService_GetSubscribersByUserID_Call) RunAndReturn(run func(ctx context.Context, userID uint) ([]Subscriber, error)) *MockBillingService_GetSubscribersByUserID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetSubscriptionHistoryByUserAndPeriod provides a mock function for the type MockBillingService
+func (_mock *MockBillingService) GetSubscriptionHistoryByUserAndPeriod(ctx context.Context, userID uint, periodID uint) (*models.SubscriptionHistory, error) {
+	ret := _mock.Called(ctx, userID, periodID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetSubscriptionHistoryByUserAndPeriod")
+	}
+
+	var r0 *models.SubscriptionHistory
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uint, uint) (*models.SubscriptionHistory, error)); ok {
+		return returnFunc(ctx, userID, periodID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uint, uint) *models.SubscriptionHistory); ok {
+		r0 = returnFunc(ctx, userID, periodID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*models.SubscriptionHistory)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, uint, uint) error); ok {
+		r1 = returnFunc(ctx, userID, periodID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockBillingService_GetSubscriptionHistoryByUserAndPeriod_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetSubscriptionHistoryByUserAndPeriod'
+type MockBillingService_GetSubscriptionHistoryByUserAndPeriod_Call struct {
+	*mock.Call
+}
+
+// GetSubscriptionHistoryByUserAndPeriod is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID uint
+//   - periodID uint
+func (_e *MockBillingService_Expecter) GetSubscriptionHistoryByUserAndPeriod(ctx interface{}, userID interface{}, periodID interface{}) *MockBillingService_GetSubscriptionHistoryByUserAndPeriod_Call {
+	return &MockBillingService_GetSubscriptionHistoryByUserAndPeriod_Call{Call: _e.mock.On("GetSubscriptionHistoryByUserAndPeriod", ctx, userID, periodID)}
+}
+
+func (_c *MockBillingService_GetSubscriptionHistoryByUserAndPeriod_Call) Run(run func(ctx context.Context, userID uint, periodID uint)) *MockBillingService_GetSubscriptionHistoryByUserAndPeriod_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 uint
+		if args[1] != nil {
+			arg1 = args[1].(uint)
+		}
+		var arg2 uint
+		if args[2] != nil {
+			arg2 = args[2].(uint)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockBillingService_GetSubscriptionHistoryByUserAndPeriod_Call) Return(subscriptionHistory *models.SubscriptionHistory, err error) *MockBillingService_GetSubscriptionHistoryByUserAndPeriod_Call {
+	_c.Call.Return(subscriptionHistory, err)
+	return _c
+}
+
+func (_c *MockBillingService_GetSubscriptionHistoryByUserAndPeriod_Call) RunAndReturn(run func(ctx context.Context, userID uint, periodID uint) (*models.SubscriptionHistory, error)) *MockBillingService_GetSubscriptionHistoryByUserAndPeriod_Call {
 	_c.Call.Return(run)
 	return _c
 }

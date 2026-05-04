@@ -365,6 +365,35 @@ func (s *BillingServiceDefault) DeactivateSubscriber(ctx context.Context, userID
 		SubscriberDeactivated.WithLabelValues(gatewayType, LabelStatusError),
 		func() error {
 			return db.RetryableComponentTransaction(s, ctx, func(tx *gorm.DB) *gorm.DB {
+				// Get the current subscriber before deactivating to save to history
+				var subscriber models.Subscriber
+				err := tx.Where("user_id = ? AND gateway_type = ?", userID, gatewayType).
+					Preload("PricingPlanPeriod").
+					First(&subscriber).Error
+				if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+					tx.Error = err
+					return tx
+				}
+
+				// If subscriber exists with valid data, create history record
+				if err == nil && subscriber.PricingPlanPeriodID != nil && subscriber.PricingPlanPeriod != nil {
+					history := models.SubscriptionHistory{
+						UserID:              subscriber.UserID,
+						PricingPlanID:       subscriber.PricingPlanPeriod.PricingPlanID,
+						PricingPlanPeriodID: *subscriber.PricingPlanPeriodID,
+						PaymentGatewayType:  subscriber.GatewayType,
+						BillingPeriodStart:  subscriber.BillingPeriodStart,
+						BillingPeriodEnd:    subscriber.BillingPeriodEnd,
+						StartedAt:           subscriber.CreatedAt,
+						EndedAt:             time.Now().UTC(),
+					}
+					if err := tx.Create(&history).Error; err != nil {
+						tx.Error = err
+						return tx
+					}
+				}
+
+				// Deactivate the subscriber
 				return tx.Model(&models.Subscriber{}).
 					Where("user_id = ? AND gateway_type = ?", userID, gatewayType).
 					Updates(map[string]any{"is_active": false, "pricing_plan_period_id": nil, "paused_at": nil})
@@ -595,6 +624,47 @@ func (s *BillingServiceDefault) GetSubscribersByUserID(ctx context.Context, user
 		return sub
 	})
 	return result, nil
+}
+
+func (s *BillingServiceDefault) GetSubscriberByUserAndPeriod(ctx context.Context, userID uint, periodID uint) (*pluginCore.Subscriber, error) {
+	ctx, span := core.TraceMethod(ctx, "BillingServiceDefault.GetSubscriberByUserAndPeriod")
+	defer span.End()
+
+	var subscriber models.Subscriber
+	err := db.RetryableComponentTransaction(s, ctx, func(tx *gorm.DB) *gorm.DB {
+		return tx.Preload("PricingPlanPeriod").
+			Where("user_id = ? AND pricing_plan_period_id = ?", userID, periodID).
+			First(&subscriber)
+	})
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	result := subscriber
+	return &result, nil
+}
+
+func (s *BillingServiceDefault) GetSubscriptionHistoryByUserAndPeriod(ctx context.Context, userID uint, periodID uint) (*models.SubscriptionHistory, error) {
+	ctx, span := core.TraceMethod(ctx, "BillingServiceDefault.GetSubscriptionHistoryByUserAndPeriod")
+	defer span.End()
+
+	var history models.SubscriptionHistory
+	err := db.RetryableComponentTransaction(s, ctx, func(tx *gorm.DB) *gorm.DB {
+		return tx.Where("user_id = ? AND pricing_plan_period_id = ?", userID, periodID).
+			Order("ended_at DESC").
+			First(&history)
+	})
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	return &history, nil
 }
 
 func (s *BillingServiceDefault) ListSubscribers(ctx context.Context, filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination) ([]pluginCore.Subscriber, int64, error) {

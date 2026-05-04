@@ -458,6 +458,143 @@ func TestBillingService_GetSubscriberByExternalID(t *testing.T) {
 		getBillingTestOptions())
 }
 
+func TestBillingService_GetSubscriberByUserAndPeriod(t *testing.T) {
+	coreTesting.RunTestCaseWithDB(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		// Setup
+		service := core.GetService[pluginCore.BillingService](ctx, pluginCore.BILLING_SERVICE)
+		db := ctx.DB()
+
+		planID := uint(42)
+		periodID1 := uint(100)
+		periodID2 := uint(200)
+
+		// Create pricing plan
+		plan := models.PricingPlan{
+			Name:     "Test Plan",
+			IsActive: true,
+			IsPublic: true,
+		}
+		err := db.Create(&plan).Error
+		assert.NoError(tb, err)
+		// Get the auto-generated ID
+		planID = plan.ID
+
+		// Create pricing plan periods
+		pp1 := models.PricingPlanPeriod{
+			PricingPlanID: planID,
+			Cadence:       "monthly",
+			PriceUSD:      10.0,
+		}
+		err = db.Create(&pp1).Error
+		assert.NoError(tb, err)
+		periodID1 = pp1.ID
+
+		pp2 := models.PricingPlanPeriod{
+			PricingPlanID: planID,
+			Cadence:       "yearly",
+			PriceUSD:      100.0,
+		}
+		err = db.Create(&pp2).Error
+		assert.NoError(tb, err)
+		periodID2 = pp2.ID
+
+		// Test case 1: No subscriber found
+		subscriber, err := service.GetSubscriberByUserAndPeriod(context.Background(), 123, periodID1)
+		assert.NoError(tb, err)
+		assert.Nil(tb, subscriber)
+
+		// Test case 2: Insert subscriber directly with specific period ID
+		sub1 := models.Subscriber{
+			UserID:              123,
+			GatewayType:         "stripe",
+			ExternalID:          "cus_test_12345",
+			SubscriptionID:      "sub_test_12345",
+			IsActive:            true,
+			PricingPlanPeriodID: &periodID1,
+		}
+		err = db.Create(&sub1).Error
+		assert.NoError(tb, err)
+
+		// Query by user + period
+		subscriber, err = service.GetSubscriberByUserAndPeriod(context.Background(), 123, periodID1)
+		assert.NoError(tb, err)
+		assert.NotNil(tb, subscriber)
+		assert.Equal(tb, uint(123), subscriber.UserID)
+		assert.Equal(tb, periodID1, *subscriber.PricingPlanPeriodID)
+		assert.True(tb, subscriber.IsActive)
+
+		// Test case 3: Different user with same period should find different subscriber
+		sub2 := models.Subscriber{
+			UserID:              456,
+			GatewayType:         "stripe",
+			ExternalID:          "cus_test_45678",
+			SubscriptionID:      "sub_test_45678",
+			IsActive:            true,
+			PricingPlanPeriodID: &periodID1,
+		}
+		err = db.Create(&sub2).Error
+		assert.NoError(tb, err)
+
+		// Should find the subscriber for user 123 using its period ID
+		subscriber, err = service.GetSubscriberByUserAndPeriod(context.Background(), 123, periodID1)
+		assert.NoError(tb, err)
+		assert.NotNil(tb, subscriber)
+		assert.Equal(tb, uint(123), subscriber.UserID)
+
+		// Should find the subscriber for user 456 using same period ID
+		subscriber, err = service.GetSubscriberByUserAndPeriod(context.Background(), 456, periodID1)
+		assert.NoError(tb, err)
+		assert.NotNil(tb, subscriber)
+		assert.Equal(tb, uint(456), subscriber.UserID)
+
+		// Test case 4: Create another user with a different period, verify GetSubscriberByUserAndPeriod
+		// correctly filters by period ID
+		sub3 := models.Subscriber{
+			UserID:              789,
+			GatewayType:         "stripe",
+			ExternalID:          "cus_test_789",
+			SubscriptionID:      "sub_test_789",
+			IsActive:            true,
+			PricingPlanPeriodID: &periodID2,
+		}
+		err = db.Create(&sub3).Error
+		assert.NoError(tb, err)
+
+		// Query for periodID2 should find user 789, not user 123
+		subscriber, err = service.GetSubscriberByUserAndPeriod(context.Background(), 789, periodID2)
+		assert.NoError(tb, err)
+		assert.NotNil(tb, subscriber)
+		assert.Equal(tb, uint(789), subscriber.UserID)
+		assert.Equal(tb, periodID2, *subscriber.PricingPlanPeriodID)
+
+		// Query for periodID1 with user 123 should still find user 123
+		subscriber, err = service.GetSubscriberByUserAndPeriod(context.Background(), 123, periodID1)
+		assert.NoError(tb, err)
+		assert.NotNil(tb, subscriber)
+		assert.Equal(tb, uint(123), subscriber.UserID)
+		assert.Equal(tb, periodID1, *subscriber.PricingPlanPeriodID)
+
+		// Test case 5: Deactivated subscriber should create history and set nil period
+		err = service.DeactivateSubscriber(context.Background(), 123, "stripe")
+		assert.NoError(tb, err)
+
+		// Deactivated subscriber has nil period ID (cleared during deactivation)
+		subscriber, err = service.GetSubscriberByUserAndPeriod(context.Background(), 123, periodID1)
+		assert.NoError(tb, err)
+		assert.Nil(tb, subscriber)
+
+		// History should now contain the ended subscription for proration lookups
+		history, err := service.GetSubscriptionHistoryByUserAndPeriod(context.Background(), 123, periodID1)
+		assert.NoError(tb, err)
+		assert.NotNil(tb, history)
+		assert.Equal(tb, uint(123), history.UserID)
+		assert.Equal(tb, periodID1, history.PricingPlanPeriodID)
+		assert.Equal(tb, "stripe", history.PaymentGatewayType)
+		assert.NotZero(tb, history.EndedAt)
+	},
+		getBillingTestOptions())
+}
+
 func TestBillingService_CreateOrUpdateSubscriber_WithPlanID(t *testing.T) {
 	coreTesting.RunTestCaseWithDB(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		service := core.GetService[pluginCore.BillingService](ctx, pluginCore.BILLING_SERVICE)

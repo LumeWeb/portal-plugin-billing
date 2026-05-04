@@ -106,7 +106,7 @@ func init() {
 		"One-time fees or charges")
 
 	_ = globalRegistry.RegisterType("refund", CreditDirection,
-		decimal.NewFromInt(1), decimal.NewFromInt(1000000),
+		decimal.NewFromFloat(0.01), decimal.NewFromInt(1000000),
 		"Refunds and reversals")
 
 	// Manual adjustments (credits and debits)
