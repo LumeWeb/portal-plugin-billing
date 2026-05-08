@@ -82,8 +82,8 @@ func (s *SyncManager) SyncPricingPlan(ctx context.Context, planID uint) (*SyncGa
 	allGateways.Range(func(gatewayID string, gateway pluginCore.GatewayIdentity) bool {
 		capabilities, err := pluginCore.AsGatewayCapabilities(gateway)
 		if err != nil {
-			results.FailureCount++
-			results.Errors[gatewayID] = fmt.Errorf("gateway %s does not implement GatewayCapabilities", gatewayID)
+			s.ctx.Logger().Debug("skipping gateway that doesn't implement GatewayCapabilities",
+				zap.String("gateway", gatewayID))
 			return true
 		}
 
