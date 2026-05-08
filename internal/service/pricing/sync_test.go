@@ -294,13 +294,10 @@ func TestSyncIntegration_InitialSync(t *testing.T) {
 		assert.NoError(t, err)
 		assert.NotNil(t, results)
 		assert.Equal(t, plan.ID, results.PlanID)
-		assert.Equal(t, 2, results.TotalGateways)
+		assert.Equal(t, 1, results.TotalGateways)
 
-		// One gateway supports sync and should succeed
 		assert.Equal(t, 1, results.SuccessCount)
-
-		// One gateway doesn't support sync and counts as failure but has no error entry
-		assert.Equal(t, 1, results.FailureCount)
+		assert.Equal(t, 0, results.FailureCount)
 
 		// Verify results for successful gateway
 		assert.Contains(t, results.Results, "stripe")

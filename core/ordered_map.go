@@ -79,6 +79,23 @@ func (m *OrderedMap[K, V]) Range(fn func(key K, value V) bool) {
 	}
 }
 
+// Clone returns a shallow copy of the OrderedMap. The returned map is independent
+// of the original — mutations to one do not affect the other.
+func (m *OrderedMap[K, V]) Clone() *OrderedMap[K, V] {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	clone := &OrderedMap[K, V]{
+		keys: make([]K, len(m.keys)),
+		data: make(map[K]V, len(m.data)),
+	}
+	copy(clone.keys, m.keys)
+	for k, v := range m.data {
+		clone.data[k] = v
+	}
+	return clone
+}
+
 // Keys returns all keys in insertion order.
 func (m *OrderedMap[K, V]) Keys() []K {
 	m.mu.RLock()

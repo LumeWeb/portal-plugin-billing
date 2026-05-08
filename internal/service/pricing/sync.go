@@ -58,18 +58,41 @@ func (s *SyncManager) SyncPricingPlan(ctx context.Context, planID uint) (*SyncGa
 
 	allGateways := registry.GetAllGateways()
 
+	var syncableGateways int
+	allGateways.Range(func(gatewayID string, gateway pluginCore.GatewayIdentity) bool {
+		capabilities, err := pluginCore.AsGatewayCapabilities(gateway)
+		if err == nil && capabilities.SupportsProductSync() {
+			syncableGateways++
+		}
+		return true
+	})
+
 	s.ctx.Logger().Debug("syncing plan to gateways",
 		zap.Uint("plan_id", planID),
-		zap.Int("gateway_count", allGateways.Len()))
+		zap.Int("gateway_count", allGateways.Len()),
+		zap.Int("syncable_gateways", syncableGateways))
 
 	results := &SyncGatewayPlanResults{
 		PlanID:        planID,
-		TotalGateways: allGateways.Len(),
+		TotalGateways: syncableGateways,
 		Results:       make(map[string]*pluginCore.SyncResult),
 		Errors:        make(map[string]error),
 	}
 
 	allGateways.Range(func(gatewayID string, gateway pluginCore.GatewayIdentity) bool {
+		capabilities, err := pluginCore.AsGatewayCapabilities(gateway)
+		if err != nil {
+			results.FailureCount++
+			results.Errors[gatewayID] = fmt.Errorf("gateway %s does not implement GatewayCapabilities", gatewayID)
+			return true
+		}
+
+		if !capabilities.SupportsProductSync() {
+			s.ctx.Logger().Debug("skipping gateway that doesn't support product sync",
+				zap.String("gateway", gatewayID))
+			return true
+		}
+
 		syncResult, syncErr := s.syncGatewayAttempt(ctx, gateway, plan, gatewayID)
 
 		if syncErr != nil {
@@ -144,19 +167,10 @@ func (s *SyncManager) syncGatewayPlan(
 	ctx, span := core.TraceMethod(ctx, "SyncManager.syncGatewayPlan")
 	defer span.End()
 
-	capabilities, err := pluginCore.AsGatewayCapabilities(gateway)
+	_, err := pluginCore.AsGatewayCapabilities(gateway)
 	if err != nil {
 		SyncFailures.WithLabelValues(gatewayID).Inc()
 		return nil, fmt.Errorf("gateway %s does not implement GatewayCapabilities", gatewayID)
-	}
-
-	if !capabilities.SupportsProductSync() {
-		s.ctx.Logger().Debug("skipping gateway that doesn't support product sync",
-			zap.String("gateway", gatewayID))
-		return &pluginCore.SyncResult{
-			Success: false,
-			Error:   fmt.Errorf("gateway doesn't support sync"),
-		}, nil
 	}
 
 	s.ctx.Logger().Debug("syncing pricing plan to gateway",
