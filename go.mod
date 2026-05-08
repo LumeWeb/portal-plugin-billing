@@ -15,7 +15,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/stripe/stripe-go/v85 v85.1.0
 	github.com/tkuchiki/faketime v0.1.1
-	go.lumeweb.com/atlos-sdk v0.1.2
+	go.lumeweb.com/atlos-sdk v0.1.3
 	go.lumeweb.com/httputil v0.5.4
 	go.lumeweb.com/portal v0.4.2-0.20260501221116-4589ea386ac6
 	go.lumeweb.com/portal-middleware v0.3.7
@@ -23,6 +23,7 @@ require (
 	go.lumeweb.com/portal-router v0.6.15
 	go.lumeweb.com/queryutil v0.3.16
 	go.uber.org/zap v1.28.0
+	golang.org/x/crypto v0.50.0
 	gorm.io/datatypes v1.2.7
 	gorm.io/gorm v1.31.1
 )
@@ -214,7 +215,6 @@ require (
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	go.yaml.in/yaml/v4 v4.0.0-rc.2 // indirect
 	golang.org/x/arch v0.24.0 // indirect
-	golang.org/x/crypto v0.50.0 // indirect
 	golang.org/x/exp v0.0.0-20260410095643-746e56fc9e2f // indirect
 	golang.org/x/mod v0.35.0 // indirect
 	golang.org/x/net v0.53.0 // indirect
