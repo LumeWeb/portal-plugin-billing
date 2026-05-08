@@ -188,3 +188,32 @@ func TestOrderedMap_DeletedKeysSkippedInKeys(t *testing.T) {
 
 	assert.Equal(t, []string{"b"}, m.Keys())
 }
+
+func TestOrderedMap_Clone(t *testing.T) {
+	m := NewOrderedMap[string, int]()
+	m.Set("a", 1)
+	m.Set("b", 2)
+	m.Set("c", 3)
+
+	clone := m.Clone()
+
+	assert.Equal(t, m.Len(), clone.Len())
+	assert.Equal(t, m.Keys(), clone.Keys())
+
+	clone.Set("d", 4)
+	assert.Equal(t, 3, m.Len())
+	assert.Equal(t, 4, clone.Len())
+
+	m.Set("a", 100)
+	v, ok := clone.Get("a")
+	assert.True(t, ok)
+	assert.Equal(t, 1, v)
+}
+
+func TestOrderedMap_CloneEmpty(t *testing.T) {
+	m := NewOrderedMap[string, int]()
+	clone := m.Clone()
+
+	assert.Equal(t, 0, clone.Len())
+	assert.Empty(t, clone.Keys())
+}

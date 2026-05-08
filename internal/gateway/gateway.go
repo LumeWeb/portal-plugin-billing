@@ -108,12 +108,12 @@ func (r *Registry) GetAll() []pluginCore.GatewayIdentity {
 	return gateways
 }
 
-// GetAllGateways returns all registered payment gateways in insertion order
+// GetAllGateways returns a snapshot of all registered payment gateways in insertion order.
 func (r *Registry) GetAllGateways() *pluginCore.OrderedMap[string, pluginCore.GatewayIdentity] {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	return r.gateways
+	return r.gateways.Clone()
 }
 
 // ValidateWebhook validates a webhook for a specific gateway
