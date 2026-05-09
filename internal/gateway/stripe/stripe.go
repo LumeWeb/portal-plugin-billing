@@ -708,6 +708,20 @@ func (g *StripeGateway) handleSubscriptionUpdatedEvent(ctx context.Context, user
 
 					return g.pauseSubscription(ctx, userID, subscription, event)
 				}
+				// PauseCollection is set but no active subscriber — check if already paused
+				if g.billing != nil {
+					pausedSubscriber, pauseErr := g.billing.GetPausedSubscription(ctx, userID)
+					if pauseErr != nil {
+						g.logger.Error("failed to check paused subscriber when PauseCollection is set",
+							zap.Error(pauseErr),
+							zap.Uint("user_id", userID),
+							zap.String("subscription_id", subscription.ID))
+						return pauseErr
+					}
+					if pausedSubscriber != nil && pausedSubscriber.GatewayType == GatewayID {
+						return nil
+					}
+				}
 			} else if g.billing != nil {
 				subscriber, err := g.billing.GetPausedSubscription(ctx, userID)
 				if err != nil {

@@ -893,6 +893,63 @@ func TestStripeGateway_HandleWebhook_SubscriptionUpdated_PauseCollectionCleared(
 	})
 }
 
+func TestStripeGateway_HandleWebhook_SubscriptionUpdated_PauseCollectionSetAlreadyPaused(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockQuota, mockUsers, mockBilling, _ := setupMockServices(ctx)
+		mockSubService := &MockSubscriptionRetriever{}
+
+		subscription := stripe.Subscription{
+			ID: TestSubscriptionID,
+			Customer: &stripe.Customer{
+				ID: TestCustomerID,
+				Metadata: map[string]string{
+					UserIDMetadataKey: "123",
+				},
+			},
+			Metadata: map[string]string{
+				UserIDMetadataKey: "123",
+			},
+			PauseCollection: &stripe.SubscriptionPauseCollection{
+				Behavior: stripe.SubscriptionPauseCollectionBehaviorMarkUncollectible,
+			},
+		}
+
+		rawData, _ := json.Marshal(subscription)
+		event := createTestEvent(EventTypeSubscriptionUpdated, rawData)
+		payload, _ := json.Marshal(event)
+
+		mockSubService.SetupGetSuccess(&subscription)
+
+		// No active subscriber (they're already paused)
+		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, TestUserID).Return(nil, nil)
+
+		// GetPausedSubscription returns the already-paused subscriber
+		planID := uint(2)
+		mockBilling.EXPECT().GetPausedSubscription(mock.Anything, TestUserID).Return(&pluginCore.Subscriber{
+			UserID:              TestUserID,
+			GatewayType:         "stripe",
+			ExternalID:          TestCustomerID,
+			SubscriptionID:      TestSubscriptionID,
+			IsActive:            false,
+			PricingPlanPeriodID: &planID,
+		}, nil)
+
+		gw := NewWithConfig(ctx.Logger(), ctx, testConfig(), mockQuota, mockUsers, mockBilling, nil, nil)
+		gw.subService = mockSubService
+		err := gw.HandleWebhook(context.Background(), payload)
+
+		assert.NoError(t, err)
+
+		// Verify no quota or billing state changes
+		mockQuota.AssertNotCalled(t, "RemoveUserFromPlan")
+		mockQuota.AssertNotCalled(t, "AssignUserToPlan")
+		mockBilling.AssertNotCalled(t, "PauseSubscriber")
+		mockBilling.AssertNotCalled(t, "ResumeSubscriber")
+		mockBilling.AssertNotCalled(t, "DeactivateSubscriber")
+		mockBilling.AssertNotCalled(t, "CreateOrUpdateSubscriber")
+	})
+}
+
 func TestStripeGateway_HandleWebhook_SubscriptionUpdated_AllPricesNil(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		mockQuota, mockUsers, mockBilling, _ := setupMockServices(ctx)
