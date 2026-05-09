@@ -2076,7 +2076,7 @@ func (e *AdminExtension) handleResumeUserSubscription(c echo.Context) error {
 	}
 
 	if sub == nil {
-		return ctx.Error(NewError(ErrKeyNoActiveSubscription, fmt.Errorf("no paused subscription found")), http.StatusNotFound)
+		return ctx.Error(NewError(ErrKeyNoPausedSubscription, fmt.Errorf("no paused subscription found")), http.StatusNotFound)
 	}
 
 	// Get the gateway for this subscription
@@ -2207,7 +2207,7 @@ func (e *AdminExtension) handleAbortCancellation(c echo.Context) error {
 
 	// Check if there's a scheduled cancellation
 	if sub.WillCancelAt == nil {
-		return ctx.Error(NewError(ErrKeyNoActiveSubscription, fmt.Errorf("no scheduled cancellation found")), http.StatusNotFound)
+		return ctx.Error(NewError(ErrKeyNoScheduledCancellation, fmt.Errorf("no scheduled cancellation found")), http.StatusNotFound)
 	}
 
 	// Get the gateway for this subscription
