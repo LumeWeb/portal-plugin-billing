@@ -326,3 +326,32 @@ func TestSubscriptionStatusResponse_FromModel_WithPricingPlanPeriodID(t *testing
 	assert.NotNil(t, response.PricingPlanPeriodID)
 	assert.Equal(t, uint(100), *response.PricingPlanPeriodID)
 }
+
+func TestSubscriptionStatusResponse_FromModel_PausedSubscriber(t *testing.T) {
+	now := time.Now()
+	periodID := uint(100)
+	subscriber := &pluginCore.Subscriber{
+		UserID:              1,
+		GatewayType:         "stripe",
+		ExternalID:          "ext_123",
+		SubscriptionID:      "sub_123",
+		IsActive:            false,
+		PricingPlanPeriodID: &periodID,
+		PausedAt:            &now,
+	}
+	subscriber.CreatedAt = now
+	subscriber.UpdatedAt = now
+
+	var response SubscriptionStatusResponse
+	err := response.FromModel(subscriber)
+
+	require.NoError(t, err)
+	assert.False(t, response.IsSubscribed)
+	assert.Equal(t, "stripe", response.GatewayType)
+	assert.NotNil(t, response.PricingPlanPeriodID)
+	assert.Equal(t, uint(100), *response.PricingPlanPeriodID)
+	assert.NotNil(t, response.PausedAt)
+	assert.Equal(t, now, *response.PausedAt)
+	assert.NotNil(t, response.CreatedAt)
+	assert.NotNil(t, response.UpdatedAt)
+}
