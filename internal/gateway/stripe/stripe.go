@@ -3569,10 +3569,11 @@ func (g *StripeGateway) ExecuteResume(ctx context.Context, userID uint) error {
 		return fmt.Errorf("no stripe subscription ID found for user %d", userID)
 	}
 
-	// Resume the subscription via Stripe API by clearing pause_collection
-	// Set PauseCollection to empty struct with empty behavior to clear the pause
+	// Resume the subscription via Stripe API by unsetting pause_collection
 	params := &stripe.SubscriptionUpdateParams{
-		PauseCollection: &stripe.SubscriptionUpdatePauseCollectionParams{},
+		UnsetFields: []stripe.SubscriptionUpdateParamsUnsetField{
+			stripe.SubscriptionUpdateParamsUnsetFieldPauseCollection,
+		},
 	}
 
 	_, err = g.stripeClient.V1Subscriptions().Update(ctx, subscriber.SubscriptionID, params)
