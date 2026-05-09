@@ -2067,17 +2067,16 @@ func (e *AdminExtension) handleResumeUserSubscription(c echo.Context) error {
 		return ctx.Error(NewError(ErrKeyInvalidIdentifier, fmt.Errorf("invalid user id: %w", err)), http.StatusBadRequest)
 	}
 
-	// Get active subscription for the user (allows paused subscriptions)
-	sub, err := e.billingService.GetActiveSubscription(reqCtx, uint(userID))
+	sub, err := e.billingService.GetPausedSubscription(reqCtx, uint(userID))
 	if err != nil {
-		e.Logger().Error("failed to get active subscription",
+		e.Logger().Error("failed to get paused subscription",
 			zap.Uint("user_id", uint(userID)),
 			zap.Error(err))
-		return ctx.Error(NewError(ErrKeySubscriptionCheckFailed, fmt.Errorf("failed to get active subscription: %w", err)), http.StatusInternalServerError)
+		return ctx.Error(NewError(ErrKeySubscriptionCheckFailed, fmt.Errorf("failed to get paused subscription: %w", err)), http.StatusInternalServerError)
 	}
 
 	if sub == nil {
-		return ctx.Error(NewError(ErrKeyNoActiveSubscription, fmt.Errorf("no active subscription found")), http.StatusNotFound)
+		return ctx.Error(NewError(ErrKeyNoActiveSubscription, fmt.Errorf("no paused subscription found")), http.StatusNotFound)
 	}
 
 	// Get the gateway for this subscription
