@@ -686,6 +686,63 @@ func (g *StripeGateway) handleSubscriptionUpdatedEvent(ctx context.Context, user
 				return nil
 			}
 
+			// Handle pause_collection changes: pause_collection is set via Update (not the
+			// dedicated pause endpoint), so it fires customer.subscription.updated rather than
+			// customer.subscription.paused. Detect pause/resume by checking PauseCollection
+			// against the subscriber's current state.
+			if subscription.PauseCollection != nil {
+				subscriber, err := g.billing.GetActiveSubscription(ctx, userID)
+				if err != nil {
+					g.logger.Error("failed to get current subscriber for pause_collection detection",
+						zap.Error(err),
+						zap.Uint("user_id", userID),
+						zap.String("subscription_id", subscription.ID))
+					return err
+				}
+				if subscriber != nil && subscriber.GatewayType == GatewayID {
+					g.logger.Info("pause_collection detected via subscription update - pausing subscriber",
+						zap.Uint("user_id", userID),
+						zap.String("subscription_id", subscription.ID),
+						zap.String("pause_collection_behavior", string(subscription.PauseCollection.Behavior)),
+						zap.String("event_id", event.ID))
+
+					return g.pauseSubscription(ctx, userID, subscription, event)
+				}
+				// PauseCollection is set but no active subscriber — check if already paused
+				if g.billing != nil {
+					pausedSubscriber, pauseErr := g.billing.GetPausedSubscription(ctx, userID)
+					if pauseErr != nil {
+						g.logger.Error("failed to check paused subscriber when PauseCollection is set",
+							zap.Error(pauseErr),
+							zap.Uint("user_id", userID),
+							zap.String("subscription_id", subscription.ID))
+						return pauseErr
+					}
+					if pausedSubscriber != nil && pausedSubscriber.GatewayType == GatewayID {
+						return nil
+					}
+				}
+				// PauseCollection is set but no matching subscriber found — do not activate
+				return nil
+			} else if g.billing != nil {
+				subscriber, err := g.billing.GetPausedSubscription(ctx, userID)
+				if err != nil {
+					g.logger.Error("failed to get paused subscriber for pause_collection resume detection",
+						zap.Error(err),
+						zap.Uint("user_id", userID),
+						zap.String("subscription_id", subscription.ID))
+					return err
+				}
+				if subscriber != nil && subscriber.GatewayType == GatewayID {
+					g.logger.Info("pause_collection cleared via subscription update - resuming subscriber",
+						zap.Uint("user_id", userID),
+						zap.String("subscription_id", subscription.ID),
+						zap.String("event_id", event.ID))
+
+					return g.resumeSubscription(ctx, userID, subscription, event)
+				}
+			}
+
 			// Check if the subscription has a period
 			periodID, hasPeriod, err := findPeriodIDFromSubscription(subscription)
 			if err != nil {

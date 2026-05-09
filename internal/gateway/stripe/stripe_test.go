@@ -261,6 +261,8 @@ func setupSubscriptionActivationMocks(mockQuota *quotaCore.MockQuotaService, moc
 		WillCancelAt:        nil,
 	}, nil).Maybe()
 
+	mockBilling.EXPECT().GetPausedSubscription(mock.Anything, userID).Return(nil, nil).Maybe()
+
 	// Mock fetching the period to get the plan ID for the event
 	pricingPlanID := uint(1)
 	period := &billingModels.PricingPlanPeriod{
@@ -296,6 +298,8 @@ func setupSubscriptionDeactivationMocks(mockQuota *quotaCore.MockQuotaService, m
 		PricingPlanPeriodID: &planID,
 		WillCancelAt:        nil,
 	}, nil).Maybe()
+
+	mockBilling.EXPECT().GetPausedSubscription(mock.Anything, userID).Return(nil, nil).Maybe()
 
 	mockQuota.EXPECT().RemoveUserFromPlan(mock.Anything, userID).Return(nil)
 	mockBilling.EXPECT().DeactivateSubscriber(mock.Anything, userID, "stripe").Return(nil)
@@ -795,6 +799,199 @@ func TestStripeGateway_HandleWebhook_SubscriptionUpdated_CanceledStatus(t *testi
 		mockQuota.AssertNotCalled(t, "RemoveUserFromPlan")
 		mockBilling.AssertNotCalled(t, "CreateOrUpdateSubscriber")
 		mockBilling.AssertNotCalled(t, "DeactivateSubscriber")
+	})
+}
+
+func TestStripeGateway_HandleWebhook_SubscriptionUpdated_PauseCollectionSet(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockQuota, mockUsers, mockBilling, _ := setupMockServices(ctx)
+		mockSubService := &MockSubscriptionRetriever{}
+
+		subscription := stripe.Subscription{
+			ID: TestSubscriptionID,
+			Customer: &stripe.Customer{
+				ID: TestCustomerID,
+				Metadata: map[string]string{
+					UserIDMetadataKey: "123",
+				},
+			},
+			Metadata: map[string]string{
+				UserIDMetadataKey: "123",
+			},
+			PauseCollection: &stripe.SubscriptionPauseCollection{
+				Behavior: stripe.SubscriptionPauseCollectionBehaviorMarkUncollectible,
+			},
+		}
+
+		rawData, _ := json.Marshal(subscription)
+		event := createTestEvent(EventTypeSubscriptionUpdated, rawData)
+		payload, _ := json.Marshal(event)
+
+		mockSubService.SetupGetSuccess(&subscription)
+
+		planID := uint(2)
+		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, TestUserID).Return(&pluginCore.Subscriber{
+			UserID:              TestUserID,
+			GatewayType:         "stripe",
+			ExternalID:          TestCustomerID,
+			SubscriptionID:      TestSubscriptionID,
+			IsActive:            true,
+			PricingPlanPeriodID: &planID,
+		}, nil)
+
+		mockUsers.EXPECT().AccountExists(mock.Anything, TestUserID).Return(true, createTestUser(TestUserID), nil)
+		mockQuota.EXPECT().RemoveUserFromPlan(mock.Anything, TestUserID).Return(nil)
+		mockBilling.EXPECT().PauseSubscriber(mock.Anything, TestUserID, "stripe").Return(nil)
+
+		gw := NewWithConfig(ctx.Logger(), ctx, testConfig(), mockQuota, mockUsers, mockBilling, nil, nil)
+		gw.subService = mockSubService
+		err := gw.HandleWebhook(context.Background(), payload)
+
+		assert.NoError(t, err)
+	})
+}
+
+func TestStripeGateway_HandleWebhook_SubscriptionUpdated_PauseCollectionCleared(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockQuota, mockUsers, mockBilling, mockPricing := setupMockServices(ctx)
+		mockSubService := &MockSubscriptionRetriever{}
+
+		pricingPlanPeriodID := uint(2)
+		quotaPlanID := uint(10)
+
+		subscription := createTestSubscriptionWithPeriod(
+			strconv.FormatUint(uint64(TestUserID), 10),
+			"",
+			strconv.FormatUint(uint64(pricingPlanPeriodID), 10),
+		)
+
+		rawData, _ := json.Marshal(subscription)
+		event := createTestEvent(EventTypeSubscriptionUpdated, rawData)
+		payload, _ := json.Marshal(event)
+
+		mockSubService.SetupGetSuccess(&subscription)
+
+		// Uncancel detection calls GetActiveSubscription first — returns nil because subscriber is paused
+		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, TestUserID).Return(nil, nil)
+
+		mockBilling.EXPECT().GetPausedSubscription(mock.Anything, TestUserID).Return(&pluginCore.Subscriber{
+			UserID:              TestUserID,
+			GatewayType:         "stripe",
+			ExternalID:          TestCustomerID,
+			SubscriptionID:      TestSubscriptionID,
+			IsActive:            false,
+			PricingPlanPeriodID: &pricingPlanPeriodID,
+		}, nil)
+
+		setupSubscriptionResumeMocks(mockQuota, mockUsers, mockBilling, mockPricing, TestUserID, pricingPlanPeriodID, quotaPlanID)
+
+		gw := NewWithConfig(ctx.Logger(), ctx, testConfig(), mockQuota, mockUsers, mockBilling, mockPricing, nil)
+		gw.subService = mockSubService
+		err := gw.HandleWebhook(context.Background(), payload)
+
+		assert.NoError(t, err)
+	})
+}
+
+func TestStripeGateway_HandleWebhook_SubscriptionUpdated_PauseCollectionSetAlreadyPaused(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockQuota, mockUsers, mockBilling, _ := setupMockServices(ctx)
+		mockSubService := &MockSubscriptionRetriever{}
+
+		subscription := stripe.Subscription{
+			ID: TestSubscriptionID,
+			Customer: &stripe.Customer{
+				ID: TestCustomerID,
+				Metadata: map[string]string{
+					UserIDMetadataKey: "123",
+				},
+			},
+			Metadata: map[string]string{
+				UserIDMetadataKey: "123",
+			},
+			PauseCollection: &stripe.SubscriptionPauseCollection{
+				Behavior: stripe.SubscriptionPauseCollectionBehaviorMarkUncollectible,
+			},
+		}
+
+		rawData, _ := json.Marshal(subscription)
+		event := createTestEvent(EventTypeSubscriptionUpdated, rawData)
+		payload, _ := json.Marshal(event)
+
+		mockSubService.SetupGetSuccess(&subscription)
+
+		// No active subscriber (they're already paused)
+		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, TestUserID).Return(nil, nil)
+
+		// GetPausedSubscription returns the already-paused subscriber
+		planID := uint(2)
+		mockBilling.EXPECT().GetPausedSubscription(mock.Anything, TestUserID).Return(&pluginCore.Subscriber{
+			UserID:              TestUserID,
+			GatewayType:         "stripe",
+			ExternalID:          TestCustomerID,
+			SubscriptionID:      TestSubscriptionID,
+			IsActive:            false,
+			PricingPlanPeriodID: &planID,
+		}, nil)
+
+		gw := NewWithConfig(ctx.Logger(), ctx, testConfig(), mockQuota, mockUsers, mockBilling, nil, nil)
+		gw.subService = mockSubService
+		err := gw.HandleWebhook(context.Background(), payload)
+
+		assert.NoError(t, err)
+
+		// Verify no quota or billing state changes
+		mockQuota.AssertNotCalled(t, "RemoveUserFromPlan")
+		mockQuota.AssertNotCalled(t, "AssignUserToPlan")
+		mockBilling.AssertNotCalled(t, "PauseSubscriber")
+		mockBilling.AssertNotCalled(t, "ResumeSubscriber")
+		mockBilling.AssertNotCalled(t, "DeactivateSubscriber")
+		mockBilling.AssertNotCalled(t, "CreateOrUpdateSubscriber")
+	})
+}
+
+func TestStripeGateway_HandleWebhook_SubscriptionUpdated_PauseCollectionSetNoSubscriber(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockQuota, mockUsers, mockBilling, _ := setupMockServices(ctx)
+		mockSubService := &MockSubscriptionRetriever{}
+
+		subscription := stripe.Subscription{
+			ID: TestSubscriptionID,
+			Customer: &stripe.Customer{
+				ID: TestCustomerID,
+				Metadata: map[string]string{
+					UserIDMetadataKey: "123",
+				},
+			},
+			Metadata: map[string]string{
+				UserIDMetadataKey: "123",
+			},
+			PauseCollection: &stripe.SubscriptionPauseCollection{
+				Behavior: stripe.SubscriptionPauseCollectionBehaviorMarkUncollectible,
+			},
+		}
+
+		rawData, _ := json.Marshal(subscription)
+		event := createTestEvent(EventTypeSubscriptionUpdated, rawData)
+		payload, _ := json.Marshal(event)
+
+		mockSubService.SetupGetSuccess(&subscription)
+
+		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, TestUserID).Return(nil, nil)
+		mockBilling.EXPECT().GetPausedSubscription(mock.Anything, TestUserID).Return(nil, nil)
+
+		gw := NewWithConfig(ctx.Logger(), ctx, testConfig(), mockQuota, mockUsers, mockBilling, nil, nil)
+		gw.subService = mockSubService
+		err := gw.HandleWebhook(context.Background(), payload)
+
+		assert.NoError(t, err)
+
+		mockQuota.AssertNotCalled(t, "RemoveUserFromPlan")
+		mockQuota.AssertNotCalled(t, "AssignUserToPlan")
+		mockBilling.AssertNotCalled(t, "PauseSubscriber")
+		mockBilling.AssertNotCalled(t, "ResumeSubscriber")
+		mockBilling.AssertNotCalled(t, "DeactivateSubscriber")
+		mockBilling.AssertNotCalled(t, "CreateOrUpdateSubscriber")
 	})
 }
 
