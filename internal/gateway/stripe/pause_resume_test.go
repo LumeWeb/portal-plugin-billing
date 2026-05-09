@@ -163,8 +163,9 @@ func TestStripeGateway_ExecuteResume_Success(t *testing.T) {
 		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, userID).Return(mockSubscriber, nil)
 
 		mockSubService := &MockSubscriptions{}
-		mockSubService.On("Update", mock.Anything, TestSubscriptionID, mock.AnythingOfType("*stripe.SubscriptionUpdateParams")).
-			Return(&stripe.Subscription{ID: TestSubscriptionID}, nil)
+		mockSubService.On("Update", mock.Anything, TestSubscriptionID, mock.MatchedBy(func(params *stripe.SubscriptionUpdateParams) bool {
+			return len(params.UnsetFields) == 1 && params.UnsetFields[0] == stripe.SubscriptionUpdateParamsUnsetFieldPauseCollection
+		})).Return(&stripe.Subscription{ID: TestSubscriptionID}, nil)
 		mockStripeClient.SubscriptionsService = mockSubService
 
 		gw := NewWithConfig(ctx.Logger(), ctx, testConfig(), nil, nil, mockBilling, nil, nil)
