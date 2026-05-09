@@ -33,6 +33,12 @@ func (r *SubscriptionStatusResponse) FromModel(subscriber *pluginCore.Subscriber
 	}
 
 	if !subscriber.IsActive {
+		r.GatewayType = subscriber.GatewayType
+		r.PricingPlanPeriodID = subscriber.PricingPlanPeriodID
+		r.WillCancelAt = subscriber.WillCancelAt
+		r.PausedAt = subscriber.PausedAt
+		r.CreatedAt = &subscriber.CreatedAt
+		r.UpdatedAt = &subscriber.UpdatedAt
 		return nil
 	}
 
