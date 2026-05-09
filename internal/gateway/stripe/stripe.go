@@ -722,6 +722,8 @@ func (g *StripeGateway) handleSubscriptionUpdatedEvent(ctx context.Context, user
 						return nil
 					}
 				}
+				// PauseCollection is set but no matching subscriber found — do not activate
+				return nil
 			} else if g.billing != nil {
 				subscriber, err := g.billing.GetPausedSubscription(ctx, userID)
 				if err != nil {

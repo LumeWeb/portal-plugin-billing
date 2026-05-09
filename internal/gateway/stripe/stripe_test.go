@@ -950,6 +950,51 @@ func TestStripeGateway_HandleWebhook_SubscriptionUpdated_PauseCollectionSetAlrea
 	})
 }
 
+func TestStripeGateway_HandleWebhook_SubscriptionUpdated_PauseCollectionSetNoSubscriber(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockQuota, mockUsers, mockBilling, _ := setupMockServices(ctx)
+		mockSubService := &MockSubscriptionRetriever{}
+
+		subscription := stripe.Subscription{
+			ID: TestSubscriptionID,
+			Customer: &stripe.Customer{
+				ID: TestCustomerID,
+				Metadata: map[string]string{
+					UserIDMetadataKey: "123",
+				},
+			},
+			Metadata: map[string]string{
+				UserIDMetadataKey: "123",
+			},
+			PauseCollection: &stripe.SubscriptionPauseCollection{
+				Behavior: stripe.SubscriptionPauseCollectionBehaviorMarkUncollectible,
+			},
+		}
+
+		rawData, _ := json.Marshal(subscription)
+		event := createTestEvent(EventTypeSubscriptionUpdated, rawData)
+		payload, _ := json.Marshal(event)
+
+		mockSubService.SetupGetSuccess(&subscription)
+
+		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, TestUserID).Return(nil, nil)
+		mockBilling.EXPECT().GetPausedSubscription(mock.Anything, TestUserID).Return(nil, nil)
+
+		gw := NewWithConfig(ctx.Logger(), ctx, testConfig(), mockQuota, mockUsers, mockBilling, nil, nil)
+		gw.subService = mockSubService
+		err := gw.HandleWebhook(context.Background(), payload)
+
+		assert.NoError(t, err)
+
+		mockQuota.AssertNotCalled(t, "RemoveUserFromPlan")
+		mockQuota.AssertNotCalled(t, "AssignUserToPlan")
+		mockBilling.AssertNotCalled(t, "PauseSubscriber")
+		mockBilling.AssertNotCalled(t, "ResumeSubscriber")
+		mockBilling.AssertNotCalled(t, "DeactivateSubscriber")
+		mockBilling.AssertNotCalled(t, "CreateOrUpdateSubscriber")
+	})
+}
+
 func TestStripeGateway_HandleWebhook_SubscriptionUpdated_AllPricesNil(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		mockQuota, mockUsers, mockBilling, _ := setupMockServices(ctx)
