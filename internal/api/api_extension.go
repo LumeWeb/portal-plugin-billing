@@ -1093,7 +1093,7 @@ func (e *APIExtension) handleAbortCancellationOperation(c echo.Context) error {
 
 	// Check if there's a scheduled cancellation
 	if sub.WillCancelAt == nil {
-		return ctx.Error(NewError(ErrKeyNoActiveSubscription, fmt.Errorf("no scheduled cancellation found")), http.StatusNotFound)
+		return ctx.Error(NewError(ErrKeyNoScheduledCancellation, fmt.Errorf("no scheduled cancellation found")), http.StatusNotFound)
 	}
 
 	// Get the gateway for this subscription

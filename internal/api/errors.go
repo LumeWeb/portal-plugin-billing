@@ -31,6 +31,8 @@ const (
 	// Billing/Subscription errors
 	ErrKeySubscriptionCheckFailed core.ErrorType = "SUBSCRIPTION_CHECK_FAILED"
 	ErrKeyNoActiveSubscription    core.ErrorType = "NO_ACTIVE_SUBSCRIPTION"
+	ErrKeyNoPausedSubscription    core.ErrorType = "NO_PAUSED_SUBSCRIPTION"
+	ErrKeyNoScheduledCancellation core.ErrorType = "NO_SCHEDULED_CANCELLATION"
 	ErrKeyPaymentGatewayFailed    core.ErrorType = "PAYMENT_GATEWAY_FAILED"
 
 	// Webhook errors
@@ -169,6 +171,8 @@ func init() {
 		// Billing/Subscription errors
 		ErrKeySubscriptionCheckFailed:      {Key: ErrKeySubscriptionCheckFailed, Message: "Failed to check subscription status"},
 		ErrKeyNoActiveSubscription:         {Key: ErrKeyNoActiveSubscription, Message: "No active subscription found"},
+		ErrKeyNoPausedSubscription:         {Key: ErrKeyNoPausedSubscription, Message: "No paused subscription found"},
+		ErrKeyNoScheduledCancellation:      {Key: ErrKeyNoScheduledCancellation, Message: "No scheduled cancellation found"},
 		ErrKeyCheckoutSubscriptionActive:   {Key: ErrKeyCheckoutSubscriptionActive, Message: "Checkout subscription already active"},
 		ErrKeyCheckoutUIGenerationFailed:  {Key: ErrKeyCheckoutUIGenerationFailed, Message: "Failed to generate checkout UI"},
 		ErrKeyPaymentGatewayFailed:         {Key: ErrKeyPaymentGatewayFailed, Message: "Failed to get payment gateway"},
@@ -237,6 +241,8 @@ func init() {
 		// Billing/Subscription errors
 		ErrKeySubscriptionCheckFailed:     http.StatusInternalServerError,
 		ErrKeyNoActiveSubscription:        http.StatusNotFound,
+		ErrKeyNoPausedSubscription:        http.StatusNotFound,
+		ErrKeyNoScheduledCancellation:     http.StatusNotFound,
 		ErrKeyCheckoutSubscriptionActive:  http.StatusConflict,
 		ErrKeyCheckoutUIGenerationFailed: http.StatusInternalServerError,
 		ErrKeyPaymentGatewayFailed:        http.StatusInternalServerError,

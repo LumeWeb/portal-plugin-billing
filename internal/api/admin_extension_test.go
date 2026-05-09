@@ -3543,15 +3543,17 @@ func TestAdminHandleResumeUserSubscription_Success(t *testing.T) {
 		router := ctx.Router()
 
 		planID := uint(100)
+		pausedAt := time.Now()
 		subscriber := &pluginCore.Subscriber{
 			UserID:              123,
 			GatewayType:         "stripe",
 			ExternalID:          "ext_123",
-			IsActive:            true,
+			IsActive:            false,
+			PausedAt:            &pausedAt,
 			PricingPlanPeriodID: &planID,
 		}
 
-		billingSvc.EXPECT().GetActiveSubscription(mock.Anything, uint(123)).Return(subscriber, nil).Once()
+		billingSvc.EXPECT().GetPausedSubscription(mock.Anything, uint(123)).Return(subscriber, nil).Once()
 
 		// Mock gateway with resume support
 		mockGateway := pluginCore.NewMockPaymentGateway(tb)
@@ -3590,15 +3592,17 @@ func TestAdminHandleResumeUserSubscription_NotSupported(t *testing.T) {
 		router := ctx.Router()
 
 		planID := uint(100)
+		pausedAt := time.Now()
 		subscriber := &pluginCore.Subscriber{
 			UserID:              123,
 			GatewayType:         "atlos",
 			ExternalID:          "ext_123",
-			IsActive:            true,
+			IsActive:            false,
+			PausedAt:            &pausedAt,
 			PricingPlanPeriodID: &planID,
 		}
 
-		billingSvc.EXPECT().GetActiveSubscription(mock.Anything, uint(123)).Return(subscriber, nil).Once()
+		billingSvc.EXPECT().GetPausedSubscription(mock.Anything, uint(123)).Return(subscriber, nil).Once()
 
 		mockGateway := pluginCore.NewMockPaymentGateway(tb)
 		billingSvc.EXPECT().GetGateway(mock.Anything, "atlos").Return(mockGateway, nil).Once()
@@ -3626,14 +3630,13 @@ func TestAdminHandleResumeUserSubscription_NotSupported(t *testing.T) {
 	}, getAdminAPITestOptions())
 }
 
-// TestAdminHandleResumeUserSubscription_NoActiveSubscription tests resume with no subscription
-func TestAdminHandleResumeUserSubscription_NoActiveSubscription(t *testing.T) {
+func TestAdminHandleResumeUserSubscription_NoPausedSubscription(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		ts := setupAdminTest(ctx)
 		billingSvc := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
 		router := ctx.Router()
 
-		billingSvc.EXPECT().GetActiveSubscription(mock.Anything, uint(123)).Return(nil, nil).Once()
+		billingSvc.EXPECT().GetPausedSubscription(mock.Anything, uint(123)).Return(nil, nil).Once()
 
 		req, err := ts.createAuthenticatedRequest(ctx, "POST", "/api/billing/users/123/subscriptions/resume", nil, "1")
 		require.NoError(tb, err)
