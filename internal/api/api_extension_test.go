@@ -998,6 +998,7 @@ func TestHandleSubscriptionStatus_NoActiveSubscription(t *testing.T) {
 		// This covers both scenarios: no subscription exists and inactive subscriptions
 		// (GetActiveSubscription only returns active subscriptions)
 		ts.billingSvc.EXPECT().GetActiveSubscription(mock.Anything, uint(1)).Return((*pluginCore.Subscriber)(nil), nil)
+		ts.billingSvc.EXPECT().GetPausedSubscription(mock.Anything, uint(1)).Return((*pluginCore.Subscriber)(nil), nil)
 
 		// Create authenticated request
 		req, err := ts.createAuthenticatedRequest(ctx, "GET", "/api/account/billing/subscription", nil, "1")
@@ -1017,6 +1018,74 @@ func TestHandleSubscriptionStatus_NoActiveSubscription(t *testing.T) {
 		assert.NoError(tb, err)
 
 		// Both no subscription and inactive subscription scenarios should return the same response
+		assertSubscriptionStatus(tb, response, false, "", nil)
+	}, getUserAPITestOptions())
+}
+
+func TestHandleSubscriptionStatus_PausedSubscription(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupTest(ctx)
+
+		ts.userSvc.EXPECT().AccountExists(mock.Anything, uint(1)).Return(true, nil, nil)
+
+		planID := uint(42)
+		pausedAt := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+		pausedSub := &pluginCore.Subscriber{
+			UserID:              1,
+			GatewayType:         "stripe",
+			ExternalID:          "cus_123",
+			SubscriptionID:      "sub_paused",
+			IsActive:            false,
+			PricingPlanPeriodID: &planID,
+			PausedAt:            &pausedAt,
+		}
+		pausedSub.CreatedAt = time.Now()
+		pausedSub.UpdatedAt = time.Now()
+
+		ts.billingSvc.EXPECT().GetActiveSubscription(mock.Anything, uint(1)).Return(nil, nil).Once()
+		ts.billingSvc.EXPECT().GetPausedSubscription(mock.Anything, uint(1)).Return(pausedSub, nil).Once()
+
+		req, err := ts.createAuthenticatedRequest(ctx, "GET", "/api/account/billing/subscription", nil, "1")
+		assert.NoError(tb, err, "Failed to create authenticated request")
+
+		w := httptest.NewRecorder()
+		ts.router.ServeHTTP(w, req)
+
+		assert.Equal(tb, http.StatusOK, w.Code)
+
+		var response dto.SubscriptionStatusResponse
+		err = json.Unmarshal(w.Body.Bytes(), &response)
+		assert.NoError(tb, err)
+
+		assert.False(tb, response.IsSubscribed)
+		assert.Equal(tb, "stripe", response.GatewayType)
+		assert.Equal(tb, planID, *response.PricingPlanPeriodID)
+		assert.NotNil(tb, response.PausedAt)
+		assert.Equal(tb, pausedAt, *response.PausedAt)
+	}, getUserAPITestOptions())
+}
+
+func TestHandleSubscriptionStatus_NoSubscriptionAtAll(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		ts := setupTest(ctx)
+
+		ts.userSvc.EXPECT().AccountExists(mock.Anything, uint(1)).Return(true, nil, nil)
+
+		ts.billingSvc.EXPECT().GetActiveSubscription(mock.Anything, uint(1)).Return(nil, nil).Once()
+		ts.billingSvc.EXPECT().GetPausedSubscription(mock.Anything, uint(1)).Return(nil, nil).Once()
+
+		req, err := ts.createAuthenticatedRequest(ctx, "GET", "/api/account/billing/subscription", nil, "1")
+		assert.NoError(tb, err, "Failed to create authenticated request")
+
+		w := httptest.NewRecorder()
+		ts.router.ServeHTTP(w, req)
+
+		assert.Equal(tb, http.StatusOK, w.Code)
+
+		var response dto.SubscriptionStatusResponse
+		err = json.Unmarshal(w.Body.Bytes(), &response)
+		assert.NoError(tb, err)
+
 		assertSubscriptionStatus(tb, response, false, "", nil)
 	}, getUserAPITestOptions())
 }

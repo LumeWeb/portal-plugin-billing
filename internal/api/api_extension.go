@@ -517,6 +517,17 @@ func (e *APIExtension) handleSubscriptionStatus(c echo.Context) error {
 		return ctx.Error(NewError(ErrKeySubscriptionCheckFailed, fmt.Errorf("failed to check subscription status")), http.StatusInternalServerError)
 	}
 
+	// Fallback to paused subscription so the response includes PausedAt
+	if sub == nil {
+		sub, err = e.billingService.GetPausedSubscription(c.Request().Context(), userID)
+		if err != nil {
+			e.Logger().Error("failed to check paused subscription status",
+				zap.Uint("user_id", userID),
+				zap.Error(err))
+			return ctx.Error(NewError(ErrKeySubscriptionCheckFailed, fmt.Errorf("failed to check subscription status")), http.StatusInternalServerError)
+		}
+	}
+
 	var responseDto dto.SubscriptionStatusResponse
 	return httputil.EncodeResponse[*pluginCore.Subscriber](ctx, sub, &responseDto)
 }
