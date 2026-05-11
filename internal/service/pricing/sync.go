@@ -2,6 +2,7 @@ package pricing
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -206,6 +207,13 @@ func (s *SyncManager) syncGatewayPlan(
 		PricingVariants: pricingVariants,
 		IsActive:        plan.IsActive,
 		IsPublic:        plan.IsPublic,
+	}
+
+	if plan.FeaturesJSON != nil && *plan.FeaturesJSON != "" {
+		var features []string
+		if err := json.Unmarshal([]byte(*plan.FeaturesJSON), &features); err == nil {
+			planInfo.Features = features
+		}
 	}
 
 	syncGateway, syncErr := pluginCore.AsGatewaySync(gateway)

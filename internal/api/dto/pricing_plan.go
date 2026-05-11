@@ -80,9 +80,10 @@ func (r *PricingPlanResponse) FromModel(plan *models.PricingPlan) error {
 	r.UpdatedAt = plan.UpdatedAt
 
 	// Parse FeaturesJSON
-	if plan.FeaturesJSON != "" {
+	r.Features = []string{}
+	if plan.FeaturesJSON != nil && *plan.FeaturesJSON != "" {
 		var features []string
-		if err := json.Unmarshal([]byte(plan.FeaturesJSON), &features); err == nil {
+		if err := json.Unmarshal([]byte(*plan.FeaturesJSON), &features); err == nil {
 			r.Features = features
 		}
 	}
@@ -159,9 +160,10 @@ func (r *PublicPricingPlanResponse) FromModel(plan *models.PricingPlan) error {
 	r.Currency = plan.Currency
 
 	// Parse FeaturesJSON
-	if plan.FeaturesJSON != "" {
+	r.Features = []string{}
+	if plan.FeaturesJSON != nil && *plan.FeaturesJSON != "" {
 		var features []string
-		if err := json.Unmarshal([]byte(plan.FeaturesJSON), &features); err == nil {
+		if err := json.Unmarshal([]byte(*plan.FeaturesJSON), &features); err == nil {
 			r.Features = features
 		}
 	}
@@ -207,6 +209,7 @@ type PricingPeriodCreateInput struct {
 type PricingPlanCreateRequest struct {
 	Name           string                     `json:"name"`
 	Description    string                     `json:"description"`
+	Features       []string                   `json:"features"`
 	PricingPeriods []PricingPeriodCreateInput `json:"pricing_periods"`
 	Currency       string                     `json:"currency"`
 	IsActive       *bool                      `json:"is_active"`
@@ -219,6 +222,7 @@ func (r PricingPlanCreateRequest) Schema() *z.StructSchema {
 	return z.Struct(z.Shape{
 		"Name":           z.String().Required().Min(1).Max(255),
 		"Description":    z.String().Required().Min(1).Max(500),
+		"Features":       z.Slice(z.String().Min(1)).Optional(),
 		"PricingPeriods": z.Slice(z.Struct(z.Shape{
 			"Cadence":     z.String().Required(),
 			"PriceUSD":    z.Ptr(z.Float64()).NotNil(),
@@ -246,13 +250,25 @@ func (r *PricingPlanCreateRequest) ToModel() (*models.PricingPlan, error) {
 		isPublic = *r.IsPublic
 	}
 
-	return &models.PricingPlan{
+	plan := &models.PricingPlan{
 		Name:        r.Name,
 		Description: r.Description,
 		Currency:    r.Currency,
 		IsActive:    isActive,
 		IsPublic:    isPublic,
-	}, nil
+	}
+
+	if len(r.Features) > 0 {
+		featuresJSON, err := json.Marshal(r.Features)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal features: %w", err)
+		}
+		plan.FeaturesJSON = new(string(featuresJSON))
+	} else {
+		plan.FeaturesJSON = new("")
+	}
+
+	return plan, nil
 }
 
 // ToPricingPeriodModels converts pricing periods from DTOs to models
@@ -288,6 +304,7 @@ type PricingPeriodInput struct {
 type PricingPlanUpdateRequest struct {
 	Name           string                    `json:"name"`
 	Description    string                    `json:"description"`
+	Features       *[]string                 `json:"features"`
 	PricingPeriods []PricingPeriodInput      `json:"pricing_periods"`
 	Currency       string                    `json:"currency"`
 	IsActive       *bool                     `json:"is_active"`
@@ -298,6 +315,7 @@ func (r PricingPlanUpdateRequest) Schema() *z.StructSchema {
 	return z.Struct(z.Shape{
 		"Name":        z.String().Min(1).Max(255),
 		"Description": z.String().Min(1).Max(500),
+		"Features":    z.Ptr(z.Slice(z.String().Min(1))),
 		"PricingPeriods": z.Slice(z.Struct(z.Shape{
 			"ID":          z.Uint(),
 			"Cadence":     z.String(),
@@ -326,6 +344,18 @@ func (r *PricingPlanUpdateRequest) ToModel() (*models.PricingPlan, error) {
 
 	if r.IsPublic != nil {
 		plan.IsPublic = *r.IsPublic
+	}
+
+	if r.Features != nil {
+		if len(*r.Features) > 0 {
+			featuresJSON, err := json.Marshal(*r.Features)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal features: %w", err)
+			}
+			plan.FeaturesJSON = new(string(featuresJSON))
+		} else {
+			plan.FeaturesJSON = new("")
+		}
 	}
 
 	return plan, nil

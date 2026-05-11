@@ -21,6 +21,7 @@ type PricingPlanInfo struct {
 	Name            string           // Plan name
 	Description     string           // Plan description
 	Currency        string           // Currency code (e.g., "USD")
+	Features        []string         // List of feature strings
 	PricingVariants []PricingVariant // List of pricing variants for this plan
 	IsActive        bool             // Whether the plan is active
 	IsPublic        bool             // Whether the plan is publicly available

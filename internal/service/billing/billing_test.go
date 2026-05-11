@@ -470,9 +470,10 @@ func TestBillingService_GetSubscriberByUserAndPeriod(t *testing.T) {
 
 		// Create pricing plan
 		plan := models.PricingPlan{
-			Name:     "Test Plan",
-			IsActive: true,
-			IsPublic: true,
+			Name:         "Test Plan",
+			FeaturesJSON: new(""),
+			IsActive:     true,
+			IsPublic:     true,
 		}
 		err := db.Create(&plan).Error
 		assert.NoError(tb, err)
