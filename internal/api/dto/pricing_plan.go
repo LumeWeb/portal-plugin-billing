@@ -302,7 +302,7 @@ type PricingPeriodInput struct {
 type PricingPlanUpdateRequest struct {
 	Name           string                    `json:"name"`
 	Description    string                    `json:"description"`
-	Features       []string                  `json:"features"`
+	Features       *[]string                 `json:"features"`
 	PricingPeriods []PricingPeriodInput      `json:"pricing_periods"`
 	Currency       string                    `json:"currency"`
 	IsActive       *bool                     `json:"is_active"`
@@ -313,7 +313,7 @@ func (r PricingPlanUpdateRequest) Schema() *z.StructSchema {
 	return z.Struct(z.Shape{
 		"Name":        z.String().Min(1).Max(255),
 		"Description": z.String().Min(1).Max(500),
-		"Features":    z.Slice(z.String().Min(1)).Optional(),
+		"Features":    z.Ptr(z.Slice(z.String().Min(1))),
 		"PricingPeriods": z.Slice(z.Struct(z.Shape{
 			"ID":          z.Uint(),
 			"Cadence":     z.String(),
@@ -344,12 +344,16 @@ func (r *PricingPlanUpdateRequest) ToModel() (*models.PricingPlan, error) {
 		plan.IsPublic = *r.IsPublic
 	}
 
-	if len(r.Features) > 0 {
-		featuresJSON, err := json.Marshal(r.Features)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal features: %w", err)
+	if r.Features != nil {
+		if len(*r.Features) > 0 {
+			featuresJSON, err := json.Marshal(*r.Features)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal features: %w", err)
+			}
+			plan.FeaturesJSON = string(featuresJSON)
+		} else {
+			plan.FeaturesJSON = ""
 		}
-		plan.FeaturesJSON = string(featuresJSON)
 	}
 
 	return plan, nil

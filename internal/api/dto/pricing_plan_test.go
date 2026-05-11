@@ -204,7 +204,7 @@ func TestPricingPlanUpdateRequest_WithFeatures(t *testing.T) {
 	request := PricingPlanUpdateRequest{
 		Name:        "Updated Plan",
 		Description: "Updated description",
-		Features:    []string{"Unlimited Storage", "Priority Support"},
+		Features:    &[]string{"Unlimited Storage", "Priority Support"},
 		PricingPeriods: []PricingPeriodInput{
 			{
 				Cadence:     string(subscription.CadenceMonthly),
@@ -216,15 +216,16 @@ func TestPricingPlanUpdateRequest_WithFeatures(t *testing.T) {
 	}
 
 	assert.Equal(t, "Updated Plan", request.Name)
-	assert.Len(t, request.Features, 2)
-	assert.Equal(t, "Unlimited Storage", request.Features[0])
+	require.NotNil(t, request.Features)
+	assert.Len(t, *request.Features, 2)
+	assert.Equal(t, "Unlimited Storage", (*request.Features)[0])
 }
 
 func TestPricingPlanUpdateRequest_ToModel_WithFeatures(t *testing.T) {
 	request := &PricingPlanUpdateRequest{
 		Name:        "Updated Plan",
 		Description: "Updated description",
-		Features:    []string{"Unlimited Storage", "Priority Support"},
+		Features:    &[]string{"Unlimited Storage", "Priority Support"},
 		PricingPeriods: []PricingPeriodInput{
 			{
 				Cadence:     string(subscription.CadenceMonthly),
@@ -240,6 +241,28 @@ func TestPricingPlanUpdateRequest_ToModel_WithFeatures(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, model)
 	assert.Equal(t, `["Unlimited Storage","Priority Support"]`, model.FeaturesJSON)
+}
+
+func TestPricingPlanUpdateRequest_ToModel_ClearFeatures(t *testing.T) {
+	request := &PricingPlanUpdateRequest{
+		Name:        "Updated Plan",
+		Description: "Updated description",
+		Features:    &[]string{},
+		PricingPeriods: []PricingPeriodInput{
+			{
+				Cadence:     string(subscription.CadenceMonthly),
+				PriceUSD:    new(29.99),
+				QuotaPlanID: 100,
+			},
+		},
+		Currency: "USD",
+	}
+
+	model, err := request.ToModel()
+
+	require.NoError(t, err)
+	assert.NotNil(t, model)
+	assert.Equal(t, "", model.FeaturesJSON)
 }
 
 func TestPricingPlanResponse_FromModel_WithFeatures(t *testing.T) {
@@ -311,6 +334,28 @@ func TestPricingPlanUpdateRequest_ToModel_WithoutFeatures(t *testing.T) {
 	request := &PricingPlanUpdateRequest{
 		Name:        "Updated Plan",
 		Description: "Updated description",
+		PricingPeriods: []PricingPeriodInput{
+			{
+				Cadence:     string(subscription.CadenceMonthly),
+				PriceUSD:    new(29.99),
+				QuotaPlanID: 100,
+			},
+		},
+		Currency: "USD",
+	}
+
+	model, err := request.ToModel()
+
+	require.NoError(t, err)
+	assert.NotNil(t, model)
+	assert.Empty(t, model.FeaturesJSON)
+}
+
+func TestPricingPlanUpdateRequest_ToModel_NilFeaturesNoOp(t *testing.T) {
+	request := &PricingPlanUpdateRequest{
+		Name:        "Updated Plan",
+		Description: "Updated description",
+		Features:    nil,
 		PricingPeriods: []PricingPeriodInput{
 			{
 				Cadence:     string(subscription.CadenceMonthly),
