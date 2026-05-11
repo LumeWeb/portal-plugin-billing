@@ -264,6 +264,8 @@ func (r *PricingPlanCreateRequest) ToModel() (*models.PricingPlan, error) {
 			return nil, fmt.Errorf("failed to marshal features: %w", err)
 		}
 		plan.FeaturesJSON = new(string(featuresJSON))
+	} else {
+		plan.FeaturesJSON = new("")
 	}
 
 	return plan, nil

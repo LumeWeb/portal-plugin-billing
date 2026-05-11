@@ -328,7 +328,8 @@ func TestPricingPlanCreateRequest_ToModel_WithoutFeatures(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.NotNil(t, model)
-	assert.Nil(t, model.FeaturesJSON)
+	require.NotNil(t, model.FeaturesJSON)
+	assert.Equal(t, "", *model.FeaturesJSON)
 }
 
 func TestPricingPlanUpdateRequest_ToModel_WithoutFeatures(t *testing.T) {
