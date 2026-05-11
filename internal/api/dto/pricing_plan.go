@@ -81,9 +81,9 @@ func (r *PricingPlanResponse) FromModel(plan *models.PricingPlan) error {
 
 	// Parse FeaturesJSON
 	r.Features = []string{}
-	if plan.FeaturesJSON != "" {
+	if plan.FeaturesJSON != nil && *plan.FeaturesJSON != "" {
 		var features []string
-		if err := json.Unmarshal([]byte(plan.FeaturesJSON), &features); err == nil {
+		if err := json.Unmarshal([]byte(*plan.FeaturesJSON), &features); err == nil {
 			r.Features = features
 		}
 	}
@@ -161,9 +161,9 @@ func (r *PublicPricingPlanResponse) FromModel(plan *models.PricingPlan) error {
 
 	// Parse FeaturesJSON
 	r.Features = []string{}
-	if plan.FeaturesJSON != "" {
+	if plan.FeaturesJSON != nil && *plan.FeaturesJSON != "" {
 		var features []string
-		if err := json.Unmarshal([]byte(plan.FeaturesJSON), &features); err == nil {
+		if err := json.Unmarshal([]byte(*plan.FeaturesJSON), &features); err == nil {
 			r.Features = features
 		}
 	}
@@ -263,7 +263,7 @@ func (r *PricingPlanCreateRequest) ToModel() (*models.PricingPlan, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal features: %w", err)
 		}
-		plan.FeaturesJSON = string(featuresJSON)
+		plan.FeaturesJSON = new(string(featuresJSON))
 	}
 
 	return plan, nil
@@ -350,9 +350,9 @@ func (r *PricingPlanUpdateRequest) ToModel() (*models.PricingPlan, error) {
 			if err != nil {
 				return nil, fmt.Errorf("failed to marshal features: %w", err)
 			}
-			plan.FeaturesJSON = string(featuresJSON)
+			plan.FeaturesJSON = new(string(featuresJSON))
 		} else {
-			plan.FeaturesJSON = ""
+			plan.FeaturesJSON = new("")
 		}
 	}
 

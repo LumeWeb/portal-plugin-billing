@@ -197,7 +197,7 @@ func TestPricingPlanCreateRequest_ToModel_WithFeatures(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.NotNil(t, model)
-	assert.Equal(t, `["Storage 100GB","Bandwidth 1TB"]`, model.FeaturesJSON)
+	assert.Equal(t, `["Storage 100GB","Bandwidth 1TB"]`, *model.FeaturesJSON)
 }
 
 func TestPricingPlanUpdateRequest_WithFeatures(t *testing.T) {
@@ -240,7 +240,7 @@ func TestPricingPlanUpdateRequest_ToModel_WithFeatures(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.NotNil(t, model)
-	assert.Equal(t, `["Unlimited Storage","Priority Support"]`, model.FeaturesJSON)
+	assert.Equal(t, `["Unlimited Storage","Priority Support"]`, *model.FeaturesJSON)
 }
 
 func TestPricingPlanUpdateRequest_ToModel_ClearFeatures(t *testing.T) {
@@ -262,7 +262,8 @@ func TestPricingPlanUpdateRequest_ToModel_ClearFeatures(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.NotNil(t, model)
-	assert.Equal(t, "", model.FeaturesJSON)
+	require.NotNil(t, model.FeaturesJSON)
+	assert.Equal(t, "", *model.FeaturesJSON)
 }
 
 func TestPricingPlanResponse_FromModel_WithFeatures(t *testing.T) {
@@ -270,7 +271,7 @@ func TestPricingPlanResponse_FromModel_WithFeatures(t *testing.T) {
 	planModel := &models.PricingPlan{
 		Name:         "Basic Plan",
 		Description:  "Basic subscription plan",
-		FeaturesJSON: `["Storage 100GB","Bandwidth 1TB"]`,
+		FeaturesJSON: new(`["Storage 100GB","Bandwidth 1TB"]`),
 		Currency:     "USD",
 		IsActive:     true,
 		IsPublic:     true,
@@ -291,7 +292,7 @@ func TestPublicPricingPlanResponse_FromModel_WithFeatures(t *testing.T) {
 	planModel := &models.PricingPlan{
 		Name:         "Basic Plan",
 		Description:  "Basic subscription plan",
-		FeaturesJSON: `["Storage 100GB","Bandwidth 1TB"]`,
+		FeaturesJSON: new(`["Storage 100GB","Bandwidth 1TB"]`),
 		Currency:     "USD",
 		IsActive:     true,
 		IsPublic:     true,
@@ -327,7 +328,7 @@ func TestPricingPlanCreateRequest_ToModel_WithoutFeatures(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.NotNil(t, model)
-	assert.Empty(t, model.FeaturesJSON)
+	assert.Nil(t, model.FeaturesJSON)
 }
 
 func TestPricingPlanUpdateRequest_ToModel_WithoutFeatures(t *testing.T) {
@@ -348,7 +349,7 @@ func TestPricingPlanUpdateRequest_ToModel_WithoutFeatures(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.NotNil(t, model)
-	assert.Empty(t, model.FeaturesJSON)
+	assert.Nil(t, model.FeaturesJSON)
 }
 
 func TestPricingPlanUpdateRequest_ToModel_NilFeaturesNoOp(t *testing.T) {
@@ -370,7 +371,7 @@ func TestPricingPlanUpdateRequest_ToModel_NilFeaturesNoOp(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.NotNil(t, model)
-	assert.Empty(t, model.FeaturesJSON)
+	assert.Nil(t, model.FeaturesJSON)
 }
 
 func TestPricingPlanResponse_FromModel_WithPricingPeriods(t *testing.T) {

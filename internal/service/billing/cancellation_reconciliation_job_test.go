@@ -30,7 +30,7 @@ func createTestPricingPlanPeriodWithDB(t *testing.T, ctx core.Context) *models.P
 	plan := &models.PricingPlan{
 		Name:         "Test Plan",
 		Description:  "Test description",
-		FeaturesJSON: `["test"]`,
+		FeaturesJSON: new(`["test"]`),
 		IsActive:     true,
 		IsPublic:     true,
 	}

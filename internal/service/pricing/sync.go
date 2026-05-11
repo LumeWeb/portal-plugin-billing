@@ -209,9 +209,9 @@ func (s *SyncManager) syncGatewayPlan(
 		IsPublic:        plan.IsPublic,
 	}
 
-	if plan.FeaturesJSON != "" {
+	if plan.FeaturesJSON != nil && *plan.FeaturesJSON != "" {
 		var features []string
-		if err := json.Unmarshal([]byte(plan.FeaturesJSON), &features); err == nil {
+		if err := json.Unmarshal([]byte(*plan.FeaturesJSON), &features); err == nil {
 			planInfo.Features = features
 		}
 	}

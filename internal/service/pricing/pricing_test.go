@@ -98,7 +98,7 @@ func createTestPricingPlan() *models.PricingPlan {
 	return &models.PricingPlan{
 		Name:         "Test Plan",
 		Description:  "A test pricing plan",
-		FeaturesJSON: `["Feature1","Feature2"]`,
+		FeaturesJSON: new(`["Feature1","Feature2"]`),
 		IsActive:     true,
 		IsPublic:     true,
 	}
@@ -110,7 +110,7 @@ func createTestPricingPlanWithOptions(name string, description string, monthlyPr
 	return &models.PricingPlan{
 		Name:         name,
 		Description:  description,
-		FeaturesJSON: `["Feature1","Feature2"]`,
+		FeaturesJSON: new(`["Feature1","Feature2"]`),
 		IsActive:     true,
 		IsPublic:     true,
 	}

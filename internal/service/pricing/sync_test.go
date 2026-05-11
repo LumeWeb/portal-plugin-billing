@@ -62,7 +62,7 @@ func getStandardPricingTestPlan(name string, description string) *models.Pricing
 	return &models.PricingPlan{
 		Name:         name,
 		Description:  description,
-		FeaturesJSON: `["Storage 100GB","Bandwidth 1TB"]`,
+		FeaturesJSON: new(`["Storage 100GB","Bandwidth 1TB"]`),
 		IsActive:     true,
 		IsPublic:     true,
 	}
@@ -74,7 +74,7 @@ func createPricingPlanWithPeriods(ctx context.Context, svc pluginCore.PricingSer
 	plan := &models.PricingPlan{
 		Name:         name,
 		Description:  description,
-		FeaturesJSON: `["Storage 100GB","Bandwidth 1TB"]`,
+		FeaturesJSON: new(`["Storage 100GB","Bandwidth 1TB"]`),
 		IsActive:     true,
 		IsPublic:     true,
 	}
