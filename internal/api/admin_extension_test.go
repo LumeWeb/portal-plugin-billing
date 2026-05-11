@@ -344,6 +344,19 @@ func TestAdminHandleUpdatePricingPlan_Success(t *testing.T) {
 		// Mock pricing service to update plan
 		ts.pricingSvc.EXPECT().UpdatePricingPlan(mock.Anything, uint(1), mock.AnythingOfType("*models.PricingPlan")).Return(nil).Once()
 
+		updatedPlan := &internalModels.PricingPlan{
+			Name:         "Updated Plan",
+			Description:  "Updated description",
+			FeaturesJSON: new(""),
+			Currency:     "USD",
+			IsActive:     true,
+			IsPublic:     false,
+		}
+		updatedPlan.ID = 1
+		ts.pricingSvc.EXPECT().GetPricingPlan(mock.Anything, uint(1)).Return(updatedPlan, nil).Once()
+
+		ts.pricingSvc.EXPECT().GetPricingPlanPeriods(mock.Anything, uint(1)).Return([]*internalModels.PricingPlanPeriod{}, nil).Once()
+
 		// Create request
 		req, err := ts.createAuthenticatedRequest(ctx, "PUT", "/api/billing/pricing-plans/1", bodyBytes, "1")
 		require.NoError(tb, err)
@@ -407,6 +420,19 @@ func TestAdminHandleUpdatePricingPlan_ValidationError(t *testing.T) {
 
 		// Set up mock in case service is called (validation may not prevent it)
 		ts.pricingSvc.EXPECT().UpdatePricingPlan(mock.Anything, uint(1), mock.AnythingOfType("*models.PricingPlan")).Return(nil).Once()
+
+		validationPlan := &internalModels.PricingPlan{
+			Name:         "",
+			Description:  "Updated description",
+			FeaturesJSON: new(""),
+			Currency:     "USD",
+			IsActive:     false,
+			IsPublic:     false,
+		}
+		validationPlan.ID = 1
+		ts.pricingSvc.EXPECT().GetPricingPlan(mock.Anything, uint(1)).Return(validationPlan, nil).Once()
+
+		ts.pricingSvc.EXPECT().GetPricingPlanPeriods(mock.Anything, uint(1)).Return([]*internalModels.PricingPlanPeriod{}, nil).Once()
 
 		// Create request
 		req, err := ts.createAuthenticatedRequest(ctx, "PUT", "/api/billing/pricing-plans/1", bodyBytes, "1")
