@@ -855,8 +855,27 @@ func (e *AdminExtension) handleUpdatePricingPlan(c echo.Context) error {
 		return ctx.Error(NewError(ErrKeyPricingPlanUpdateFailed, fmt.Errorf("failed to update pricing plan: %w", err)), http.StatusInternalServerError)
 	}
 
+	// Fetch the updated plan from database
+	updatedPlan, err := e.pricingService.GetPricingPlan(reqCtx, uint(id))
+	if err != nil {
+		e.Logger().Error("failed to fetch updated pricing plan", zap.Error(err))
+		return ctx.Error(NewError(ErrKeyPricingPlanFetchFailed, fmt.Errorf("failed to fetch updated pricing plan: %w", err)), http.StatusInternalServerError)
+	}
+
 	var resp dto.PricingPlanResponse
-	return httputil.EncodeResponse(ctx, plan, &resp)
+	_ = resp.FromModel(updatedPlan)
+
+	// Fetch and populate pricing periods
+	periods, err := e.pricingService.GetPricingPlanPeriods(reqCtx, updatedPlan.ID)
+	if err != nil {
+		e.Logger().Error("failed to fetch pricing periods for plan",
+			zap.Uint("plan_id", updatedPlan.ID),
+			zap.Error(err))
+	} else {
+		resp.SetPricingPeriods(periods)
+	}
+
+	return ctx.JSON(http.StatusOK, resp)
 }
 
 // handleDeletePricingPlan deletes a pricing plan
