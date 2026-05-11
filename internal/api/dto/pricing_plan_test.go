@@ -149,6 +149,185 @@ func TestPricingPlanUpdateRequest_WithPricingPeriods(t *testing.T) {
 	assert.Equal(t, 29.99, *request.PricingPeriods[0].PriceUSD)
 }
 
+func TestPricingPlanCreateRequest_WithFeatures(t *testing.T) {
+	isActive := true
+	isPublic := true
+	request := PricingPlanCreateRequest{
+		Name:        "Basic Plan",
+		Description: "Basic subscription plan",
+		Features:    []string{"Storage 100GB", "Bandwidth 1TB"},
+		PricingPeriods: []PricingPeriodCreateInput{
+			{
+				Cadence:     string(subscription.CadenceMonthly),
+				PriceUSD:    new(19.99),
+				QuotaPlanID: 100,
+			},
+		},
+		Currency: "USD",
+		IsActive: &isActive,
+		IsPublic: &isPublic,
+	}
+
+	assert.Equal(t, "Basic Plan", request.Name)
+	assert.Len(t, request.Features, 2)
+	assert.Equal(t, "Storage 100GB", request.Features[0])
+	assert.Equal(t, "Bandwidth 1TB", request.Features[1])
+}
+
+func TestPricingPlanCreateRequest_ToModel_WithFeatures(t *testing.T) {
+	isActive := true
+	isPublic := true
+	request := &PricingPlanCreateRequest{
+		Name:        "Basic Plan",
+		Description: "Basic subscription plan",
+		Features:    []string{"Storage 100GB", "Bandwidth 1TB"},
+		PricingPeriods: []PricingPeriodCreateInput{
+			{
+				Cadence:     string(subscription.CadenceMonthly),
+				PriceUSD:    new(19.99),
+				QuotaPlanID: 100,
+			},
+		},
+		Currency: "USD",
+		IsActive: &isActive,
+		IsPublic: &isPublic,
+	}
+
+	model, err := request.ToModel()
+
+	require.NoError(t, err)
+	assert.NotNil(t, model)
+	assert.Equal(t, `["Storage 100GB","Bandwidth 1TB"]`, model.FeaturesJSON)
+}
+
+func TestPricingPlanUpdateRequest_WithFeatures(t *testing.T) {
+	request := PricingPlanUpdateRequest{
+		Name:        "Updated Plan",
+		Description: "Updated description",
+		Features:    []string{"Unlimited Storage", "Priority Support"},
+		PricingPeriods: []PricingPeriodInput{
+			{
+				Cadence:     string(subscription.CadenceMonthly),
+				PriceUSD:    new(29.99),
+				QuotaPlanID: 100,
+			},
+		},
+		Currency: "USD",
+	}
+
+	assert.Equal(t, "Updated Plan", request.Name)
+	assert.Len(t, request.Features, 2)
+	assert.Equal(t, "Unlimited Storage", request.Features[0])
+}
+
+func TestPricingPlanUpdateRequest_ToModel_WithFeatures(t *testing.T) {
+	request := &PricingPlanUpdateRequest{
+		Name:        "Updated Plan",
+		Description: "Updated description",
+		Features:    []string{"Unlimited Storage", "Priority Support"},
+		PricingPeriods: []PricingPeriodInput{
+			{
+				Cadence:     string(subscription.CadenceMonthly),
+				PriceUSD:    new(29.99),
+				QuotaPlanID: 100,
+			},
+		},
+		Currency: "USD",
+	}
+
+	model, err := request.ToModel()
+
+	require.NoError(t, err)
+	assert.NotNil(t, model)
+	assert.Equal(t, `["Unlimited Storage","Priority Support"]`, model.FeaturesJSON)
+}
+
+func TestPricingPlanResponse_FromModel_WithFeatures(t *testing.T) {
+	now := time.Now()
+	planModel := &models.PricingPlan{
+		Name:         "Basic Plan",
+		Description:  "Basic subscription plan",
+		FeaturesJSON: `["Storage 100GB","Bandwidth 1TB"]`,
+		Currency:     "USD",
+		IsActive:     true,
+		IsPublic:     true,
+	}
+	planModel.ID = 1
+	planModel.CreatedAt = now
+	planModel.UpdatedAt = now
+
+	var response PricingPlanResponse
+	err := response.FromModel(planModel)
+
+	require.NoError(t, err)
+	assert.Equal(t, "Basic Plan", response.Name)
+	assert.Equal(t, []string{"Storage 100GB", "Bandwidth 1TB"}, response.Features)
+}
+
+func TestPublicPricingPlanResponse_FromModel_WithFeatures(t *testing.T) {
+	planModel := &models.PricingPlan{
+		Name:         "Basic Plan",
+		Description:  "Basic subscription plan",
+		FeaturesJSON: `["Storage 100GB","Bandwidth 1TB"]`,
+		Currency:     "USD",
+		IsActive:     true,
+		IsPublic:     true,
+	}
+	planModel.ID = 1
+
+	var response PublicPricingPlanResponse
+	err := response.FromModel(planModel)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"Storage 100GB", "Bandwidth 1TB"}, response.Features)
+}
+
+func TestPricingPlanCreateRequest_ToModel_WithoutFeatures(t *testing.T) {
+	isActive := true
+	isPublic := true
+	request := &PricingPlanCreateRequest{
+		Name:        "Basic Plan",
+		Description: "Basic subscription plan",
+		PricingPeriods: []PricingPeriodCreateInput{
+			{
+				Cadence:     string(subscription.CadenceMonthly),
+				PriceUSD:    new(19.99),
+				QuotaPlanID: 100,
+			},
+		},
+		Currency: "USD",
+		IsActive: &isActive,
+		IsPublic: &isPublic,
+	}
+
+	model, err := request.ToModel()
+
+	require.NoError(t, err)
+	assert.NotNil(t, model)
+	assert.Empty(t, model.FeaturesJSON)
+}
+
+func TestPricingPlanUpdateRequest_ToModel_WithoutFeatures(t *testing.T) {
+	request := &PricingPlanUpdateRequest{
+		Name:        "Updated Plan",
+		Description: "Updated description",
+		PricingPeriods: []PricingPeriodInput{
+			{
+				Cadence:     string(subscription.CadenceMonthly),
+				PriceUSD:    new(29.99),
+				QuotaPlanID: 100,
+			},
+		},
+		Currency: "USD",
+	}
+
+	model, err := request.ToModel()
+
+	require.NoError(t, err)
+	assert.NotNil(t, model)
+	assert.Empty(t, model.FeaturesJSON)
+}
+
 func TestPricingPlanResponse_FromModel_WithPricingPeriods(t *testing.T) {
 	// Test FromModel populates pricing periods from models
 	now := time.Now()

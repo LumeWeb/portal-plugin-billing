@@ -52,7 +52,7 @@ func createPricingPlanForPeriods(t *testing.T, ctx context.Context, service plug
 	plan := &models.PricingPlan{
 		Name:         "Test Plan for Periods",
 		Description:  "A test pricing plan for periods",
-		FeaturesJSON: `[{"name":"Feature1"},{"name":"Feature2"}]`,
+		FeaturesJSON: `["Feature1","Feature2"]`,
 		IsActive:     true,
 		IsPublic:     true,
 	}
