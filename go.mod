@@ -19,7 +19,7 @@ require (
 	go.lumeweb.com/httputil v0.5.4
 	go.lumeweb.com/portal v0.5.0
 	go.lumeweb.com/portal-middleware v0.3.7
-	go.lumeweb.com/portal-plugin-quota v0.0.0-20260428221307-98ebac6a28fb
+	go.lumeweb.com/portal-plugin-quota v0.1.0
 	go.lumeweb.com/portal-router v0.6.16
 	go.lumeweb.com/queryutil v0.3.16
 	go.uber.org/zap v1.28.0
