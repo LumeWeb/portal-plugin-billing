@@ -2038,8 +2038,7 @@ func TestAtlosGateway_HandleWebhook_ProratedUpgrade_MonthlyDollarPlan(t *testing
 			uint64(userID),
 			pluginCore.TransactionTypeCharge,
 			mock.MatchedBy(func(amount decimal.Decimal) bool {
-				// Matches the expected proration amount ($2.00) after float64 round-trip
-				return amount.Equal(decimal.NewFromFloat(2.00))
+				return amount.Equal(expectedProration)
 			}),
 			pluginCore.ReferenceTypeAtlosPayment,
 			TestTransactionID,
@@ -2175,8 +2174,7 @@ func TestAtlosGateway_HandleWebhook_ProratedCancel_MonthlyDollarPlan(t *testing.
 			uint64(userID),
 			pluginCore.TransactionTypeCharge,
 			mock.MatchedBy(func(amount decimal.Decimal) bool {
-				// The net proration should be exactly $2.00 (paid $2.50 for new plan - $0.50 credit remaining)
-				return amount.Equal(decimal.NewFromFloat(2.00))
+				return amount.Equal(expectedProration)
 			}),
 			pluginCore.ReferenceTypeAtlosPayment,
 			TestTransactionID,
