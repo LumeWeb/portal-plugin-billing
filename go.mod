@@ -13,7 +13,7 @@ require (
 	github.com/samber/lo v1.53.0
 	github.com/shopspring/decimal v1.4.0
 	github.com/stretchr/testify v1.11.1
-	github.com/stripe/stripe-go/v85 v85.1.0
+	github.com/stripe/stripe-go/v85 v85.2.0
 	github.com/tkuchiki/faketime v0.1.1
 	go.lumeweb.com/atlos-sdk v0.1.3
 	go.lumeweb.com/httputil v0.5.4
