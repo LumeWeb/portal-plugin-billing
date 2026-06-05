@@ -17,6 +17,7 @@ import (
 	"go.lumeweb.com/portal-plugin-billing/internal/service/credit"
 	"go.lumeweb.com/portal-plugin-billing/internal/service/pricing"
 	"go.lumeweb.com/portal/core"
+	portal_plugin_billing "go.lumeweb.com/web/go/portal-plugin-billing"
 )
 
 const PRICING_SERVICE = "billing.pricing"
@@ -25,7 +26,7 @@ func GetPluginInfo() core.PluginInfo {
 	return core.PluginInfo{
 		ID:      internal.PLUGIN_NAME,
 		Version: build.GetInfo(),
-		Depends: []string{"quota"},
+		Depends:    []string{"dashboard", "quota"},
 		Services: func() ([]core.ServiceInfo, error) {
 			return []core.ServiceInfo{
 				{ID: internal.PLUGIN_NAME, Factory: billing.NewBillingService, Depends: []string{PRICING_SERVICE, pluginCore.CREDIT_SERVICE}},
@@ -82,7 +83,8 @@ func GetPluginInfo() core.PluginInfo {
 				},
 			},
 		},
-		Metrics: mergeMetrics(),
+		Metrics:    mergeMetrics(),
+		WebBundles: core.NewWebBundles(core.NewWebBundle(portal_plugin_billing.GetFS(), core.WithWebBundleTargetApps("dashboard"))),
 	}
 }
 
