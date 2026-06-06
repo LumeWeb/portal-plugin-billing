@@ -699,6 +699,8 @@ go.lumeweb.com/web/go/portal-plugin-billing v0.0.0-20260605173455-fc54efc48662 h
 go.lumeweb.com/web/go/portal-plugin-billing v0.0.0-20260605173455-fc54efc48662/go.mod h1:9vyX/zZKTPI71qBl9Hjiaze8pM71IVBJELEz7rw1HrQ=
 go.lumeweb.com/web/go/portal-plugin-billing v0.0.0-20260605195153-7a3c8ef24e86 h1:Hp8bcZQoM/veSp5aiioJkUpwKEt1ngwIOVgWpL/EA84=
 go.lumeweb.com/web/go/portal-plugin-billing v0.0.0-20260605195153-7a3c8ef24e86/go.mod h1:9vyX/zZKTPI71qBl9Hjiaze8pM71IVBJELEz7rw1HrQ=
+go.lumeweb.com/web/go/portal-plugin-billing v0.0.0-20260606115003-c9fec1450ea1 h1:cboewbx90sUA9+l+5/Zz3xndGKL50PNIYKoXAs8BfaU=
+go.lumeweb.com/web/go/portal-plugin-billing v0.0.0-20260606115003-c9fec1450ea1/go.mod h1:9vyX/zZKTPI71qBl9Hjiaze8pM71IVBJELEz7rw1HrQ=
 go.opencensus.io v0.21.0/go.mod h1:mSImk1erAIZhrmZN+AvHh14ztQfjbGwt4TtuofqLduU=
 go.opencensus.io v0.22.0/go.mod h1:+kGneAE2xo2IficOXnaByMWTGM9T73dGwxeWcUqIpI8=
 go.opencensus.io v0.22.2/go.mod h1:yxeiOL68Rb0Xd1ddK5vPZ/oVn4vY4Ynel7k9FzqtOIw=
