@@ -14,7 +14,6 @@ require (
 	github.com/shopspring/decimal v1.4.0
 	github.com/stretchr/testify v1.11.1
 	github.com/stripe/stripe-go/v85 v85.2.0
-	github.com/stripe/stripe-go/v86 v86.0.0
 	github.com/tkuchiki/faketime v0.1.1
 	go.lumeweb.com/atlos-sdk v0.1.3
 	go.lumeweb.com/httputil v0.5.4
@@ -23,7 +22,7 @@ require (
 	go.lumeweb.com/portal-plugin-quota v0.1.0
 	go.lumeweb.com/portal-router v0.6.16
 	go.lumeweb.com/queryutil v0.3.16
-	go.lumeweb.com/web/go/portal-plugin-billing v0.0.0-20260608163135-1ebc59fdcf16
+	go.lumeweb.com/web/go/portal-plugin-billing v0.0.0-20260609165001-7bdb11c87f22
 	go.uber.org/zap v1.28.0
 	golang.org/x/crypto v0.53.0
 	gorm.io/datatypes v1.2.7
