@@ -2691,6 +2691,7 @@ func (g *StripeGateway) createOrUpdateStripePriceForPeriod(ctx context.Context, 
 	if err == nil {
 		for _, mapping := range mappings {
 			if mapping.GatewayType == GatewayID &&
+				mapping.RemoteProductID == productID &&
 				mapping.PricingPlanPeriodID != nil &&
 				*mapping.PricingPlanPeriodID == period.ID &&
 				mapping.RemotePriceID != "" {
