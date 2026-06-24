@@ -1,9 +1,9 @@
 package stripe
 
 import (
-	"fmt"
 	"context"
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"testing"
 	"time"
@@ -682,9 +682,9 @@ func TestStripeGateway_HandleWebhook_SubscriptionUpdated_Uncancel(t *testing.T) 
 			Metadata: map[string]string{
 				UserIDMetadataKey: "123",
 			},
-			CancelAt:             0,
-			CancellationDetails:  nil,
-			CancelAtPeriodEnd:    false,
+			CancelAt:            0,
+			CancellationDetails: nil,
+			CancelAtPeriodEnd:   false,
 			Items: &stripe.SubscriptionItemList{
 				Data: []*stripe.SubscriptionItem{
 					{
@@ -747,15 +747,13 @@ func TestStripeGateway_HandleWebhook_SubscriptionUpdated_Uncancel(t *testing.T) 
 	})
 }
 
-
-
 func TestStripeGateway_HandleWebhook_SubscriptionUpdated_CanceledStatus(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		mockQuota, mockUsers, mockBilling, _ := setupMockServices(ctx)
 		mockSubService := &MockSubscriptionRetriever{}
 
 		subscription := stripe.Subscription{
-			ID: TestSubscriptionID,
+			ID:     TestSubscriptionID,
 			Status: stripe.SubscriptionStatusCanceled,
 			Customer: &stripe.Customer{
 				ID: TestCustomerID,
@@ -1045,7 +1043,6 @@ func TestStripeGateway_HandleWebhook_SubscriptionPaused(t *testing.T) {
 	runSubscriptionPauseTest(t, EventTypeSubscriptionPaused)
 }
 
-
 // Helper function to run a subscription pause test scenario
 func runSubscriptionPauseTest(t *testing.T, eventType string) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
@@ -1118,12 +1115,12 @@ func TestStripeGateway_GetCustomerPortalURL_Success(t *testing.T) {
 		// Mock active subscription
 		planID := uint(42)
 		mockSubscriber := &pluginCore.Subscriber{
-			UserID:               123,
-			GatewayType:          "stripe",
-			ExternalID:           "cus_123",
-			SubscriptionID:       "sub_123",
-			IsActive:             true,
-			PricingPlanPeriodID:  &planID,
+			UserID:              123,
+			GatewayType:         "stripe",
+			ExternalID:          "cus_123",
+			SubscriptionID:      "sub_123",
+			IsActive:            true,
+			PricingPlanPeriodID: &planID,
 		}
 		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, uint(123)).Return(mockSubscriber, nil)
 
@@ -1608,12 +1605,12 @@ func TestStripeGateway_GetCustomerPortalURL_InvalidCustomerID(t *testing.T) {
 		// Mock active subscription with invalid ExternalID (not starting with cus_)
 		planID := uint(42)
 		mockSubscriber := &pluginCore.Subscriber{
-			UserID:               123,
-			GatewayType:          "stripe",
-			ExternalID:           "sub_123", // This is a subscription ID, not a customer ID
-			SubscriptionID:       "sub_123",
-			IsActive:             true,
-			PricingPlanPeriodID:  &planID,
+			UserID:              123,
+			GatewayType:         "stripe",
+			ExternalID:          "sub_123", // This is a subscription ID, not a customer ID
+			SubscriptionID:      "sub_123",
+			IsActive:            true,
+			PricingPlanPeriodID: &planID,
 		}
 		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, uint(123)).Return(mockSubscriber, nil)
 
@@ -1634,12 +1631,12 @@ func TestStripeGateway_GetCustomerPortalURL_EmptyCustomerID(t *testing.T) {
 		// Mock active subscription with empty ExternalID
 		planID := uint(42)
 		mockSubscriber := &pluginCore.Subscriber{
-			UserID:               123,
-			GatewayType:          "stripe",
-			ExternalID:           "", // Empty ExternalID
-			SubscriptionID:       "sub_123",
-			IsActive:             true,
-			PricingPlanPeriodID:  &planID,
+			UserID:              123,
+			GatewayType:         "stripe",
+			ExternalID:          "", // Empty ExternalID
+			SubscriptionID:      "sub_123",
+			IsActive:            true,
+			PricingPlanPeriodID: &planID,
 		}
 		mockBilling.EXPECT().GetActiveSubscription(mock.Anything, uint(123)).Return(mockSubscriber, nil)
 
@@ -1663,13 +1660,13 @@ func TestStripeGateway_SyncPlan_MultiplePeriodsDifferentCadences(t *testing.T) {
 		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
 		mockPricing := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
 		mockStripeClient := &MockStripeClient{
-			V1ProductsService:                   &MockProducts{},
-			V1PricesService:                     &MockPrices{},
+			V1ProductsService:                    &MockProducts{},
+			V1PricesService:                      &MockPrices{},
 			V1BillingPortalConfigurationsService: &MockBillingPortalConfigurations{},
-			BillingPortalSessionsService:        &MockBillingPortalSessions{},
-			CustomersService:                    &MockCustomers{},
-			SubscriptionsService:                &MockSubscriptions{},
-			V1CheckoutSessionsService:           &MockCheckoutSessions{},
+			BillingPortalSessionsService:         &MockBillingPortalSessions{},
+			CustomersService:                     &MockCustomers{},
+			SubscriptionsService:                 &MockSubscriptions{},
+			V1CheckoutSessionsService:            &MockCheckoutSessions{},
 		}
 
 		planID := uint(100)
@@ -1752,13 +1749,13 @@ func TestStripeGateway_SyncPlan_UnsupportedCadence(t *testing.T) {
 		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
 		mockPricing := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
 		mockStripeClient := &MockStripeClient{
-			V1ProductsService:                   &MockProducts{},
-			V1PricesService:                     &MockPrices{},
+			V1ProductsService:                    &MockProducts{},
+			V1PricesService:                      &MockPrices{},
 			V1BillingPortalConfigurationsService: &MockBillingPortalConfigurations{},
-			BillingPortalSessionsService:        &MockBillingPortalSessions{},
-			CustomersService:                    &MockCustomers{},
-			SubscriptionsService:                &MockSubscriptions{},
-			V1CheckoutSessionsService:           &MockCheckoutSessions{},
+			BillingPortalSessionsService:         &MockBillingPortalSessions{},
+			CustomersService:                     &MockCustomers{},
+			SubscriptionsService:                 &MockSubscriptions{},
+			V1CheckoutSessionsService:            &MockCheckoutSessions{},
 		}
 
 		planID := uint(100)
@@ -1792,6 +1789,7 @@ func TestStripeGateway_SyncPlan_UnsupportedCadence(t *testing.T) {
 				QuotaPlanID:   300,
 			},
 		}, nil)
+		mockPricing.EXPECT().GetGatewayProductMappingsByPlan(mock.Anything, planID).Return([]*billingModels.GatewayProductMapping{}, nil)
 
 		mockStripeClient.V1ProductsService.On("Create", mock.Anything, mock.Anything).Return(&stripe.Product{ID: productID}, nil)
 
@@ -1805,7 +1803,6 @@ func TestStripeGateway_SyncPlan_UnsupportedCadence(t *testing.T) {
 		assert.Contains(t, err.Error(), "unsupported cadence 'biennially'")
 	})
 }
-
 
 func TestStripeGateway_HandleWebhook_InvoicePaid_Success(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
@@ -2222,7 +2219,7 @@ func createTestInvoiceEvent(invoiceID string, customerID string, subscriptionID 
 			}
 		}
 	}`, invoiceID, customerID, int(amount*100), lineItemData, int(amount*100), int(amount*100), subscriptionID)
-	
+
 	return createTestEvent("invoice.paid", []byte(invoiceData))
 }
 

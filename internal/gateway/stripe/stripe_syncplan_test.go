@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/stripe/stripe-go/v85"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stripe/stripe-go/v85"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
 	billingModels "go.lumeweb.com/portal-plugin-billing/internal/db/models"
 	"go.lumeweb.com/portal-plugin-billing/pkg/subscription"
@@ -248,6 +248,7 @@ func TestStripeGateway_SyncPlan_RollingCadence(t *testing.T) {
 		}
 		mockPricing.EXPECT().GetPriceLinesForPlan(mock.Anything, uint(1)).Return([]*billingModels.PriceLinePlan{}, nil)
 		mockPricing.EXPECT().GetPricingPlanPeriods(mock.Anything, uint(1)).Return(periods, nil)
+		mockPricing.EXPECT().GetGatewayProductMappingsByPlan(mock.Anything, uint(1)).Return([]*billingModels.GatewayProductMapping{}, nil)
 
 		// Create gateway
 		cfg := testConfig()
@@ -353,6 +354,7 @@ func TestStripeGateway_SyncPlan_NoPeriods(t *testing.T) {
 		periods := []*billingModels.PricingPlanPeriod{}
 		mockPricing.EXPECT().GetPriceLinesForPlan(mock.Anything, uint(1)).Return([]*billingModels.PriceLinePlan{}, nil)
 		mockPricing.EXPECT().GetPricingPlanPeriods(mock.Anything, uint(1)).Return(periods, nil)
+		mockPricing.EXPECT().GetGatewayProductMappingsByPlan(mock.Anything, uint(1)).Return([]*billingModels.GatewayProductMapping{}, nil)
 
 		// Create gateway
 		cfg := testConfig()
@@ -430,13 +432,14 @@ func TestStripeGateway_SyncPlan_ExistingMappingUpdates(t *testing.T) {
 		mockPricing.EXPECT().GetPricingPlanPeriods(mock.Anything, uint(1)).Return(periods, nil)
 		mockPricing.EXPECT().GetPriceLinesForPlan(mock.Anything, uint(1)).Return([]*billingModels.PriceLinePlan{}, nil)
 
-		// Mock existing mapping
+		// Mock existing mapping — has RemoteProductID and RemotePriceID
 		existingMapping := &billingModels.GatewayProductMapping{
-			Model:              gorm.Model{ID: 1},
+			Model:               gorm.Model{ID: 1},
 			PricingPlanPeriodID: &periodID,
-			GatewayType:        GatewayID,
-			RemotePriceID:      "price_old",
-			SyncStatus:         "pending",
+			GatewayType:         GatewayID,
+			RemoteProductID:     "prod_existing",
+			RemotePriceID:       "price_existing",
+			SyncStatus:          "pending",
 		}
 		mockPricing.EXPECT().GetGatewayProductMappingsByPlan(mock.Anything, uint(1)).Return([]*billingModels.GatewayProductMapping{existingMapping}, nil)
 		mockPricing.EXPECT().UpdateGatewayProductMapping(mock.Anything, uint(1), mock.Anything).Return(nil).Once()
@@ -447,9 +450,13 @@ func TestStripeGateway_SyncPlan_ExistingMappingUpdates(t *testing.T) {
 
 		// Create Stripe mock
 		mockClient := NewMockStripeClient()
-		mockClient.V1ProductsService.On("Create", mock.Anything, mock.AnythingOfType("*stripe.ProductCreateParams")).Return(&stripe.Product{ID: "prod_new_123"}, nil)
-		mockClient.V1PricesService.On("Create", mock.Anything, mock.AnythingOfType("*stripe.PriceCreateParams")).Return(&stripe.Price{ID: "price_monthly_new_123"}, nil)
-		mockClient.V1ProductsService.On("Update", mock.Anything, "prod_new_123", mock.AnythingOfType("*stripe.ProductUpdateParams")).Return(&stripe.Product{ID: "prod_new_123"}, nil)
+		// Product: Retrieve returns active product, Update updates it
+		mockClient.V1ProductsService.On("Retrieve", mock.Anything, "prod_existing", mock.Anything).Return(&stripe.Product{ID: "prod_existing", Active: true}, nil)
+		mockClient.V1ProductsService.On("Update", mock.Anything, "prod_existing", mock.AnythingOfType("*stripe.ProductUpdateParams")).Return(&stripe.Product{ID: "prod_existing"}, nil)
+		// Price: Retrieve returns active price with matching amount (999 cents = $9.99) — should be reused
+		mockClient.V1PricesService.On("Retrieve", mock.Anything, "price_existing", mock.Anything).Return(&stripe.Price{ID: "price_existing", Active: true, UnitAmount: 999}, nil)
+		// Update for default price
+		mockClient.V1ProductsService.On("Update", mock.Anything, "prod_existing", mock.AnythingOfType("*stripe.ProductUpdateParams")).Return(&stripe.Product{ID: "prod_existing"}, nil)
 		gw.stripeClient = mockClient
 
 		// Call SyncPlan
@@ -466,8 +473,14 @@ func TestStripeGateway_SyncPlan_ExistingMappingUpdates(t *testing.T) {
 
 		assert.NoError(t, err)
 		assert.True(t, result.Success)
-		assert.Equal(t, "prod_new_123", result.ProductID)
+		assert.Equal(t, "prod_existing", result.ProductID)
 		assert.Len(t, result.RemotePriceIDs, 1)
+		assert.Equal(t, "price_existing", result.RemotePriceIDs[0].PriceID)
+
+		// Verify Create was NOT called for product (should use Update)
+		mockClient.V1ProductsService.AssertNotCalled(t, "Create", mock.Anything, mock.AnythingOfType("*stripe.ProductCreateParams"))
+		// Verify Create was NOT called for price (should reuse existing)
+		mockClient.V1PricesService.AssertNotCalled(t, "Create", mock.Anything, mock.AnythingOfType("*stripe.PriceCreateParams"))
 	})
 }
 
@@ -641,5 +654,143 @@ func TestStripeGateway_SyncPlan_SetsDefaultPrice(t *testing.T) {
 		assert.NotNil(t, capturedParams)
 		assert.NotNil(t, capturedParams.DefaultPrice)
 		assert.Equal(t, "price_monthly", *capturedParams.DefaultPrice)
+	})
+}
+
+// TestStripeGateway_SyncPlan_ArchivedProductFallback tests that when an existing
+// mapping points to an archived Stripe product, a new product is created instead
+// of failing the update.
+func TestStripeGateway_SyncPlan_ArchivedProductFallback(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		_, _, _, mockPricing := setupMockServices(ctx)
+		mockCredit := core.GetService[*pluginCore.MockCreditService](ctx, pluginCore.CREDIT_SERVICE)
+
+		periodID := uint(1)
+		periods := []*billingModels.PricingPlanPeriod{
+			{
+				Model:         gorm.Model{ID: periodID},
+				PricingPlanID: 1,
+				Cadence:       "monthly",
+				PriceUSD:      9.99,
+				QuotaPlanID:   100,
+			},
+		}
+		mockPricing.EXPECT().GetPricingPlanPeriods(mock.Anything, uint(1)).Return(periods, nil)
+		mockPricing.EXPECT().GetPriceLinesForPlan(mock.Anything, uint(1)).Return([]*billingModels.PriceLinePlan{}, nil)
+
+		// Existing mapping points to an archived product and price
+		existingMapping := &billingModels.GatewayProductMapping{
+			Model:               gorm.Model{ID: 1},
+			PricingPlanPeriodID: &periodID,
+			GatewayType:         GatewayID,
+			RemoteProductID:     "prod_archived",
+			RemotePriceID:       "price_archived",
+			SyncStatus:          "pending",
+		}
+		mockPricing.EXPECT().GetGatewayProductMappingsByPlan(mock.Anything, uint(1)).Return([]*billingModels.GatewayProductMapping{existingMapping}, nil)
+		mockPricing.EXPECT().UpdateGatewayProductMapping(mock.Anything, uint(1), mock.Anything).Return(nil).Once()
+
+		cfg := testConfig()
+		gw := NewWithConfig(ctx.Logger(), ctx, cfg, nil, nil, nil, mockPricing, mockCredit)
+
+		mockClient := NewMockStripeClient()
+		// Product Retrieve returns archived (inactive) product → should fall back to Create
+		mockClient.V1ProductsService.On("Retrieve", mock.Anything, "prod_archived", mock.Anything).Return(&stripe.Product{ID: "prod_archived", Active: false}, nil)
+		mockClient.V1ProductsService.On("Create", mock.Anything, mock.AnythingOfType("*stripe.ProductCreateParams")).Return(&stripe.Product{ID: "prod_new"}, nil)
+		// Price Retrieve returns archived (inactive) price → should fall back to Create
+		mockClient.V1PricesService.On("Retrieve", mock.Anything, "price_archived", mock.Anything).Return(&stripe.Price{ID: "price_archived", Active: false, UnitAmount: 999}, nil)
+		mockClient.V1PricesService.On("Create", mock.Anything, mock.AnythingOfType("*stripe.PriceCreateParams")).Return(&stripe.Price{ID: "price_new"}, nil)
+		// Update for setting default price
+		mockClient.V1ProductsService.On("Update", mock.Anything, "prod_new", mock.AnythingOfType("*stripe.ProductUpdateParams")).Return(&stripe.Product{ID: "prod_new"}, nil)
+		gw.stripeClient = mockClient
+
+		planInfo := &pluginCore.PricingPlanInfo{
+			ID:          1,
+			Name:        "Test Plan",
+			Description: "Test description",
+			Currency:    "USD",
+			IsActive:    true,
+			IsPublic:    false,
+		}
+
+		result, err := gw.SyncPlan(context.Background(), planInfo)
+
+		assert.NoError(t, err)
+		assert.True(t, result.Success)
+		assert.Equal(t, "prod_new", result.ProductID)
+		assert.Len(t, result.RemotePriceIDs, 1)
+		assert.Equal(t, "price_new", result.RemotePriceIDs[0].PriceID)
+
+		// Verify Create WAS called for product (fallback from archived)
+		mockClient.V1ProductsService.AssertCalled(t, "Create", mock.Anything, mock.AnythingOfType("*stripe.ProductCreateParams"))
+		// Verify Create WAS called for price (fallback from archived)
+		mockClient.V1PricesService.AssertCalled(t, "Create", mock.Anything, mock.AnythingOfType("*stripe.PriceCreateParams"))
+	})
+}
+
+// TestStripeGateway_SyncPlan_PriceAmountChanged tests that when the price amount
+// changes, a new Stripe price is created (Stripe doesn't allow updating recurring
+// price amounts).
+func TestStripeGateway_SyncPlan_PriceAmountChanged(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		_, _, _, mockPricing := setupMockServices(ctx)
+		mockCredit := core.GetService[*pluginCore.MockCreditService](ctx, pluginCore.CREDIT_SERVICE)
+
+		periodID := uint(1)
+		// New price is $14.99 — old Stripe price was $9.99 (999 cents)
+		periods := []*billingModels.PricingPlanPeriod{
+			{
+				Model:         gorm.Model{ID: periodID},
+				PricingPlanID: 1,
+				Cadence:       "monthly",
+				PriceUSD:      14.99,
+				QuotaPlanID:   100,
+			},
+		}
+		mockPricing.EXPECT().GetPricingPlanPeriods(mock.Anything, uint(1)).Return(periods, nil)
+		mockPricing.EXPECT().GetPriceLinesForPlan(mock.Anything, uint(1)).Return([]*billingModels.PriceLinePlan{}, nil)
+
+		existingMapping := &billingModels.GatewayProductMapping{
+			Model:               gorm.Model{ID: 1},
+			PricingPlanPeriodID: &periodID,
+			GatewayType:         GatewayID,
+			RemoteProductID:     "prod_existing",
+			RemotePriceID:       "price_old",
+			SyncStatus:          "pending",
+		}
+		mockPricing.EXPECT().GetGatewayProductMappingsByPlan(mock.Anything, uint(1)).Return([]*billingModels.GatewayProductMapping{existingMapping}, nil)
+		mockPricing.EXPECT().UpdateGatewayProductMapping(mock.Anything, uint(1), mock.Anything).Return(nil).Once()
+
+		cfg := testConfig()
+		gw := NewWithConfig(ctx.Logger(), ctx, cfg, nil, nil, nil, mockPricing, mockCredit)
+
+		mockClient := NewMockStripeClient()
+		// Product exists and is active → update
+		mockClient.V1ProductsService.On("Retrieve", mock.Anything, "prod_existing", mock.Anything).Return(&stripe.Product{ID: "prod_existing", Active: true}, nil)
+		mockClient.V1ProductsService.On("Update", mock.Anything, "prod_existing", mock.AnythingOfType("*stripe.ProductUpdateParams")).Return(&stripe.Product{ID: "prod_existing"}, nil)
+		// Price exists, active, but amount is 999 (old) vs 1499 (new) → should create new
+		mockClient.V1PricesService.On("Retrieve", mock.Anything, "price_old", mock.Anything).Return(&stripe.Price{ID: "price_old", Active: true, UnitAmount: 999}, nil)
+		mockClient.V1PricesService.On("Create", mock.Anything, mock.AnythingOfType("*stripe.PriceCreateParams")).Return(&stripe.Price{ID: "price_new_1499"}, nil)
+		gw.stripeClient = mockClient
+
+		planInfo := &pluginCore.PricingPlanInfo{
+			ID:          1,
+			Name:        "Test Plan",
+			Description: "Test description",
+			Currency:    "USD",
+			IsActive:    true,
+			IsPublic:    false,
+		}
+
+		result, err := gw.SyncPlan(context.Background(), planInfo)
+
+		assert.NoError(t, err)
+		assert.True(t, result.Success)
+		assert.Equal(t, "prod_existing", result.ProductID)
+		assert.Len(t, result.RemotePriceIDs, 1)
+		assert.Equal(t, "price_new_1499", result.RemotePriceIDs[0].PriceID)
+
+		// Verify Create WAS called for price (amount changed)
+		mockClient.V1PricesService.AssertCalled(t, "Create", mock.Anything, mock.AnythingOfType("*stripe.PriceCreateParams"))
 	})
 }

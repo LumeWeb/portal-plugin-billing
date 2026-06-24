@@ -2191,8 +2191,8 @@ func (g *StripeGateway) GetCheckoutUI(ctx context.Context, userID uint, planID u
 						Quantity: stripe.Int64(1),
 					},
 				},
-				Customer:          stripe.String(customerID),
-				ClientReferenceID: stripe.String(strconv.FormatUint(uint64(userID), 10)),
+				Customer:             stripe.String(customerID),
+				ClientReferenceID:    stripe.String(strconv.FormatUint(uint64(userID), 10)),
 				RedirectOnCompletion: stripe.String(string(stripe.CheckoutSessionRedirectOnCompletionIfRequired)),
 				ReturnURL:            stripe.String(g.getCheckoutReturnURL()),
 				AutomaticTax:         &stripe.CheckoutSessionCreateAutomaticTaxParams{Enabled: stripe.Bool(true)},
@@ -2425,7 +2425,7 @@ func (g *StripeGateway) SyncPlan(ctx context.Context, plan *pluginCore.PricingPl
 	// Create or update prices for each pricing plan period
 	var remotePriceIDs []pluginCore.RemotePriceMapping
 	for _, period := range periods {
-		priceID, err := g.createOrUpdateStripePriceForPeriod(ctx, period, plan.Currency, stripeProduct.ID)
+		priceID, err := g.createOrUpdateStripePriceForPeriod(ctx, period, plan.Currency, stripeProduct.ID, plan.ID)
 		if err != nil {
 			return &pluginCore.SyncResult{
 				Success: false,
@@ -2570,12 +2570,63 @@ func (g *StripeGateway) createOrUpdateStripeProduct(ctx context.Context, plan *p
 	ctx, span := core.TraceMethod(ctx, "StripeGateway.createOrUpdateStripeProduct")
 	defer span.End()
 
-	// For now, we'll always create a new product
-	// In a production implementation, you should:
-	// 1. Check if a product with this plan_id already exists in gateway_product_mappings
-	// 2. Update if exists, or create if not
-	// This allows for proper syncing without duplicates
+	// Check if a product mapping already exists for this plan + gateway
+	// If so, update the existing Stripe product instead of creating a duplicate
+	mappings, err := g.pricing.GetGatewayProductMappingsByPlan(ctx, plan.ID)
+	if err != nil {
+		g.logger.Warn("failed to get existing gateway product mappings, will create new product",
+			zap.Uint("plan_id", plan.ID),
+			zap.Error(err))
+	}
 
+	var existingProductID string
+	if err == nil {
+		for _, mapping := range mappings {
+			if mapping.GatewayType == GatewayID && mapping.RemoteProductID != "" {
+				existingProductID = mapping.RemoteProductID
+				break
+			}
+		}
+	}
+
+	if existingProductID != "" {
+		// Retrieve the product to verify it still exists and is active
+		existingProduct, retrieveErr := g.stripeClient.V1Products().Retrieve(ctx, existingProductID, nil)
+		if retrieveErr != nil {
+			g.logger.Warn("failed to retrieve existing Stripe product, will create new one",
+				zap.String("product_id", existingProductID),
+				zap.Error(retrieveErr))
+		} else if existingProduct.Deleted || !existingProduct.Active {
+			g.logger.Info("existing Stripe product is archived/deleted, will create new one",
+				zap.String("product_id", existingProductID),
+				zap.Bool("deleted", existingProduct.Deleted),
+				zap.Bool("active", existingProduct.Active))
+		} else {
+			// Product exists and is active — update it
+			updateParams := &stripe.ProductUpdateParams{
+				Name:     stripe.String(plan.Name),
+				Metadata: metadata,
+			}
+
+			if plan.Description != "" {
+				updateParams.Description = stripe.String(plan.Description)
+			}
+
+			product, err := g.stripeClient.V1Products().Update(ctx, existingProductID, updateParams)
+			if err != nil {
+				return nil, fmt.Errorf("failed to update Stripe product %s: %w", existingProductID, err)
+			}
+
+			g.logger.Debug("updated existing Stripe product",
+				zap.Uint("plan_id", plan.ID),
+				zap.String("product_id", product.ID),
+				zap.String("product_name", product.Name))
+
+			return product, nil
+		}
+	}
+
+	// No existing product found, or existing product is archived/deleted — create a new one
 	productParams := &stripe.ProductCreateParams{
 		Name:     stripe.String(plan.Name),
 		Metadata: metadata,
@@ -2585,7 +2636,6 @@ func (g *StripeGateway) createOrUpdateStripeProduct(ctx context.Context, plan *p
 		productParams.Description = stripe.String(plan.Description)
 	}
 
-	// Create the product using the gateway's client
 	product, err := g.stripeClient.V1Products().Create(ctx, productParams)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Stripe product: %w", err)
@@ -2599,8 +2649,10 @@ func (g *StripeGateway) createOrUpdateStripeProduct(ctx context.Context, plan *p
 	return product, nil
 }
 
-// createOrUpdateStripePriceForPeriod creates or updates a Stripe price for a pricing plan period
-func (g *StripeGateway) createOrUpdateStripePriceForPeriod(ctx context.Context, period *billingModels.PricingPlanPeriod, currency string, productID string) (string, error) {
+// createOrUpdateStripePriceForPeriod creates or updates a Stripe price for a pricing plan period.
+// Stripe does not allow updating the amount on recurring prices, so if the amount changed
+// a new price is created. If the amount is unchanged the existing price is reused.
+func (g *StripeGateway) createOrUpdateStripePriceForPeriod(ctx context.Context, period *billingModels.PricingPlanPeriod, currency string, productID string, planID uint) (string, error) {
 	ctx, span := core.TraceMethod(ctx, "StripeGateway.createOrUpdateStripePriceForPeriod")
 	defer span.End()
 
@@ -2627,6 +2679,61 @@ func (g *StripeGateway) createOrUpdateStripePriceForPeriod(ctx context.Context, 
 
 	// Convert amount to cents (Stripe uses smallest currency unit)
 	amountCents := int64(period.PriceUSD * 100)
+
+	// Check if an existing price mapping exists for this period + gateway
+	mappings, err := g.pricing.GetGatewayProductMappingsByPlan(ctx, planID)
+	if err != nil {
+		g.logger.Warn("failed to get existing gateway product mappings for price check",
+			zap.Uint("plan_id", planID),
+			zap.Error(err))
+	}
+
+	if err == nil {
+		for _, mapping := range mappings {
+			if mapping.GatewayType == GatewayID &&
+				mapping.RemoteProductID == productID &&
+				mapping.PricingPlanPeriodID != nil &&
+				*mapping.PricingPlanPeriodID == period.ID &&
+				mapping.RemotePriceID != "" {
+
+				// Retrieve the existing price from Stripe to check if amount matches
+				existingPrice, retrieveErr := g.stripeClient.V1Prices().Retrieve(ctx, mapping.RemotePriceID, nil)
+				if retrieveErr != nil {
+					g.logger.Warn("failed to retrieve existing Stripe price, will create new one",
+						zap.String("price_id", mapping.RemotePriceID),
+						zap.Error(retrieveErr))
+					break
+				}
+
+				// If price is archived/deleted, fall through to create a new one
+				if existingPrice.Deleted || !existingPrice.Active {
+					g.logger.Info("existing Stripe price is archived/deleted, will create new one",
+						zap.String("price_id", mapping.RemotePriceID),
+						zap.Bool("deleted", existingPrice.Deleted),
+						zap.Bool("active", existingPrice.Active))
+					break
+				}
+
+				if existingPrice.UnitAmount == amountCents {
+					g.logger.Debug("reusing existing Stripe price, amount unchanged",
+						zap.Uint("plan_id", planID),
+						zap.Uint("period_id", period.ID),
+						zap.String("price_id", existingPrice.ID),
+						zap.Int64("amount_cents", amountCents))
+					return existingPrice.ID, nil
+				}
+
+				// Amount changed — fall through to create a new price
+				g.logger.Info("price amount changed, creating new Stripe price",
+					zap.Uint("plan_id", planID),
+					zap.Uint("period_id", period.ID),
+					zap.String("old_price_id", existingPrice.ID),
+					zap.Int64("old_amount", existingPrice.UnitAmount),
+					zap.Int64("new_amount", amountCents))
+				break
+			}
+		}
+	}
 
 	priceParams := &stripe.PriceCreateParams{
 		Currency:   stripe.String(currency),
@@ -2878,11 +2985,11 @@ func (g *StripeGateway) GetManagementInfo(ctx context.Context, userID uint) (*pl
 
 	// User operations: portal-based management (via customer portal deep link)
 	userOperations := map[pluginCore.ManagementOperation]bool{
-		pluginCore.OperationCancel:          true,
-		pluginCore.OperationChangePlan:      true,
-		pluginCore.OperationPause:           true,
-		pluginCore.OperationResume:          true,
-		pluginCore.OperationCustomerPortal:  true,
+		pluginCore.OperationCancel:         true,
+		pluginCore.OperationChangePlan:     true,
+		pluginCore.OperationPause:          true,
+		pluginCore.OperationResume:         true,
+		pluginCore.OperationCustomerPortal: true,
 	}
 
 	// Admin operations: backend API calls (includes pause/resume for direct admin control)
