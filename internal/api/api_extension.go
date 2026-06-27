@@ -13,6 +13,7 @@ import (
 	sseServer "github.com/apt304/sse-go/server"
 	"github.com/gabriel-vasile/mimetype"
 	"github.com/labstack/echo/v4"
+	"github.com/prometheus/client_golang/prometheus"
 	"go.lumeweb.com/httputil"
 	"go.lumeweb.com/portal-middleware/auth/jwt"
 	mcontext "go.lumeweb.com/portal-middleware/context"
@@ -22,6 +23,8 @@ import (
 	"go.lumeweb.com/portal-plugin-billing/internal/db/models"
 	billingEvent "go.lumeweb.com/portal-plugin-billing/internal/event"
 	"go.lumeweb.com/portal-plugin-billing/internal/gateway"
+	billingService "go.lumeweb.com/portal-plugin-billing/internal/service/billing"
+	"go.lumeweb.com/portal-plugin-billing/internal/service/pricing"
 	router "go.lumeweb.com/portal-router"
 	"go.lumeweb.com/portal/config"
 	"go.lumeweb.com/portal/core"
@@ -92,6 +95,37 @@ func NewAPIExtension() core.APIExtensionFactory {
 // TargetAPI returns the name of the API this extension targets
 func (e *APIExtension) TargetAPI() string {
 	return "dashboard"
+}
+
+// Metrics returns the billing metrics that should be registered on the
+// dashboard API's /metrics endpoint.
+func (e *APIExtension) Metrics() []prometheus.Collector {
+	return mergeBillingMetrics()
+}
+
+// mergeBillingMetrics collects metrics from all billing service packages.
+func mergeBillingMetrics() []prometheus.Collector {
+	return []prometheus.Collector{
+		// billing service metrics
+		billingService.WebhookProcessed,
+		billingService.WebhookDuration,
+		billingService.SubscriberCreated,
+		billingService.SubscriberUpdated,
+		billingService.SubscriberDeactivated,
+		billingService.CheckoutUIErrors,
+		// pricing sync metrics
+		pricing.SyncAttempts,
+		pricing.SyncSuccess,
+		pricing.SyncFailures,
+		pricing.SyncDuration,
+		// gateway registry metrics (shared across all gateways)
+		gateway.WebhookValidated,
+		gateway.WebhookHandled,
+		gateway.GatewayRegistered,
+		// Gateway-specific metrics (stripe, atlos) are registered
+		// automatically during gateway setup via the MetricsProvider
+		// interface — see BillingServiceDefault.setupGateways().
+	}
 }
 
 // Configure is called to set up routes on the API router
