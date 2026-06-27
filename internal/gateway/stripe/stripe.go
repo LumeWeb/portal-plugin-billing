@@ -11,6 +11,7 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/shopspring/decimal"
 	"github.com/stripe/stripe-go/v85"
 	"github.com/stripe/stripe-go/v85/webhook"
@@ -1617,7 +1618,7 @@ func (g *StripeGateway) handleInvoicePaymentFailed(ctx context.Context, event st
 	defer span.End()
 
 	// Track payment failure metric
-	InvoicePaymentFailed.WithLabelValues().Inc()
+	InvoicePaymentFailed.WithLabelValues(LabelStatusError).Inc()
 
 	if event.Data == nil || len(event.Data.Raw) == 0 {
 		g.logger.Warn("invoice payment failed event has no data")
@@ -1656,7 +1657,7 @@ func (g *StripeGateway) handleInvoicePaymentActionRequired(ctx context.Context, 
 	defer span.End()
 
 	// Track payment action required metric
-	InvoicePaymentActionRequired.WithLabelValues().Inc()
+	InvoicePaymentActionRequired.WithLabelValues(LabelStatusError).Inc()
 
 	if event.Data == nil || len(event.Data.Raw) == 0 {
 		g.logger.Warn("invoice payment action required event has no data")
@@ -3843,4 +3844,10 @@ func (g *StripeGateway) GetSessionStatus(ctx context.Context, sessionID string) 
 	}
 
 	return status, nil
+}
+
+// Metrics implements pluginCore.MetricsProvider, returning the stripe gateway's
+// prometheus collectors for automatic registration with the plugin registry.
+func (g *StripeGateway) Metrics() []prometheus.Collector {
+	return GetCollectors()
 }

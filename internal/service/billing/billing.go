@@ -9,6 +9,7 @@ import (
 
 	"github.com/samber/lo"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
+	"go.lumeweb.com/portal-plugin-billing/internal"
 	"go.lumeweb.com/portal-plugin-billing/internal/config"
 	"go.lumeweb.com/portal-plugin-billing/internal/db/models"
 	"go.lumeweb.com/portal-plugin-billing/internal/gateway"
@@ -107,6 +108,16 @@ func (s *BillingServiceDefault) setupGateways(ctx context.Context, opts pluginCo
 		if gw != nil {
 			if err := s.gateways.Register(ctx, gw); err != nil {
 				return fmt.Errorf("failed to register %s gateway: %w", setup.name, err)
+			}
+
+			// If the gateway implements MetricsProvider, register its metrics
+			// with the plugin's prometheus registry automatically.
+			if metricsProvider, ok := gw.(pluginCore.MetricsProvider); ok {
+				if err := core.RegisterPluginMetrics(internal.PLUGIN_NAME, metricsProvider.Metrics()); err != nil {
+					opts.Logger.Error("Failed to register gateway metrics",
+						zap.String("gateway", setup.name),
+						zap.Error(err))
+				}
 			}
 		}
 		if msg != "" {

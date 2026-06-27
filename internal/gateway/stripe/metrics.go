@@ -46,6 +46,7 @@ func init() {
 	CheckoutSessionCreated = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name:      MetricCheckoutSessionCreated,
+			Subsystem: pluginCore.BILLING_SERVICE,
 			Help:      "Total number of checkout sessions created",
 		},
 		[]string{"status"},
@@ -93,15 +94,32 @@ func init() {
 	InvoicePaymentFailed = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name:      MetricInvoicePaymentFailedTotal,
+			Subsystem: pluginCore.BILLING_SERVICE,
 			Help:      "Total number of invoice payment failures",
 		},
-		[]string{},
+		[]string{"status"},
 	)
 	InvoicePaymentActionRequired = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name:      MetricInvoicePaymentActionRequiredTotal,
+			Subsystem: pluginCore.BILLING_SERVICE,
 			Help:      "Total number of invoice payments requiring customer action",
 		},
-		[]string{},
+		[]string{"status"},
 	)
+}
+
+// GetCollectors returns all prometheus collectors for the stripe gateway.
+func GetCollectors() []prometheus.Collector {
+	return []prometheus.Collector{
+		CheckoutCompleted,
+		CheckoutSessionCreated,
+		SubscriptionActivated,
+		SubscriptionDeactivated,
+		SubscriptionUpdated,
+		CustomerPortalCreated,
+		InvoicePaid,
+		InvoicePaymentFailed,
+		InvoicePaymentActionRequired,
+	}
 }
