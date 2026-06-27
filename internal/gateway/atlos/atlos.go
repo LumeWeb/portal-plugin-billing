@@ -69,6 +69,7 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/shopspring/decimal"
 	"go.lumeweb.com/atlos-sdk"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
@@ -2195,5 +2196,11 @@ func priceMatchesExpected(paidAmount, expectedPrice decimal.Decimal) bool {
 	}
 
 	return diff.LessThanOrEqual(threshold)
+}
+
+// Metrics implements pluginCore.MetricsProvider, returning the atlos gateway's
+// prometheus collectors for automatic registration with the plugin registry.
+func (g *AtlosGateway) Metrics() []prometheus.Collector {
+	return GetCollectors()
 }
 

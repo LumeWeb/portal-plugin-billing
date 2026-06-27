@@ -37,5 +37,11 @@ func init() {
 		},
 		[]string{"status"},
 	)
-	prometheus.MustRegister(CheckoutUIDisplayed, PaymentInitiated)
+}
+
+func GetCollectors() []prometheus.Collector {
+	return []prometheus.Collector{
+		CheckoutUIDisplayed,
+		PaymentInitiated,
+	}
 }

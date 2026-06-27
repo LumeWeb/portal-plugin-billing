@@ -11,6 +11,7 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/shopspring/decimal"
 	"github.com/stripe/stripe-go/v85"
 	"github.com/stripe/stripe-go/v85/webhook"
@@ -3843,4 +3844,10 @@ func (g *StripeGateway) GetSessionStatus(ctx context.Context, sessionID string) 
 	}
 
 	return status, nil
+}
+
+// Metrics implements pluginCore.MetricsProvider, returning the stripe gateway's
+// prometheus collectors for automatic registration with the plugin registry.
+func (g *StripeGateway) Metrics() []prometheus.Collector {
+	return GetCollectors()
 }

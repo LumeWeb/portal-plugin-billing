@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 // PricingVariant represents a single pricing variant with billing period and pricing details.
@@ -390,6 +392,34 @@ type SessionStatus struct {
 func IsSessionStatusProvider(gateway GatewayIdentity) bool {
 	_, ok := gateway.(SessionStatusProvider)
 	return ok
+}
+
+// MetricsProvider is an optional interface for gateways that expose metrics.
+// Gateway implementations return their prometheus collectors here, and the
+// billing service collects them automatically during gateway registration.
+// This replaces the ad-hoc mergeMetrics() pattern where each gateway's
+// metrics had to be manually added to a central list.
+type MetricsProvider interface {
+	// Metrics returns the prometheus collectors this gateway exposes.
+	// Collectors are registered with the plugin's prometheus registry
+	// during gateway setup.
+	Metrics() []prometheus.Collector
+}
+
+// IsMetricsProvider checks if the gateway implements the MetricsProvider interface.
+func IsMetricsProvider(gateway GatewayIdentity) bool {
+	_, ok := gateway.(MetricsProvider)
+	return ok
+}
+
+// AsMetricsProvider attempts to cast the gateway to MetricsProvider.
+// Returns nil and an error if the gateway does not implement MetricsProvider.
+func AsMetricsProvider(gateway GatewayIdentity) (MetricsProvider, error) {
+	provider, ok := gateway.(MetricsProvider)
+	if !ok {
+		return nil, ErrGatewayNotSupported
+	}
+	return provider, nil
 }
 
 // PublicAbilities defines gateway capabilities that are publicly discoverable

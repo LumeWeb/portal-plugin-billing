@@ -12,7 +12,6 @@ import (
 	"go.lumeweb.com/portal-plugin-billing/internal/db/migrations"
 	"go.lumeweb.com/portal-plugin-billing/internal/db/models"
 	"go.lumeweb.com/portal-plugin-billing/internal/gateway"
-	"go.lumeweb.com/portal-plugin-billing/internal/gateway/stripe"
 	billing "go.lumeweb.com/portal-plugin-billing/internal/service/billing"
 	"go.lumeweb.com/portal-plugin-billing/internal/service/credit"
 	"go.lumeweb.com/portal-plugin-billing/internal/service/pricing"
@@ -96,21 +95,19 @@ func mergeMetrics() []prometheus.Collector {
 		billing.SubscriberCreated,
 		billing.SubscriberUpdated,
 		billing.SubscriberDeactivated,
+		billing.CheckoutUIErrors,
 		// pricing sync metrics
 		pricing.SyncAttempts,
 		pricing.SyncSuccess,
 		pricing.SyncFailures,
 		pricing.SyncDuration,
-		// gateway metrics
+		// gateway registry metrics (shared across all gateways)
 		gateway.WebhookValidated,
 		gateway.WebhookHandled,
 		gateway.GatewayRegistered,
-		// stripe gateway metrics
-		stripe.CheckoutCompleted,
-		stripe.SubscriptionActivated,
-		stripe.SubscriptionDeactivated,
-		stripe.SubscriptionUpdated,
-		stripe.CustomerPortalCreated,
+		// Gateway-specific metrics (stripe, atlos) are registered
+		// automatically during gateway setup via the MetricsProvider
+		// interface — see BillingServiceDefault.setupGateways().
 	}
 }
 
