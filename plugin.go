@@ -3,7 +3,6 @@ package billing
 import (
 	"fmt"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"go.lumeweb.com/portal-plugin-billing/build"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
 	"go.lumeweb.com/portal-plugin-billing/internal"
@@ -11,7 +10,6 @@ import (
 	"go.lumeweb.com/portal-plugin-billing/internal/config"
 	"go.lumeweb.com/portal-plugin-billing/internal/db/migrations"
 	"go.lumeweb.com/portal-plugin-billing/internal/db/models"
-	"go.lumeweb.com/portal-plugin-billing/internal/gateway"
 	billing "go.lumeweb.com/portal-plugin-billing/internal/service/billing"
 	"go.lumeweb.com/portal-plugin-billing/internal/service/credit"
 	"go.lumeweb.com/portal-plugin-billing/internal/service/pricing"
@@ -82,32 +80,7 @@ func GetPluginInfo() core.PluginInfo {
 				},
 			},
 		},
-		Metrics:    mergeMetrics(),
 		WebBundles: core.NewWebBundles(core.NewWebBundle(portal_plugin_billing.GetFS(), core.WithWebBundleTargetApps("dashboard"))),
-	}
-}
-
-func mergeMetrics() []prometheus.Collector {
-	return []prometheus.Collector{
-		// billing service metrics
-		billing.WebhookProcessed,
-		billing.WebhookDuration,
-		billing.SubscriberCreated,
-		billing.SubscriberUpdated,
-		billing.SubscriberDeactivated,
-		billing.CheckoutUIErrors,
-		// pricing sync metrics
-		pricing.SyncAttempts,
-		pricing.SyncSuccess,
-		pricing.SyncFailures,
-		pricing.SyncDuration,
-		// gateway registry metrics (shared across all gateways)
-		gateway.WebhookValidated,
-		gateway.WebhookHandled,
-		gateway.GatewayRegistered,
-		// Gateway-specific metrics (stripe, atlos) are registered
-		// automatically during gateway setup via the MetricsProvider
-		// interface — see BillingServiceDefault.setupGateways().
 	}
 }
 
