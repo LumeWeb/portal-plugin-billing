@@ -17,7 +17,7 @@ require (
 	github.com/tkuchiki/faketime v0.1.1
 	go.lumeweb.com/atlos-sdk v0.1.3
 	go.lumeweb.com/httputil v0.5.4
-	go.lumeweb.com/portal v0.5.1-0.20260627223515-cf029d0876a8
+	go.lumeweb.com/portal v0.5.1-0.20260630043350-59e7c9865869
 	go.lumeweb.com/portal-middleware v0.3.7
 	go.lumeweb.com/portal-plugin-quota v0.1.0
 	go.lumeweb.com/portal-router v0.7.1
@@ -41,8 +41,8 @@ require (
 	github.com/andybalholm/brotli v1.2.1 // indirect
 	github.com/aws/aws-sdk-go-v2 v1.42.0 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.13 // indirect
-	github.com/aws/aws-sdk-go-v2/config v1.32.25 // indirect
-	github.com/aws/aws-sdk-go-v2/credentials v1.19.24 // indirect
+	github.com/aws/aws-sdk-go-v2/config v1.32.26 // indirect
+	github.com/aws/aws-sdk-go-v2/credentials v1.19.25 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.18.29 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.29 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.29 // indirect
@@ -50,12 +50,12 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.12 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.9.22 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.29 // indirect
-	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.19.29 // indirect
-	github.com/aws/aws-sdk-go-v2/service/s3 v1.104.0 // indirect
-	github.com/aws/aws-sdk-go-v2/service/signin v1.2.0 // indirect
-	github.com/aws/aws-sdk-go-v2/service/sso v1.31.3 // indirect
-	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.36.6 // indirect
-	github.com/aws/aws-sdk-go-v2/service/sts v1.43.3 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.19.30 // indirect
+	github.com/aws/aws-sdk-go-v2/service/s3 v1.104.1 // indirect
+	github.com/aws/aws-sdk-go-v2/service/signin v1.2.1 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sso v1.31.4 // indirect
+	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.36.7 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sts v1.43.4 // indirect
 	github.com/aws/smithy-go v1.27.3 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
@@ -200,7 +200,7 @@ require (
 	go.opentelemetry.io/proto/otlp v1.10.0 // indirect
 	go.shabbyrobe.org/gocovmerge v0.0.0-20230507111327-fa4f82cfbf4d // indirect
 	go.sia.tech/core v0.21.1 // indirect
-	go.sia.tech/coreutils v0.22.1-0.20260623005839-44520161e4e8 // indirect
+	go.sia.tech/coreutils v0.22.1 // indirect
 	go.sia.tech/jape v0.14.1 // indirect
 	go.sia.tech/mux v1.5.2 // indirect
 	go.sia.tech/renterd/v2 v2.9.2 // indirect
