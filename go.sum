@@ -695,8 +695,8 @@ go.lumeweb.com/portal-router v0.7.1 h1:pmsayLnmM9AQt6mHSidq/f7UmkuUHFDAf/O0K4VqR
 go.lumeweb.com/portal-router v0.7.1/go.mod h1:hl51sHDKcgw8yxJ6RraYBOI1Vnufq33FhKwfKiqCkVg=
 go.lumeweb.com/queryutil v0.3.16 h1:4ShUZdaov+jBRWTkABaa8j1QnDSUv1AtVDJd6IbPO3Y=
 go.lumeweb.com/queryutil v0.3.16/go.mod h1:nLkIuXzugX8Ln24wsAbfTafvNmaTHLJhIUKWC1693G4=
-go.lumeweb.com/web/go/portal-plugin-billing v0.0.0-20260701211359-92007bb0f69d h1:6rlXO/4VTg92Hb1PqTbKpzftdpt4E7FycGUR/5tnYzI=
-go.lumeweb.com/web/go/portal-plugin-billing v0.0.0-20260701211359-92007bb0f69d/go.mod h1:xq2mk4xhVb0UQ4HatZ1nSuw5LDNX9caRf6l8x66nbFI=
+go.lumeweb.com/web/go/portal-plugin-billing v0.0.0-20260702005316-eaedf7327499 h1:WmAclP+IN0Ex8fk9hdA2YLmSKFDEu0ep+99pxApRc60=
+go.lumeweb.com/web/go/portal-plugin-billing v0.0.0-20260702005316-eaedf7327499/go.mod h1:xq2mk4xhVb0UQ4HatZ1nSuw5LDNX9caRf6l8x66nbFI=
 go.opencensus.io v0.21.0/go.mod h1:mSImk1erAIZhrmZN+AvHh14ztQfjbGwt4TtuofqLduU=
 go.opencensus.io v0.22.0/go.mod h1:+kGneAE2xo2IficOXnaByMWTGM9T73dGwxeWcUqIpI8=
 go.opencensus.io v0.22.2/go.mod h1:yxeiOL68Rb0Xd1ddK5vPZ/oVn4vY4Ynel7k9FzqtOIw=
