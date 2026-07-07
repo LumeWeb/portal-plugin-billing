@@ -220,6 +220,8 @@ type Prices interface {
 // BillingPortalConfigurations defines the interface for billing portal configuration operations
 type BillingPortalConfigurations interface {
 	Create(ctx context.Context, params *stripe.BillingPortalConfigurationCreateParams) (*stripe.BillingPortalConfiguration, error)
+	Retrieve(ctx context.Context, id string, params *stripe.BillingPortalConfigurationRetrieveParams) (*stripe.BillingPortalConfiguration, error)
+	Update(ctx context.Context, id string, params *stripe.BillingPortalConfigurationUpdateParams) (*stripe.BillingPortalConfiguration, error)
 }
 
 func (w *client) V1CheckoutSessions() CheckoutSessions {
@@ -2489,10 +2491,13 @@ func (g *StripeGateway) SyncPlan(ctx context.Context, plan *pluginCore.PricingPl
 					zap.Error(err))
 			} else {
 				portalConfigID = configID
-				g.logger.Info("created portal configuration",
-					zap.Uint("plan_id", plan.ID),
-					zap.String("config_id", configID),
-					zap.Int("allowed_prices", len(priceIDs)))
+
+				// Persist portal config ID to all gateway product mappings for this price line
+				if persistErr := g.persistPortalConfigID(ctx, priceLineID, configID); persistErr != nil {
+					g.logger.Warn("failed to persist portal config ID to mappings",
+						zap.Uint("plan_id", plan.ID),
+						zap.Error(persistErr))
+				}
 			}
 		}
 	}
@@ -2848,8 +2853,132 @@ func (g *StripeGateway) createOrUpdateGatewayProductMapping(ctx context.Context,
 	return nil
 }
 
+// persistPortalConfigID writes the portal configuration ID back to all
+// gateway product mappings for every plan in the price line. This ensures
+// createPortalSession can look up the config when creating a billing portal
+// session, and sibling plans reuse the same configuration.
+func (g *StripeGateway) persistPortalConfigID(ctx context.Context, priceLineID uint, portalConfigID string) error {
+	ctx, span := core.TraceMethod(ctx, "StripeGateway.persistPortalConfigID")
+	defer span.End()
+
+	plans, err := g.pricing.GetPlansForPriceLine(ctx, priceLineID)
+	if err != nil {
+		return fmt.Errorf("failed to get plans for price line %d: %w", priceLineID, err)
+	}
+
+	persistedCount := 0
+	for _, plan := range plans {
+		mappings, err := g.pricing.GetGatewayProductMappingsByPlan(ctx, plan.ID)
+		if err != nil {
+			g.logger.Debug("failed to get gateway product mappings for plan",
+				zap.Uint("plan_id", plan.ID),
+				zap.Error(err))
+			continue
+		}
+
+		for _, mapping := range mappings {
+			if mapping.GatewayType != GatewayID {
+				continue
+			}
+
+			// Skip if already set to the same value
+			if mapping.PortalConfigurationID != nil && *mapping.PortalConfigurationID == portalConfigID {
+				continue
+			}
+
+			mapping.PortalConfigurationID = &portalConfigID
+			if err := g.pricing.UpdateGatewayProductMapping(ctx, mapping.ID, mapping); err != nil {
+				g.logger.Warn("failed to persist portal config ID to mapping",
+					zap.Uint("plan_id", plan.ID),
+					zap.Uint("mapping_id", mapping.ID),
+					zap.Error(err))
+			} else {
+				persistedCount++
+			}
+		}
+	}
+
+	g.logger.Debug("persisted portal config ID to gateway product mappings",
+		zap.Uint("price_line_id", priceLineID),
+		zap.String("config_id", portalConfigID),
+		zap.Int("mapping_count", persistedCount))
+
+	return nil
+}
+
+// portalEligibleProduct represents a Stripe product and its price IDs
+// that are eligible for subscription plan switching in the customer portal.
+type portalEligibleProduct struct {
+	ProductID string
+	PriceIDs  []string
+}
+
+// resolveEligiblePortalProducts collects all products and prices for plans
+// in the same price line as the given plan. Each plan's Stripe product ID
+// and price IDs are resolved from gateway product mappings.
+// includePlanID ensures the current plan is always included even if it
+// has no upgrade/downgrade neighbors (needed for price-only switches).
+func (g *StripeGateway) resolveEligiblePortalProducts(ctx context.Context, planID, priceLineID uint) ([]portalEligibleProduct, error) {
+	ctx, span := core.TraceMethod(ctx, "StripeGateway.resolveEligiblePortalProducts")
+	defer span.End()
+
+	// Get all plans in this price line
+	allPlans, err := g.pricing.GetPlansForPriceLine(ctx, priceLineID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get plans for price line %d: %w", priceLineID, err)
+	}
+
+	var products []portalEligibleProduct
+	for _, p := range allPlans {
+		// Skip inactive or private plans — they should not be exposed
+		// as self-service switchable products in the customer portal.
+		if !p.IsActive || !p.IsPublic {
+			continue
+		}
+		mappings, err := g.pricing.GetGatewayProductMappingsByPlan(ctx, p.ID)
+		if err != nil {
+			g.logger.Debug("failed to get gateway product mappings for plan",
+				zap.Uint("plan_id", p.ID),
+				zap.Error(err))
+			continue
+		}
+
+		// Group price IDs by product ID for this plan
+		productPriceMap := make(map[string][]string)
+		for _, mapping := range mappings {
+			if mapping.GatewayType == GatewayID && mapping.RemoteProductID != "" && mapping.RemotePriceID != "" {
+				productPriceMap[mapping.RemoteProductID] = append(
+					productPriceMap[mapping.RemoteProductID], mapping.RemotePriceID)
+			}
+		}
+
+		for productID, priceIDs := range productPriceMap {
+			products = append(products, portalEligibleProduct{
+				ProductID: productID,
+				PriceIDs:  priceIDs,
+			})
+		}
+	}
+
+	if len(products) == 0 {
+		return nil, fmt.Errorf("no eligible products with price IDs found for price line %d", priceLineID)
+	}
+
+	g.logger.Debug("resolved eligible portal products",
+		zap.Uint("plan_id", planID),
+		zap.Uint("price_line_id", priceLineID),
+		zap.Int("product_count", len(products)),
+		zap.Int("total_plans", len(allPlans)))
+
+	return products, nil
+}
+
 // createOrUpdatePortalConfiguration creates or updates a billing portal configuration
-// for a plan that restricts upgrade/downgrade paths based on PriceLine position
+// for a plan that enables subscription plan switching within a price line.
+// The configuration includes all products from plans in the same price line,
+// so customers can switch between any eligible plan.
+// If an existing PortalConfigurationID is stored on the plan's gateway product
+// mapping, it is updated; otherwise a new configuration is created.
 func (g *StripeGateway) createOrUpdatePortalConfiguration(ctx context.Context, plan *pluginCore.PricingPlanInfo, stripeProductID string, priceIDs []string) (string, error) {
 	ctx, span := core.TraceMethod(ctx, "StripeGateway.createOrUpdatePortalConfiguration")
 	defer span.End()
@@ -2861,40 +2990,55 @@ func (g *StripeGateway) createOrUpdatePortalConfiguration(ctx context.Context, p
 
 	priceLineID := priceLinePlans[0].PriceLineID
 
-	configName := fmt.Sprintf("Plan %d - Portal Config", plan.ID)
+	// Resolve all eligible products from the price line (not just the current plan)
+	eligibleProducts, err := g.resolveEligiblePortalProducts(ctx, plan.ID, priceLineID)
+	if err != nil {
+		// Fallback to just the current plan's product if resolution fails
+		g.logger.Warn("failed to resolve eligible products from price line, using current plan only",
+			zap.Uint("plan_id", plan.ID),
+			zap.Error(err))
 
+		if len(priceIDs) == 0 {
+			return "", fmt.Errorf("no price IDs available for portal configuration")
+		}
+
+		eligibleProducts = []portalEligibleProduct{
+			{ProductID: stripeProductID, PriceIDs: priceIDs},
+		}
+	}
+
+	configName := fmt.Sprintf("PriceLine %d - Portal Config", priceLineID)
 	enabled := true
 	priceUpdate := stripe.String("price")
 
-	if len(priceIDs) == 0 {
-		return "", fmt.Errorf("no price IDs available for portal configuration")
+	// Check if we already have a portal configuration for this price line
+	existingConfigID := g.getExistingPortalConfigID(ctx, priceLineID)
+
+	if existingConfigID != "" {
+		// Update the existing configuration
+		updateParams := g.buildPortalConfigUpdateParams(configName, enabled, priceUpdate, eligibleProducts)
+
+		config, err := g.stripeClient.V1BillingPortalConfigurations().Update(ctx, existingConfigID, updateParams)
+		if err != nil {
+			// If update fails (e.g., config was deleted), fall back to creating a new one
+			g.logger.Warn("failed to update existing portal configuration, creating new one",
+				zap.String("config_id", existingConfigID),
+				zap.Error(err))
+		} else {
+			g.logger.Info("updated portal configuration",
+				zap.Uint("plan_id", plan.ID),
+				zap.Uint("price_line_id", priceLineID),
+				zap.String("config_id", config.ID),
+				zap.Int("eligible_products", len(eligibleProducts)))
+
+			return config.ID, nil
+		}
 	}
 
-	pricePtrs := make([]*string, len(priceIDs))
-	for i := range priceIDs {
-		pricePtrs[i] = &priceIDs[i]
-	}
+	// Create a new configuration
+	createParams := g.buildPortalConfigCreateParams(configName, enabled, priceUpdate, eligibleProducts)
 
-	productsParam := []*stripe.BillingPortalConfigurationCreateFeaturesSubscriptionUpdateProductParams{
-		{
-			Product: stripe.String(stripeProductID),
-			Prices:  pricePtrs,
-		},
-	}
-
-	params := &stripe.BillingPortalConfigurationCreateParams{
-		Name: stripe.String(configName),
-		Features: &stripe.BillingPortalConfigurationCreateFeaturesParams{
-			SubscriptionUpdate: &stripe.BillingPortalConfigurationCreateFeaturesSubscriptionUpdateParams{
-				Enabled:               &enabled,
-				DefaultAllowedUpdates: []*string{priceUpdate},
-				Products:              productsParam,
-				ProrationBehavior:     stripe.String("create_prorations"),
-			},
-		},
-	}
-
-	config, err := g.stripeClient.V1BillingPortalConfigurations().Create(ctx, params)
+	config, err := g.stripeClient.V1BillingPortalConfigurations().Create(ctx, createParams)
 	if err != nil {
 		return "", fmt.Errorf("failed to create portal configuration: %w", err)
 	}
@@ -2903,9 +3047,91 @@ func (g *StripeGateway) createOrUpdatePortalConfiguration(ctx context.Context, p
 		zap.Uint("plan_id", plan.ID),
 		zap.Uint("price_line_id", priceLineID),
 		zap.String("config_id", config.ID),
-		zap.Int("allowed_prices", len(priceIDs)))
+		zap.Int("eligible_products", len(eligibleProducts)))
 
 	return config.ID, nil
+}
+
+// getExistingPortalConfigID retrieves an existing portal configuration ID
+// from any gateway product mapping in the price line. This allows sibling
+// plans to reuse a config that was already created for another plan in the
+// same price line.
+func (g *StripeGateway) getExistingPortalConfigID(ctx context.Context, priceLineID uint) string {
+	plans, err := g.pricing.GetPlansForPriceLine(ctx, priceLineID)
+	if err != nil {
+		return ""
+	}
+
+	for _, plan := range plans {
+		mappings, err := g.pricing.GetGatewayProductMappingsByPlan(ctx, plan.ID)
+		if err != nil {
+			continue
+		}
+
+		for _, mapping := range mappings {
+			if mapping.GatewayType == GatewayID && mapping.PortalConfigurationID != nil && *mapping.PortalConfigurationID != "" {
+				return *mapping.PortalConfigurationID
+			}
+		}
+	}
+
+	return ""
+}
+
+// buildPortalConfigCreateParams builds the Stripe params for creating a new
+// billing portal configuration with the given eligible products.
+func (g *StripeGateway) buildPortalConfigCreateParams(name string, enabled bool, priceUpdate *string, products []portalEligibleProduct) *stripe.BillingPortalConfigurationCreateParams {
+	productParams := make([]*stripe.BillingPortalConfigurationCreateFeaturesSubscriptionUpdateProductParams, 0, len(products))
+	for _, p := range products {
+		pricePtrs := make([]*string, 0, len(p.PriceIDs))
+		for i := range p.PriceIDs {
+			pricePtrs = append(pricePtrs, &p.PriceIDs[i])
+		}
+		productParams = append(productParams, &stripe.BillingPortalConfigurationCreateFeaturesSubscriptionUpdateProductParams{
+			Product: stripe.String(p.ProductID),
+			Prices:  pricePtrs,
+		})
+	}
+
+	return &stripe.BillingPortalConfigurationCreateParams{
+		Name: stripe.String(name),
+		Features: &stripe.BillingPortalConfigurationCreateFeaturesParams{
+			SubscriptionUpdate: &stripe.BillingPortalConfigurationCreateFeaturesSubscriptionUpdateParams{
+				Enabled:               &enabled,
+				DefaultAllowedUpdates: []*string{priceUpdate},
+				Products:              productParams,
+				ProrationBehavior:     stripe.String("create_prorations"),
+			},
+		},
+	}
+}
+
+// buildPortalConfigUpdateParams builds the Stripe params for updating an existing
+// billing portal configuration with the given eligible products.
+func (g *StripeGateway) buildPortalConfigUpdateParams(name string, enabled bool, priceUpdate *string, products []portalEligibleProduct) *stripe.BillingPortalConfigurationUpdateParams {
+	productParams := make([]*stripe.BillingPortalConfigurationUpdateFeaturesSubscriptionUpdateProductParams, 0, len(products))
+	for _, p := range products {
+		pricePtrs := make([]*string, 0, len(p.PriceIDs))
+		for i := range p.PriceIDs {
+			pricePtrs = append(pricePtrs, &p.PriceIDs[i])
+		}
+		productParams = append(productParams, &stripe.BillingPortalConfigurationUpdateFeaturesSubscriptionUpdateProductParams{
+			Product: stripe.String(p.ProductID),
+			Prices:  pricePtrs,
+		})
+	}
+
+	return &stripe.BillingPortalConfigurationUpdateParams{
+		Name: stripe.String(name),
+		Features: &stripe.BillingPortalConfigurationUpdateFeaturesParams{
+			SubscriptionUpdate: &stripe.BillingPortalConfigurationUpdateFeaturesSubscriptionUpdateParams{
+				Enabled:               &enabled,
+				DefaultAllowedUpdates: []*string{priceUpdate},
+				Products:              productParams,
+				ProrationBehavior:     stripe.String("create_prorations"),
+			},
+		},
+	}
 }
 
 // resolvePriceIDsFromPlanIDs resolves internal plan IDs to Stripe price IDs

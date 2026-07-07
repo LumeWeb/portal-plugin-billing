@@ -18,8 +18,8 @@ import (
 func TestStripeGateway_SyncPlan_Success(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		mockStripeClient := &MockStripeClient{
-			V1ProductsService:                   &MockProducts{},
-			V1PricesService:                     &MockPrices{},
+			V1ProductsService:                    &MockProducts{},
+			V1PricesService:                      &MockPrices{},
 			V1BillingPortalConfigurationsService: &MockBillingPortalConfigurations{},
 		}
 
@@ -208,4 +208,172 @@ func TestStripeGateway_GetCustomerPortalMetadata(t *testing.T) {
 	})
 }
 
+// TestStripeGateway_SyncPlan_PortalConfigWithPriceLine tests that syncing a plan
+// that belongs to a price line creates a portal configuration with all eligible
+// products from the price line (not just the current plan), and persists the
+// portal config ID to gateway product mappings.
+func TestStripeGateway_SyncPlan_PortalConfigWithPriceLine(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockPricingService := &pluginCore.MockPricingService{}
+		mockBilling := &pluginCore.MockBillingService{}
 
+		mockStripeClient := &MockStripeClient{
+			V1ProductsService:                    &MockProducts{},
+			V1PricesService:                      &MockPrices{},
+			V1BillingPortalConfigurationsService: &MockBillingPortalConfigurations{},
+		}
+
+		planID := uint(1)
+		periodID := uint(10)
+		productID := "prod_current"
+		priceID := "price_current"
+
+		planInfo := &pluginCore.PricingPlanInfo{
+			ID:          planID,
+			Name:        "Base Plan",
+			Description: "Entry tier",
+			Currency:    "usd",
+			PricingVariants: []pluginCore.PricingVariant{
+				{
+					BillingPeriodID: periodID,
+					PriceUSD:        9.99,
+					QuotaPlanID:     1,
+					Cadence:         "monthly",
+				},
+			},
+			IsActive: true,
+			IsPublic: true,
+		}
+
+		// Plan is in a price line with one other plan (the upgrade target)
+		mockPricingService.EXPECT().GetPriceLinesForPlan(mock.Anything, planID).
+			Return([]*billingModels.PriceLinePlan{
+				{PriceLineID: 100, PlanID: planID, Position: 0},
+				{PriceLineID: 100, PlanID: 2, Position: 1},
+			}, nil)
+
+		// Upgrade/downgrade paths: plan 2 is the upgrade from plan 1
+		mockPricingService.EXPECT().GetUpgradeDowngradePlans(mock.Anything, planID, uint(100)).
+			Return(&pluginCore.UpgradeDowngradePaths{
+				Upgrades: []*billingModels.PricingPlan{
+					{Model: gorm.Model{ID: 2}, Name: "Pro Plan", IsActive: true},
+				},
+			}, nil)
+
+		// Periods for the current plan
+		mockPricingService.EXPECT().GetPricingPlanPeriods(mock.Anything, planID).
+			Return([]*billingModels.PricingPlanPeriod{
+				{Model: gorm.Model{ID: periodID}, PricingPlanID: planID, Cadence: "monthly", PriceUSD: 9.99, QuotaPlanID: 1},
+			}, nil)
+
+		// Mappings query is called multiple times:
+		// 1. By createOrUpdateGatewayProductMapping (per period)
+		// 2. By getExistingPortalConfigID
+		// 3. By resolveEligiblePortalProducts (for each plan in price line)
+		// 4. By persistPortalConfigID
+		// Use a flexible mock that returns the current plan's mapping
+		currentMapping := &billingModels.GatewayProductMapping{
+			Model:               gorm.Model{ID: 1},
+			PricingPlanPeriodID: &periodID,
+			GatewayType:         GatewayID,
+			RemoteProductID:     productID,
+			RemotePriceID:       priceID,
+		}
+
+		mockPricingService.EXPECT().GetGatewayProductMappingsByPlan(mock.Anything, planID).
+			Return([]*billingModels.GatewayProductMapping{currentMapping}, nil).Maybe()
+
+		// For the upgrade plan (plan 2), return its own product/price mapping
+		upgradeProductID := "prod_upgrade"
+		upgradePriceID := "price_upgrade"
+		upgradePeriodID := uint(20)
+
+		mockPricingService.EXPECT().GetGatewayProductMappingsByPlan(mock.Anything, uint(2)).
+			Return([]*billingModels.GatewayProductMapping{
+				{
+					Model:               gorm.Model{ID: 2},
+					PricingPlanPeriodID: &upgradePeriodID,
+					GatewayType:         GatewayID,
+					RemoteProductID:     upgradeProductID,
+					RemotePriceID:       upgradePriceID,
+				},
+			}, nil).Maybe()
+
+		// GetPlansForPriceLine returns both plans in the price line
+		// Called by resolveEligiblePortalProducts, getExistingPortalConfigID, and persistPortalConfigID
+		mockPricingService.EXPECT().GetPlansForPriceLine(mock.Anything, uint(100)).
+			Return([]*billingModels.PricingPlan{
+				{Model: gorm.Model{ID: planID}, Name: "Base Plan", IsActive: true, IsPublic: true},
+				{Model: gorm.Model{ID: 2}, Name: "Pro Plan", IsActive: true, IsPublic: true},
+			}, nil).Maybe()
+
+		// Create new mapping (first sync, no existing mapping found by createOrUpdateGatewayProductMapping)
+		mockPricingService.EXPECT().CreateGatewayProductMapping(mock.Anything, mock.Anything).Return(nil).Maybe()
+
+		// Update mapping (to persist portal config ID)
+		mockPricingService.EXPECT().UpdateGatewayProductMapping(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+
+		// Product creation
+		mockStripeClient.V1ProductsService.
+			On("Create", mock.Anything, mock.AnythingOfType("*stripe.ProductCreateParams")).
+			Return(&stripe.Product{ID: productID, Name: "Base Plan"}, nil)
+
+		mockStripeClient.V1ProductsService.
+			On("Retrieve", mock.Anything, productID, mock.Anything).
+			Return(&stripe.Product{ID: productID, Name: "Base Plan", Active: true}, nil)
+
+		mockStripeClient.V1ProductsService.
+			On("Update", mock.Anything, productID, mock.AnythingOfType("*stripe.ProductUpdateParams")).
+			Return(&stripe.Product{ID: productID}, nil)
+
+		// Price creation
+		mockStripeClient.V1PricesService.
+			On("Create", mock.Anything, mock.AnythingOfType("*stripe.PriceCreateParams")).
+			Return(&stripe.Price{ID: priceID}, nil)
+
+		mockStripeClient.V1PricesService.
+			On("Retrieve", mock.Anything, priceID, mock.Anything).
+			Return(&stripe.Price{ID: priceID, Active: true}, nil)
+
+		mockStripeClient.V1PricesService.
+			On("Update", mock.Anything, priceID, mock.AnythingOfType("*stripe.PriceUpdateParams")).
+			Return(&stripe.Price{ID: priceID}, nil)
+
+		// Portal configuration creation - verify both products are included
+		mockStripeClient.V1BillingPortalConfigurationsService.
+			On("Create", mock.Anything, mock.MatchedBy(func(params *stripe.BillingPortalConfigurationCreateParams) bool {
+				if params.Features == nil || params.Features.SubscriptionUpdate == nil {
+					return false
+				}
+				products := params.Features.SubscriptionUpdate.Products
+				if len(products) < 2 {
+					return false
+				}
+				// Verify both product IDs are present
+				productIDs := make(map[string]bool)
+				for _, p := range products {
+					productIDs[stripe.StringValue(p.Product)] = true
+				}
+				return productIDs[productID] && productIDs[upgradeProductID]
+			})).Return(&stripe.BillingPortalConfiguration{ID: "bpc_test123"}, nil)
+
+		cfg := &config.ServiceConfig{
+			Stripe: config.StripeConfig{
+				WebhookSecret: TestWebhookSecret,
+				SecretKey:     "test_key",
+			},
+		}
+
+		gateway := NewWithConfig(ctx.Logger(), ctx, cfg, nil, nil, mockBilling, mockPricingService, nil)
+		gateway.stripeClient = mockStripeClient
+
+		result, err := gateway.SyncPlan(context.Background(), planInfo)
+
+		assert.NoError(t, err)
+		assert.True(t, result.Success)
+		assert.Equal(t, "bpc_test123", result.PortalConfigurationID)
+
+		// Verify portal config ID was persisted to the mapping
+		assert.Equal(t, "bpc_test123", *currentMapping.PortalConfigurationID)
+	})
+}
