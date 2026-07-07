@@ -20,12 +20,12 @@ import (
 // API requests.
 type MockStripeClient struct {
 	mock.Mock
-	V1ProductsService                   *MockProducts
-	V1PricesService                     *MockPrices
+	V1ProductsService                    *MockProducts
+	V1PricesService                      *MockPrices
 	V1BillingPortalConfigurationsService *MockBillingPortalConfigurations
-	BillingPortalSessionsService        *MockBillingPortalSessions
-	CustomersService                    *MockCustomers
-	SubscriptionsService                *MockSubscriptions
+	BillingPortalSessionsService         *MockBillingPortalSessions
+	CustomersService                     *MockCustomers
+	SubscriptionsService                 *MockSubscriptions
 	V1CheckoutSessionsService            *MockCheckoutSessions
 }
 
@@ -88,12 +88,12 @@ func (m *MockStripeClient) V1CheckoutSessions() CheckoutSessions {
 // NewMockStripeClient creates a new MockStripeClient with sensible default mock services
 func NewMockStripeClient() *MockStripeClient {
 	return &MockStripeClient{
-		V1ProductsService:                   &MockProducts{},
-		V1PricesService:                     &MockPrices{},
+		V1ProductsService:                    &MockProducts{},
+		V1PricesService:                      &MockPrices{},
 		V1BillingPortalConfigurationsService: &MockBillingPortalConfigurations{},
-		BillingPortalSessionsService:        &MockBillingPortalSessions{},
-		CustomersService:                    &MockCustomers{},
-		SubscriptionsService:                &MockSubscriptions{},
+		BillingPortalSessionsService:         &MockBillingPortalSessions{},
+		CustomersService:                     &MockCustomers{},
+		SubscriptionsService:                 &MockSubscriptions{},
 		V1CheckoutSessionsService:            &MockCheckoutSessions{},
 	}
 }
@@ -340,13 +340,13 @@ func CreateMockStripeGateway(
 
 	// Create mock Stripe client and services
 	mockStripeClient := &MockStripeClient{
-		V1ProductsService:                   &MockProducts{},
-		V1PricesService:                     &MockPrices{},
+		V1ProductsService:                    &MockProducts{},
+		V1PricesService:                      &MockPrices{},
 		V1BillingPortalConfigurationsService: &MockBillingPortalConfigurations{},
-		BillingPortalSessionsService:        &MockBillingPortalSessions{},
-		CustomersService:                    &MockCustomers{},
-		SubscriptionsService:                &MockSubscriptions{},
-		V1CheckoutSessionsService:           &MockCheckoutSessions{},
+		BillingPortalSessionsService:         &MockBillingPortalSessions{},
+		CustomersService:                     &MockCustomers{},
+		SubscriptionsService:                 &MockSubscriptions{},
+		V1CheckoutSessionsService:            &MockCheckoutSessions{},
 	}
 
 	// Create mock retrievers
@@ -438,6 +438,26 @@ type MockBillingPortalConfigurations struct {
 // Create mocks the Stripe billing portal configuration creation
 func (m *MockBillingPortalConfigurations) Create(ctx context.Context, params *stripe.BillingPortalConfigurationCreateParams) (*stripe.BillingPortalConfiguration, error) {
 	args := m.Called(ctx, params)
+	config, ok := args.Get(0).(*stripe.BillingPortalConfiguration)
+	if !ok && args.Get(0) != nil {
+		return nil, fmt.Errorf("mock setup error: expected *stripe.BillingPortalConfiguration, got %T", args.Get(0))
+	}
+	return config, args.Error(1)
+}
+
+// Retrieve mocks the Stripe billing portal configuration retrieval
+func (m *MockBillingPortalConfigurations) Retrieve(ctx context.Context, id string, params *stripe.BillingPortalConfigurationRetrieveParams) (*stripe.BillingPortalConfiguration, error) {
+	args := m.Called(ctx, id, params)
+	config, ok := args.Get(0).(*stripe.BillingPortalConfiguration)
+	if !ok && args.Get(0) != nil {
+		return nil, fmt.Errorf("mock setup error: expected *stripe.BillingPortalConfiguration, got %T", args.Get(0))
+	}
+	return config, args.Error(1)
+}
+
+// Update mocks the Stripe billing portal configuration update
+func (m *MockBillingPortalConfigurations) Update(ctx context.Context, id string, params *stripe.BillingPortalConfigurationUpdateParams) (*stripe.BillingPortalConfiguration, error) {
+	args := m.Called(ctx, id, params)
 	config, ok := args.Get(0).(*stripe.BillingPortalConfiguration)
 	if !ok && args.Get(0) != nil {
 		return nil, fmt.Errorf("mock setup error: expected *stripe.BillingPortalConfiguration, got %T", args.Get(0))
