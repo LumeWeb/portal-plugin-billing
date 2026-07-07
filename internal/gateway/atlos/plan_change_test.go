@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
+	pluginConfig "go.lumeweb.com/portal-plugin-billing/internal/config"
 	billingModels "go.lumeweb.com/portal-plugin-billing/internal/db/models"
 	"go.lumeweb.com/portal-plugin-billing/pkg/subscription"
 	core "go.lumeweb.com/portal/core"
@@ -26,6 +27,7 @@ func TestCalculatePlanChangeProration_UpgradeWithPayment(t *testing.T) {
 
 		gateway := &AtlosGateway{
 			coreCtx: ctx,
+			config:  pluginConfig.AtlosConfig{APIKey: TestAPISecret, MerchantID: TestMerchantID, Endpoint: newMockAtlosServer(t)},
 
 			pricing: mockPricing,
 			billing: mockBilling,
@@ -94,6 +96,7 @@ func TestCalculatePlanChangeProration_UpgradeWithCredit(t *testing.T) {
 
 		gateway := &AtlosGateway{
 			coreCtx: ctx,
+			config:  pluginConfig.AtlosConfig{APIKey: TestAPISecret, MerchantID: TestMerchantID, Endpoint: newMockAtlosServer(t)},
 
 			pricing: mockPricing,
 			billing: mockBilling,
@@ -157,6 +160,7 @@ func TestCalculatePlanChangeProration_ZeroAmount(t *testing.T) {
 
 		gateway := &AtlosGateway{
 			coreCtx: ctx,
+			config:  pluginConfig.AtlosConfig{APIKey: TestAPISecret, MerchantID: TestMerchantID, Endpoint: newMockAtlosServer(t)},
 
 			pricing: mockPricing,
 			billing: mockBilling,
@@ -219,6 +223,7 @@ func TestCalculatePlanChangeProration_InvalidNewPeriod(t *testing.T) {
 
 		gateway := &AtlosGateway{
 			coreCtx: ctx,
+			config:  pluginConfig.AtlosConfig{APIKey: TestAPISecret, MerchantID: TestMerchantID, Endpoint: newMockAtlosServer(t)},
 
 			pricing: mockPricing,
 			billing: mockBilling,
@@ -258,6 +263,7 @@ func TestCalculatePlanChangeProration_InactivePlan(t *testing.T) {
 
 		gateway := &AtlosGateway{
 			coreCtx: ctx,
+			config:  pluginConfig.AtlosConfig{APIKey: TestAPISecret, MerchantID: TestMerchantID, Endpoint: newMockAtlosServer(t)},
 
 			pricing: mockPricing,
 			billing: mockBilling,
@@ -312,6 +318,7 @@ func TestExecutePlanChange_ProratedFlow(t *testing.T) {
 
 		gateway := &AtlosGateway{
 			coreCtx: ctx,
+			config:  pluginConfig.AtlosConfig{APIKey: TestAPISecret, MerchantID: TestMerchantID, Endpoint: newMockAtlosServer(t)},
 
 			pricing: mockPricing,
 			billing: mockBilling,
@@ -351,6 +358,7 @@ func TestExecutePlanChange_CreditOnlyFlow(t *testing.T) {
 
 		gateway := &AtlosGateway{
 			coreCtx: ctx,
+			config:  pluginConfig.AtlosConfig{APIKey: TestAPISecret, MerchantID: TestMerchantID, Endpoint: newMockAtlosServer(t)},
 
 			pricing: mockPricing,
 			billing: mockBilling,
@@ -470,6 +478,7 @@ func TestCalculatePlanChangeProration_UpgradeCoveredByExistingCredit(t *testing.
 
 		gateway := &AtlosGateway{
 			coreCtx: ctx,
+			config:  pluginConfig.AtlosConfig{APIKey: TestAPISecret, MerchantID: TestMerchantID, Endpoint: newMockAtlosServer(t)},
 
 			pricing: mockPricing,
 			billing: mockBilling,
@@ -541,6 +550,7 @@ func TestCalculatePlanChangeProration_UpgradeNotCoveredByExistingCredit(t *testi
 
 		gateway := &AtlosGateway{
 			coreCtx: ctx,
+			config:  pluginConfig.AtlosConfig{APIKey: TestAPISecret, MerchantID: TestMerchantID, Endpoint: newMockAtlosServer(t)},
 
 			pricing: mockPricing,
 			billing: mockBilling,
@@ -610,6 +620,7 @@ func TestExecutePlanChange_ExistingBalanceCoversUpgrade(t *testing.T) {
 
 		gateway := &AtlosGateway{
 			coreCtx: ctx,
+			config:  pluginConfig.AtlosConfig{APIKey: TestAPISecret, MerchantID: TestMerchantID, Endpoint: newMockAtlosServer(t)},
 
 			pricing: mockPricing,
 			billing: mockBilling,
