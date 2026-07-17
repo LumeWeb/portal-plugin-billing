@@ -3538,7 +3538,9 @@ func TestAdminHandlePauseUserSubscription_NotSupported(t *testing.T) {
 		var errResponse map[string]any
 		err = json.Unmarshal(w.Body.Bytes(), &errResponse)
 		require.NoError(tb, err)
-		assert.Contains(tb, errResponse["error"], "does not support")
+		errObj, ok := errResponse["error"].(map[string]any)
+	require.True(tb, ok, "expected error to be an object")
+	assert.Contains(tb, errObj["details"], "does not support")
 	}, getAdminAPITestOptions())
 }
 
@@ -3652,7 +3654,9 @@ func TestAdminHandleResumeUserSubscription_NotSupported(t *testing.T) {
 		var errResponse map[string]any
 		err = json.Unmarshal(w.Body.Bytes(), &errResponse)
 		require.NoError(tb, err)
-		assert.Contains(tb, errResponse["error"], "does not support")
+		errObj, ok := errResponse["error"].(map[string]any)
+	require.True(tb, ok, "expected error to be an object")
+	assert.Contains(tb, errObj["details"], "does not support")
 	}, getAdminAPITestOptions())
 }
 

@@ -299,7 +299,9 @@ func TestHandlePauseOperation_NotSupported(t *testing.T) {
 		var errResponse map[string]any
 		err = json.Unmarshal(w.Body.Bytes(), &errResponse)
 		require.NoError(tb, err)
-		assert.Contains(tb, errResponse["error"], "pause is not supported")
+		errObj, ok := errResponse["error"].(map[string]any)
+	require.True(tb, ok, "expected error to be an object")
+	assert.Contains(tb, errObj["details"], "pause is not supported")
 
 	}, getUserAPITestOptions())
 }
@@ -448,7 +450,9 @@ func TestHandleResumeOperation_NotSupported(t *testing.T) {
 		var errResponse map[string]any
 		err = json.Unmarshal(w.Body.Bytes(), &errResponse)
 		require.NoError(tb, err)
-		assert.Contains(tb, errResponse["error"], "resume is not supported")
+		errObj, ok := errResponse["error"].(map[string]any)
+	require.True(tb, ok, "expected error to be an object")
+	assert.Contains(tb, errObj["details"], "resume is not supported")
 
 	}, getUserAPITestOptions())
 }
@@ -576,7 +580,9 @@ func TestHandleCustomerPortal_NoSubscription(t *testing.T) {
 		var errResponse map[string]any
 		err = json.Unmarshal(w.Body.Bytes(), &errResponse)
 		require.NoError(tb, err)
-		assert.Contains(tb, errResponse["error"], "no subscription found")
+		errObj, ok := errResponse["error"].(map[string]any)
+	require.True(tb, ok, "expected error to be an object")
+	assert.Contains(tb, errObj["details"], "no subscription found")
 
 	}, getUserAPITestOptions())
 }
@@ -615,7 +621,9 @@ func TestHandleCustomerPortal_GetManagementURLError(t *testing.T) {
 		var errResponse map[string]any
 		err = json.Unmarshal(w.Body.Bytes(), &errResponse)
 		require.NoError(tb, err)
-		assert.Contains(tb, errResponse["error"], "failed to get customer portal URL")
+		errObj, ok := errResponse["error"].(map[string]any)
+	require.True(tb, ok, "expected error to be an object")
+	assert.Contains(tb, errObj["details"], "failed to get customer portal URL")
 
 	}, getUserAPITestOptions())
 }
@@ -1775,7 +1783,9 @@ func TestHandleGetCheckoutUI_InvalidPlanID(t *testing.T) {
 		var errResponse map[string]any
 		err := json.Unmarshal(w.Body.Bytes(), &errResponse)
 		require.NoError(tb, err)
-		assert.Contains(tb, errResponse["error"], "invalid plan ID")
+		errObj, ok := errResponse["error"].(map[string]any)
+	require.True(tb, ok, "expected error to be an object")
+	assert.Contains(tb, errObj["details"], "invalid plan ID")
 	}, getUserAPITestOptions())
 }
 
@@ -1839,7 +1849,9 @@ func TestHandleGetCheckoutUI_GatewayNotFound(t *testing.T) {
 		err := json.Unmarshal(w.Body.Bytes(), &errResponse)
 		require.NoError(tb, err)
 		// Error message should indicate gateway failure
-		assert.Contains(tb, errResponse["error"], "gateway")
+		errObj, ok := errResponse["error"].(map[string]any)
+	require.True(tb, ok, "expected error to be an object")
+	assert.Contains(tb, errObj["details"], "gateway")
 	}, getUserAPITestOptions())
 }
 
@@ -2260,7 +2272,9 @@ func TestHandleCancelOperation_NotSupported(t *testing.T) {
 		var errResponse map[string]any
 		err = json.Unmarshal(w.Body.Bytes(), &errResponse)
 		require.NoError(tb, err)
-		assert.Contains(tb, errResponse["error"], "cancellation is not supported")
+		errObj, ok := errResponse["error"].(map[string]any)
+	require.True(tb, ok, "expected error to be an object")
+	assert.Contains(tb, errObj["details"], "cancellation is not supported")
 
 	}, getUserAPITestOptions())
 }
@@ -2608,7 +2622,9 @@ func TestHandleChangePlanOperation_NotSupported(t *testing.T) {
 		var errResponse map[string]any
 		err = json.Unmarshal(w.Body.Bytes(), &errResponse)
 		require.NoError(tb, err)
-		assert.Contains(tb, errResponse["error"], "plan change is not supported")
+		errObj, ok := errResponse["error"].(map[string]any)
+		require.True(tb, ok, "expected error to be an object")
+		assert.Contains(tb, errObj["details"], "plan change is not supported")
 
 	}, getUserAPITestOptions())
 }
