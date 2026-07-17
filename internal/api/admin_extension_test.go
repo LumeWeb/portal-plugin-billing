@@ -3540,7 +3540,7 @@ func TestAdminHandlePauseUserSubscription_NotSupported(t *testing.T) {
 		require.NoError(tb, err)
 		errObj, ok := errResponse["error"].(map[string]any)
 	require.True(tb, ok, "expected error to be an object")
-	assert.Contains(tb, errObj["details"], "does not support")
+	assert.Equal(tb, "ManagementOperationFailed", errObj["reason"])
 	}, getAdminAPITestOptions())
 }
 
@@ -3656,7 +3656,7 @@ func TestAdminHandleResumeUserSubscription_NotSupported(t *testing.T) {
 		require.NoError(tb, err)
 		errObj, ok := errResponse["error"].(map[string]any)
 	require.True(tb, ok, "expected error to be an object")
-	assert.Contains(tb, errObj["details"], "does not support")
+	assert.Equal(tb, "ManagementOperationFailed", errObj["reason"])
 	}, getAdminAPITestOptions())
 }
 

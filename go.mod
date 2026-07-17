@@ -17,7 +17,7 @@ require (
 	github.com/tkuchiki/faketime v0.1.1
 	go.lumeweb.com/atlos-sdk v0.1.3
 	go.lumeweb.com/httputil v0.5.5
-	go.lumeweb.com/portal v0.5.2-0.20260717175410-94e37d8422c8
+	go.lumeweb.com/portal v0.5.2-0.20260717144043-901049bcdd77
 	go.lumeweb.com/portal-middleware v0.3.7
 	go.lumeweb.com/portal-plugin-quota v0.1.0
 	go.lumeweb.com/portal-router v0.7.5

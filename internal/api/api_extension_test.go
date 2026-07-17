@@ -301,7 +301,7 @@ func TestHandlePauseOperation_NotSupported(t *testing.T) {
 		require.NoError(tb, err)
 		errObj, ok := errResponse["error"].(map[string]any)
 	require.True(tb, ok, "expected error to be an object")
-	assert.Contains(tb, errObj["details"], "pause is not supported")
+	assert.Equal(tb, "ManagementOperationFailed", errObj["reason"])
 
 	}, getUserAPITestOptions())
 }
@@ -452,7 +452,7 @@ func TestHandleResumeOperation_NotSupported(t *testing.T) {
 		require.NoError(tb, err)
 		errObj, ok := errResponse["error"].(map[string]any)
 	require.True(tb, ok, "expected error to be an object")
-	assert.Contains(tb, errObj["details"], "resume is not supported")
+	assert.Equal(tb, "ManagementOperationFailed", errObj["reason"])
 
 	}, getUserAPITestOptions())
 }
@@ -582,7 +582,7 @@ func TestHandleCustomerPortal_NoSubscription(t *testing.T) {
 		require.NoError(tb, err)
 		errObj, ok := errResponse["error"].(map[string]any)
 	require.True(tb, ok, "expected error to be an object")
-	assert.Contains(tb, errObj["details"], "no subscription found")
+	assert.Equal(tb, "NoActiveSubscription", errObj["reason"])
 
 	}, getUserAPITestOptions())
 }
@@ -623,7 +623,7 @@ func TestHandleCustomerPortal_GetManagementURLError(t *testing.T) {
 		require.NoError(tb, err)
 		errObj, ok := errResponse["error"].(map[string]any)
 	require.True(tb, ok, "expected error to be an object")
-	assert.Contains(tb, errObj["details"], "failed to get customer portal URL")
+	assert.Equal(tb, "ManagementOperationFailed", errObj["reason"])
 
 	}, getUserAPITestOptions())
 }
@@ -1785,7 +1785,7 @@ func TestHandleGetCheckoutUI_InvalidPlanID(t *testing.T) {
 		require.NoError(tb, err)
 		errObj, ok := errResponse["error"].(map[string]any)
 	require.True(tb, ok, "expected error to be an object")
-	assert.Contains(tb, errObj["details"], "invalid plan ID")
+	assert.Equal(tb, "InvalidPlanId", errObj["reason"])
 	}, getUserAPITestOptions())
 }
 
@@ -1851,7 +1851,7 @@ func TestHandleGetCheckoutUI_GatewayNotFound(t *testing.T) {
 		// Error message should indicate gateway failure
 		errObj, ok := errResponse["error"].(map[string]any)
 	require.True(tb, ok, "expected error to be an object")
-	assert.Contains(tb, errObj["details"], "gateway")
+	assert.Equal(tb, "CheckoutUiGenerationFailed", errObj["reason"])
 	}, getUserAPITestOptions())
 }
 
@@ -2274,7 +2274,7 @@ func TestHandleCancelOperation_NotSupported(t *testing.T) {
 		require.NoError(tb, err)
 		errObj, ok := errResponse["error"].(map[string]any)
 	require.True(tb, ok, "expected error to be an object")
-	assert.Contains(tb, errObj["details"], "cancellation is not supported")
+	assert.Equal(tb, "ManagementOperationFailed", errObj["reason"])
 
 	}, getUserAPITestOptions())
 }
@@ -2624,7 +2624,7 @@ func TestHandleChangePlanOperation_NotSupported(t *testing.T) {
 		require.NoError(tb, err)
 		errObj, ok := errResponse["error"].(map[string]any)
 		require.True(tb, ok, "expected error to be an object")
-		assert.Contains(tb, errObj["details"], "plan change is not supported")
+		assert.Equal(tb, "ManagementOperationFailed", errObj["reason"])
 
 	}, getUserAPITestOptions())
 }
