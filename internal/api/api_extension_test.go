@@ -296,12 +296,7 @@ func TestHandlePauseOperation_NotSupported(t *testing.T) {
 		// Verify - should return 400 Bad Request
 		assert.Equal(tb, http.StatusBadRequest, w.Code)
 
-		var errResponse map[string]any
-		err = json.Unmarshal(w.Body.Bytes(), &errResponse)
-		require.NoError(tb, err)
-		errObj, ok := errResponse["error"].(map[string]any)
-	require.True(tb, ok, "expected error to be an object")
-	assert.Equal(tb, "ManagementOperationFailed", errObj["reason"])
+		requireErrorResponse(tb, w, "ManagementOperationFailed")
 
 	}, getUserAPITestOptions())
 }
@@ -447,12 +442,7 @@ func TestHandleResumeOperation_NotSupported(t *testing.T) {
 		// Verify - should return 400 Bad Request
 		assert.Equal(tb, http.StatusBadRequest, w.Code)
 
-		var errResponse map[string]any
-		err = json.Unmarshal(w.Body.Bytes(), &errResponse)
-		require.NoError(tb, err)
-		errObj, ok := errResponse["error"].(map[string]any)
-	require.True(tb, ok, "expected error to be an object")
-	assert.Equal(tb, "ManagementOperationFailed", errObj["reason"])
+		requireErrorResponse(tb, w, "ManagementOperationFailed")
 
 	}, getUserAPITestOptions())
 }
@@ -577,12 +567,7 @@ func TestHandleCustomerPortal_NoSubscription(t *testing.T) {
 		// Verify - should return 404 Not Found
 		assert.Equal(tb, http.StatusNotFound, w.Code)
 
-		var errResponse map[string]any
-		err = json.Unmarshal(w.Body.Bytes(), &errResponse)
-		require.NoError(tb, err)
-		errObj, ok := errResponse["error"].(map[string]any)
-	require.True(tb, ok, "expected error to be an object")
-	assert.Equal(tb, "NoActiveSubscription", errObj["reason"])
+		requireErrorResponse(tb, w, "NoActiveSubscription")
 
 	}, getUserAPITestOptions())
 }
@@ -618,12 +603,7 @@ func TestHandleCustomerPortal_GetManagementURLError(t *testing.T) {
 		// Verify - should return 500 Internal Server Error
 		assert.Equal(tb, http.StatusInternalServerError, w.Code)
 
-		var errResponse map[string]any
-		err = json.Unmarshal(w.Body.Bytes(), &errResponse)
-		require.NoError(tb, err)
-		errObj, ok := errResponse["error"].(map[string]any)
-	require.True(tb, ok, "expected error to be an object")
-	assert.Equal(tb, "ManagementOperationFailed", errObj["reason"])
+		requireErrorResponse(tb, w, "ManagementOperationFailed")
 
 	}, getUserAPITestOptions())
 }
@@ -1272,11 +1252,7 @@ func TestHandleGetGateways_RegistryNil(t *testing.T) {
 		// Verify - should return internal server error
 		assert.Equal(tb, http.StatusInternalServerError, w.Code)
 
-		// Parse error response
-		var errorResponse map[string]interface{}
-		err := json.Unmarshal(w.Body.Bytes(), &errorResponse)
-		assert.NoError(tb, err)
-		assert.Contains(tb, errorResponse["error"], "gateway registry not initialized")
+		requireErrorResponse(tb, w, "GatewayRegistryNotInitialized")
 	}, getUserAPITestOptions())
 }
 
@@ -1780,12 +1756,7 @@ func TestHandleGetCheckoutUI_InvalidPlanID(t *testing.T) {
 		// Verify
 		assert.Equal(tb, http.StatusBadRequest, w.Code)
 
-		var errResponse map[string]any
-		err := json.Unmarshal(w.Body.Bytes(), &errResponse)
-		require.NoError(tb, err)
-		errObj, ok := errResponse["error"].(map[string]any)
-	require.True(tb, ok, "expected error to be an object")
-	assert.Equal(tb, "InvalidPlanId", errObj["reason"])
+		requireErrorResponse(tb, w, "InvalidPlanId")
 	}, getUserAPITestOptions())
 }
 
@@ -1845,13 +1816,7 @@ func TestHandleGetCheckoutUI_GatewayNotFound(t *testing.T) {
 		// Verify - GetGateway errors return 500 Internal Server Error
 		assert.Equal(tb, http.StatusInternalServerError, w.Code)
 
-		var errResponse map[string]any
-		err := json.Unmarshal(w.Body.Bytes(), &errResponse)
-		require.NoError(tb, err)
-		// Error message should indicate gateway failure
-		errObj, ok := errResponse["error"].(map[string]any)
-	require.True(tb, ok, "expected error to be an object")
-	assert.Equal(tb, "CheckoutUiGenerationFailed", errObj["reason"])
+		requireErrorResponse(tb, w, "CheckoutUiGenerationFailed")
 	}, getUserAPITestOptions())
 }
 
@@ -2269,12 +2234,7 @@ func TestHandleCancelOperation_NotSupported(t *testing.T) {
 		// Verify - should return 400 Bad Request
 		assert.Equal(tb, http.StatusBadRequest, w.Code)
 
-		var errResponse map[string]any
-		err = json.Unmarshal(w.Body.Bytes(), &errResponse)
-		require.NoError(tb, err)
-		errObj, ok := errResponse["error"].(map[string]any)
-	require.True(tb, ok, "expected error to be an object")
-	assert.Equal(tb, "ManagementOperationFailed", errObj["reason"])
+		requireErrorResponse(tb, w, "ManagementOperationFailed")
 
 	}, getUserAPITestOptions())
 }
@@ -2619,12 +2579,7 @@ func TestHandleChangePlanOperation_NotSupported(t *testing.T) {
 		// Verify - should return 400 Bad Request
 		assert.Equal(tb, http.StatusBadRequest, w.Code)
 
-		var errResponse map[string]any
-		err = json.Unmarshal(w.Body.Bytes(), &errResponse)
-		require.NoError(tb, err)
-		errObj, ok := errResponse["error"].(map[string]any)
-		require.True(tb, ok, "expected error to be an object")
-		assert.Equal(tb, "ManagementOperationFailed", errObj["reason"])
+		requireErrorResponse(tb, w, "ManagementOperationFailed")
 
 	}, getUserAPITestOptions())
 }
