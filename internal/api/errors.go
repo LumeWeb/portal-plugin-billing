@@ -1,11 +1,8 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
-	"strings"
 
-	router "go.lumeweb.com/portal-router"
 	core "go.lumeweb.com/portal/core"
 )
 
@@ -44,11 +41,11 @@ const (
 	ErrKeyGatewayTypeRequired      core.ErrorType = "GATEWAY_TYPE_REQUIRED"
 
 	// Pricing plan errors
-	ErrKeyPricingPlanNotFound     core.ErrorType = "PRICING_PLAN_NOT_FOUND"
-	ErrKeyPricingPlanCreateFailed core.ErrorType = "PRICING_PLAN_CREATE_FAILED"
-	ErrKeyPricingPlanUpdateFailed core.ErrorType = "PRICING_PLAN_UPDATE_FAILED"
-	ErrKeyPricingPlanDeleteFailed core.ErrorType = "PRICING_PLAN_DELETE_FAILED"
-	ErrKeyPricingPlanFetchFailed   core.ErrorType = "PRICING_PLAN_FETCH_FAILED"
+	ErrKeyPricingPlanNotFound       core.ErrorType = "PRICING_PLAN_NOT_FOUND"
+	ErrKeyPricingPlanCreateFailed   core.ErrorType = "PRICING_PLAN_CREATE_FAILED"
+	ErrKeyPricingPlanUpdateFailed   core.ErrorType = "PRICING_PLAN_UPDATE_FAILED"
+	ErrKeyPricingPlanDeleteFailed   core.ErrorType = "PRICING_PLAN_DELETE_FAILED"
+	ErrKeyPricingPlanFetchFailed    core.ErrorType = "PRICING_PLAN_FETCH_FAILED"
 	ErrKeyPricingPlansSyncAllFailed core.ErrorType = "PRICING_PLANS_SYNC_ALL_FAILED"
 
 	// Price line errors
@@ -63,16 +60,16 @@ const (
 	ErrKeyPriceLinePlanListFailed   core.ErrorType = "PRICE_LINE_PLAN_LIST_FAILED"
 
 	// Gateway errors
-	ErrKeyGatewayNotFound           core.ErrorType = "GATEWAY_NOT_FOUND"
-	ErrKeyGatewayLogoNotFound       core.ErrorType = "GATEWAY_LOGO_NOT_FOUND"
-	ErrKeyGatewayNotSupported       core.ErrorType = "GATEWAY_NOT_SUPPORTED"
+	ErrKeyGatewayNotFound     core.ErrorType = "GATEWAY_NOT_FOUND"
+	ErrKeyGatewayLogoNotFound core.ErrorType = "GATEWAY_LOGO_NOT_FOUND"
+	ErrKeyGatewayNotSupported core.ErrorType = "GATEWAY_NOT_SUPPORTED"
 
 	// Checkout errors
-	ErrKeyCheckoutSubscriptionActive    core.ErrorType = "CHECKOUT_SUBSCRIPTION_ACTIVE"
-	ErrKeyCheckoutUIGenerationFailed   core.ErrorType = "CHECKOUT_UI_GENERATION_FAILED"
+	ErrKeyCheckoutSubscriptionActive core.ErrorType = "CHECKOUT_SUBSCRIPTION_ACTIVE"
+	ErrKeyCheckoutUIGenerationFailed core.ErrorType = "CHECKOUT_UI_GENERATION_FAILED"
 
 	// Management errors
-	ErrKeyManagementCapabilitiesFailed  core.ErrorType = "MANAGEMENT_CAPABILITIES_FAILED"
+	ErrKeyManagementCapabilitiesFailed core.ErrorType = "MANAGEMENT_CAPABILITIES_FAILED"
 	ErrKeyManagementOperationFailed    core.ErrorType = "MANAGEMENT_OPERATION_FAILED"
 
 	// Credit errors
@@ -81,74 +78,17 @@ const (
 	ErrKeyPricingPeriodUpdateFailed core.ErrorType = "PRICING_PERIOD_UPDATE_FAILED"
 	ErrKeyPricingPeriodDeleteFailed core.ErrorType = "PRICING_PERIOD_DELETE_FAILED"
 
-	ErrKeyCreditCreateFailed   core.ErrorType = "CREDIT_CREATE_FAILED"
-	ErrKeyCreditNotFound       core.ErrorType = "CREDIT_NOT_FOUND"
-	ErrKeyCreditDeleteFailed   core.ErrorType = "CREDIT_DELETE_FAILED"
-	ErrKeyCreditRestoreFailed  core.ErrorType = "CREDIT_RESTORE_FAILED"
-	ErrKeyInvalidCreditType    core.ErrorType = "INVALID_CREDIT_TYPE"
-	ErrKeyInvalidCreditAmount  core.ErrorType = "INVALID_CREDIT_AMOUNT"
+	ErrKeyCreditCreateFailed     core.ErrorType = "CREDIT_CREATE_FAILED"
+	ErrKeyCreditNotFound         core.ErrorType = "CREDIT_NOT_FOUND"
+	ErrKeyCreditDeleteFailed     core.ErrorType = "CREDIT_DELETE_FAILED"
+	ErrKeyCreditRestoreFailed    core.ErrorType = "CREDIT_RESTORE_FAILED"
+	ErrKeyInvalidCreditType      core.ErrorType = "INVALID_CREDIT_TYPE"
+	ErrKeyInvalidCreditAmount    core.ErrorType = "INVALID_CREDIT_AMOUNT"
 	ErrKeyInvalidCreditDirection core.ErrorType = "INVALID_CREDIT_DIRECTION"
 )
 
-var _ router.ResponseError = (*BillingError)(nil)
-
-// ErrorDetails represents the structured error response format
-type ErrorDetails struct {
-	Reason  string `json:"reason"`
-	Details string `json:"details,omitempty"`
-}
-
-// ErrorWrapper wraps ErrorDetails for custom JSON marshaling
-type ErrorWrapper struct {
-	Error ErrorDetails `json:"error"`
-}
-
-// BillingError represents a Billing-specific error that can be marshaled to JSON
-type BillingError struct {
-	coreErr *core.Error
-}
-
-// MarshalJSON implements json.Marshaler interface
-func (e *BillingError) MarshalJSON() ([]byte, error) {
-	if e == nil || e.coreErr == nil {
-		return json.Marshal(ErrorWrapper{Error: ErrorDetails{Reason: "Unknown"}})
-	}
-	reason := string(e.coreErr.Key)
-
-	// First strip "ErrKey" prefix if present
-	if strings.HasPrefix(reason, "ErrKey") {
-		reason = reason[6:] // Strip "ErrKey" prefix
-	}
-
-	// Then strip "Err" prefix if present
-	if strings.HasPrefix(reason, "Err") {
-		reason = reason[3:] // Strip "Err" prefix
-	}
-
-	details := ErrorDetails{
-		Reason:  reason,
-		Details: e.coreErr.Message,
-	}
-
-	wrapper := ErrorWrapper{Error: details}
-	return json.Marshal(wrapper)
-}
-
-func (e *BillingError) Error() string {
-	return e.coreErr.Error()
-}
-
-func (e *BillingError) HttpStatus() int {
-	return e.coreErr.HttpStatus()
-}
-
-// Unwrap exposes the underlying core.Error for errors.Is/As.
-func (e *BillingError) Unwrap() error {
-	if e == nil {
-		return nil
-	}
-	return e.coreErr
-}
+// NewError creates a billing-specific error using the canonical core.Error type,
+// which handles JSON marshaling via core.Error.MarshalJSON.
 
 func init() {
 	core.MustRegisterNamespace(Namespace)
@@ -169,13 +109,13 @@ func init() {
 		ErrKeyInvalidPriceLineID: {Key: ErrKeyInvalidPriceLineID, Message: "Invalid price line ID format"},
 
 		// Billing/Subscription errors
-		ErrKeySubscriptionCheckFailed:      {Key: ErrKeySubscriptionCheckFailed, Message: "Failed to check subscription status"},
-		ErrKeyNoActiveSubscription:         {Key: ErrKeyNoActiveSubscription, Message: "No active subscription found"},
-		ErrKeyNoPausedSubscription:         {Key: ErrKeyNoPausedSubscription, Message: "No paused subscription found"},
-		ErrKeyNoScheduledCancellation:      {Key: ErrKeyNoScheduledCancellation, Message: "No scheduled cancellation found"},
-		ErrKeyCheckoutSubscriptionActive:   {Key: ErrKeyCheckoutSubscriptionActive, Message: "Checkout subscription already active"},
-		ErrKeyCheckoutUIGenerationFailed:  {Key: ErrKeyCheckoutUIGenerationFailed, Message: "Failed to generate checkout UI"},
-		ErrKeyPaymentGatewayFailed:         {Key: ErrKeyPaymentGatewayFailed, Message: "Failed to get payment gateway"},
+		ErrKeySubscriptionCheckFailed:    {Key: ErrKeySubscriptionCheckFailed, Message: "Failed to check subscription status"},
+		ErrKeyNoActiveSubscription:       {Key: ErrKeyNoActiveSubscription, Message: "No active subscription found"},
+		ErrKeyNoPausedSubscription:       {Key: ErrKeyNoPausedSubscription, Message: "No paused subscription found"},
+		ErrKeyNoScheduledCancellation:    {Key: ErrKeyNoScheduledCancellation, Message: "No scheduled cancellation found"},
+		ErrKeyCheckoutSubscriptionActive: {Key: ErrKeyCheckoutSubscriptionActive, Message: "Checkout subscription already active"},
+		ErrKeyCheckoutUIGenerationFailed: {Key: ErrKeyCheckoutUIGenerationFailed, Message: "Failed to generate checkout UI"},
+		ErrKeyPaymentGatewayFailed:       {Key: ErrKeyPaymentGatewayFailed, Message: "Failed to get payment gateway"},
 
 		// Webhook errors
 		ErrKeyPayloadTooLarge:          {Key: ErrKeyPayloadTooLarge, Message: "Payload too large"},
@@ -186,11 +126,11 @@ func init() {
 		ErrKeyGatewayTypeRequired:      {Key: ErrKeyGatewayTypeRequired, Message: "Gateway type is required"},
 
 		// Pricing plan errors
-		ErrKeyPricingPlanNotFound:     {Key: ErrKeyPricingPlanNotFound, Message: "Pricing plan not found"},
-		ErrKeyPricingPlanCreateFailed: {Key: ErrKeyPricingPlanCreateFailed, Message: "Failed to create pricing plan"},
-		ErrKeyPricingPlanUpdateFailed: {Key: ErrKeyPricingPlanUpdateFailed, Message: "Failed to update pricing plan"},
-		ErrKeyPricingPlanDeleteFailed: {Key: ErrKeyPricingPlanDeleteFailed, Message: "Failed to delete pricing plan"},
-		ErrKeyPricingPlanFetchFailed:   {Key: ErrKeyPricingPlanFetchFailed, Message: "Failed to fetch pricing plan"},
+		ErrKeyPricingPlanNotFound:       {Key: ErrKeyPricingPlanNotFound, Message: "Pricing plan not found"},
+		ErrKeyPricingPlanCreateFailed:   {Key: ErrKeyPricingPlanCreateFailed, Message: "Failed to create pricing plan"},
+		ErrKeyPricingPlanUpdateFailed:   {Key: ErrKeyPricingPlanUpdateFailed, Message: "Failed to update pricing plan"},
+		ErrKeyPricingPlanDeleteFailed:   {Key: ErrKeyPricingPlanDeleteFailed, Message: "Failed to delete pricing plan"},
+		ErrKeyPricingPlanFetchFailed:    {Key: ErrKeyPricingPlanFetchFailed, Message: "Failed to fetch pricing plan"},
 		ErrKeyPricingPlansSyncAllFailed: {Key: ErrKeyPricingPlansSyncAllFailed, Message: "Failed to sync all pricing plans"},
 
 		// Price line errors
@@ -213,12 +153,12 @@ func init() {
 		ErrKeyManagementOperationFailed:    {Key: ErrKeyManagementOperationFailed, Message: "Management operation failed"},
 
 		// Credit errors
-		ErrKeyCreditCreateFailed:   {Key: ErrKeyCreditCreateFailed, Message: "Failed to create credit"},
-		ErrKeyCreditNotFound:       {Key: ErrKeyCreditNotFound, Message: "Credit not found"},
-		ErrKeyCreditDeleteFailed:   {Key: ErrKeyCreditDeleteFailed, Message: "Failed to delete credit"},
-		ErrKeyCreditRestoreFailed:  {Key: ErrKeyCreditRestoreFailed, Message: "Failed to restore credit"},
-		ErrKeyInvalidCreditType:    {Key: ErrKeyInvalidCreditType, Message: "Invalid credit type"},
-		ErrKeyInvalidCreditAmount:  {Key: ErrKeyInvalidCreditAmount, Message: "Invalid credit amount"},
+		ErrKeyCreditCreateFailed:     {Key: ErrKeyCreditCreateFailed, Message: "Failed to create credit"},
+		ErrKeyCreditNotFound:         {Key: ErrKeyCreditNotFound, Message: "Credit not found"},
+		ErrKeyCreditDeleteFailed:     {Key: ErrKeyCreditDeleteFailed, Message: "Failed to delete credit"},
+		ErrKeyCreditRestoreFailed:    {Key: ErrKeyCreditRestoreFailed, Message: "Failed to restore credit"},
+		ErrKeyInvalidCreditType:      {Key: ErrKeyInvalidCreditType, Message: "Invalid credit type"},
+		ErrKeyInvalidCreditAmount:    {Key: ErrKeyInvalidCreditAmount, Message: "Invalid credit amount"},
 		ErrKeyInvalidCreditDirection: {Key: ErrKeyInvalidCreditDirection, Message: "Invalid credit direction"},
 	})
 
@@ -239,13 +179,13 @@ func init() {
 		ErrKeyInvalidPriceLineID: http.StatusBadRequest,
 
 		// Billing/Subscription errors
-		ErrKeySubscriptionCheckFailed:     http.StatusInternalServerError,
-		ErrKeyNoActiveSubscription:        http.StatusNotFound,
-		ErrKeyNoPausedSubscription:        http.StatusNotFound,
-		ErrKeyNoScheduledCancellation:     http.StatusNotFound,
-		ErrKeyCheckoutSubscriptionActive:  http.StatusConflict,
+		ErrKeySubscriptionCheckFailed:    http.StatusInternalServerError,
+		ErrKeyNoActiveSubscription:       http.StatusNotFound,
+		ErrKeyNoPausedSubscription:       http.StatusNotFound,
+		ErrKeyNoScheduledCancellation:    http.StatusNotFound,
+		ErrKeyCheckoutSubscriptionActive: http.StatusConflict,
 		ErrKeyCheckoutUIGenerationFailed: http.StatusInternalServerError,
-		ErrKeyPaymentGatewayFailed:        http.StatusInternalServerError,
+		ErrKeyPaymentGatewayFailed:       http.StatusInternalServerError,
 
 		// Webhook errors
 		ErrKeyPayloadTooLarge:          http.StatusRequestEntityTooLarge,
@@ -256,11 +196,11 @@ func init() {
 		ErrKeyGatewayTypeRequired:      http.StatusBadRequest,
 
 		// Pricing plan errors
-		ErrKeyPricingPlanNotFound:     http.StatusNotFound,
-		ErrKeyPricingPlanCreateFailed: http.StatusInternalServerError,
-		ErrKeyPricingPlanUpdateFailed: http.StatusInternalServerError,
-		ErrKeyPricingPlanDeleteFailed: http.StatusInternalServerError,
-		ErrKeyPricingPlanFetchFailed:   http.StatusInternalServerError,
+		ErrKeyPricingPlanNotFound:       http.StatusNotFound,
+		ErrKeyPricingPlanCreateFailed:   http.StatusInternalServerError,
+		ErrKeyPricingPlanUpdateFailed:   http.StatusInternalServerError,
+		ErrKeyPricingPlanDeleteFailed:   http.StatusInternalServerError,
+		ErrKeyPricingPlanFetchFailed:    http.StatusInternalServerError,
 		ErrKeyPricingPlansSyncAllFailed: http.StatusInternalServerError,
 
 		// Price line errors
@@ -293,6 +233,6 @@ func init() {
 	})
 }
 
-func NewError(key core.ErrorType, err error, args ...any) *BillingError {
-	return &BillingError{core.NewError(Namespace, key, err, args...)}
+func NewError(key core.ErrorType, err error, args ...any) *core.Error {
+	return core.NewError(Namespace, key, err, args...)
 }
