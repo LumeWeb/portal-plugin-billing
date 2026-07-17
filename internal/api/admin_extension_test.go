@@ -3535,12 +3535,7 @@ func TestAdminHandlePauseUserSubscription_NotSupported(t *testing.T) {
 
 		assert.Equal(tb, http.StatusBadRequest, w.Code)
 
-		var errResponse map[string]any
-		err = json.Unmarshal(w.Body.Bytes(), &errResponse)
-		require.NoError(tb, err)
-		errObj, ok := errResponse["error"].(map[string]any)
-	require.True(tb, ok, "expected error to be an object")
-	assert.Equal(tb, "ManagementOperationFailed", errObj["reason"])
+		requireErrorResponse(tb, w, "ManagementOperationFailed")
 	}, getAdminAPITestOptions())
 }
 
@@ -3651,12 +3646,7 @@ func TestAdminHandleResumeUserSubscription_NotSupported(t *testing.T) {
 
 		assert.Equal(tb, http.StatusBadRequest, w.Code)
 
-		var errResponse map[string]any
-		err = json.Unmarshal(w.Body.Bytes(), &errResponse)
-		require.NoError(tb, err)
-		errObj, ok := errResponse["error"].(map[string]any)
-	require.True(tb, ok, "expected error to be an object")
-	assert.Equal(tb, "ManagementOperationFailed", errObj["reason"])
+		requireErrorResponse(tb, w, "ManagementOperationFailed")
 	}, getAdminAPITestOptions())
 }
 
