@@ -17,10 +17,10 @@ require (
 	github.com/tkuchiki/faketime v0.1.1
 	go.lumeweb.com/atlos-sdk v0.1.3
 	go.lumeweb.com/httputil v0.5.5
-	go.lumeweb.com/portal v0.5.2-0.20260717144043-901049bcdd77
+	go.lumeweb.com/portal v0.5.2-0.20260718031258-2bfbfa016507
 	go.lumeweb.com/portal-middleware v0.3.7
 	go.lumeweb.com/portal-plugin-quota v0.1.0
-	go.lumeweb.com/portal-router v0.7.5
+	go.lumeweb.com/portal-router v0.7.6
 	go.lumeweb.com/queryutil v0.3.17
 	go.lumeweb.com/web/go/portal-plugin-billing v0.0.0-20260707061228-b351ce1bbdfd
 	go.uber.org/zap v1.28.0
