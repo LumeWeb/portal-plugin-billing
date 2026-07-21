@@ -22,7 +22,7 @@ require (
 	go.lumeweb.com/portal-plugin-quota v0.1.0
 	go.lumeweb.com/portal-router v0.7.6
 	go.lumeweb.com/queryutil v0.3.17
-	go.lumeweb.com/web/go/portal-plugin-billing v0.0.0-20260718153852-cbf5af8ed65f
+	go.lumeweb.com/web/go/portal-plugin-billing v0.0.0-20260721094348-433d16f1e823
 	go.uber.org/zap v1.28.0
 	golang.org/x/crypto v0.54.0
 	gorm.io/datatypes v1.2.7
