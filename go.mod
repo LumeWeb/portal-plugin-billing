@@ -6,7 +6,7 @@ require (
 	github.com/Oudwins/zog v0.22.2
 	github.com/apt304/sse-go v0.0.3
 	github.com/avast/retry-go v3.0.0+incompatible
-	github.com/gabriel-vasile/mimetype v1.4.13
+	github.com/gabriel-vasile/mimetype v1.4.15
 	github.com/google/uuid v1.6.0
 	github.com/labstack/echo/v4 v4.15.4
 	github.com/prometheus/client_golang v1.23.2
