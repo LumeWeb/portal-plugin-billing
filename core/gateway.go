@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/shopspring/decimal"
 )
 
 // PricingVariant represents a single pricing variant with billing period and pricing details.
@@ -445,6 +446,42 @@ func AsSessionStatusProvider(gateway GatewayIdentity) (SessionStatusProvider, er
 		return nil, ErrGatewayNotSupported
 	}
 	return provider, nil
+}
+
+// PaymentProcessor is optional for gateways that support x402-style
+// synchronous payment verification (signature check + settlement confirmation)
+type PaymentProcessor interface {
+	// VerifyPaymentSignature checks if the signed x402 payload is valid.
+	// Does NOT confirm settlement — just cryptographic validity.
+	VerifyPaymentSignature(ctx context.Context, nonce string, payer string, signature string, amount decimal.Decimal) error
+
+	// ConfirmPayment checks if the payment has settled.
+	// For ATLOS: check webhook cache or poll ATLOS API for this nonce.
+	// Returns the settled amount if confirmed, or ErrPaymentPending.
+	ConfirmPayment(ctx context.Context, nonce string, expectedAmount decimal.Decimal) (*PaymentConfirmation, error)
+}
+
+// PaymentConfirmation contains the result of a confirmed payment
+type PaymentConfirmation struct {
+	Amount    decimal.Decimal
+	Currency  string
+	Reference string // tx hash, session id, etc.
+}
+
+// IsPaymentProcessor checks if the gateway implements PaymentProcessor.
+func IsPaymentProcessor(gateway GatewayIdentity) bool {
+	_, ok := gateway.(PaymentProcessor)
+	return ok
+}
+
+// AsPaymentProcessor attempts to cast the gateway to PaymentProcessor.
+// Returns nil and an error if the gateway does not implement PaymentProcessor.
+func AsPaymentProcessor(gateway GatewayIdentity) (PaymentProcessor, error) {
+	processor, ok := gateway.(PaymentProcessor)
+	if !ok {
+		return nil, ErrGatewayNotSupported
+	}
+	return processor, nil
 }
 
 
