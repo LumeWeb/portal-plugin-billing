@@ -104,6 +104,7 @@ const (
 	// Gateway-specific event sources
 	ReferenceTypeStripeInvoice = "stripe.invoice"
 	ReferenceTypeAtlosPayment  = "atlos.payment"
+	ReferenceTypeX402Payment   = "x402.payment" // x402 wire protocol payment via ATLOS
 
 	// System-generated reference types
 	ReferenceTypeManual = "manual" // For admin-created manual adjustments

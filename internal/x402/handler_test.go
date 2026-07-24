@@ -278,7 +278,7 @@ func TestHandleCheckout_WithPaymentSignature_ExistingUser_CreditsIssued(t *testi
 	billingSvc.On("GetGateway", mock.Anything, "atlos").Return(gateway, nil)
 
 	creditSvc.On("IssueCreditFromGateway", mock.Anything, uint64(42), pluginCore.TransactionTypeCharge,
-		decimal.NewFromFloat(5.00), pluginCore.ReferenceTypeAtlosPayment, "tx-123", mock.Anything, uint64(42)).Return(nil)
+		decimal.NewFromFloat(5.00), pluginCore.ReferenceTypeX402Payment, "tx-123", mock.Anything, uint64(42)).Return(nil)
 	creditSvc.On("GetUserBalance", mock.Anything, uint64(42)).Return(decimal.NewFromFloat(10.00), nil)
 
 	e := echo.New()
@@ -320,7 +320,7 @@ func TestHandleCheckout_WithPaymentSignature_NewUser_AnonAccountCreated(t *testi
 	billingSvc.On("GetGateway", mock.Anything, "atlos").Return(gateway, nil)
 
 	creditSvc.On("IssueCreditFromGateway", mock.Anything, uint64(99), pluginCore.TransactionTypeCharge,
-		decimal.NewFromFloat(5.00), pluginCore.ReferenceTypeAtlosPayment, "tx-456", mock.Anything, uint64(99)).Return(nil)
+		decimal.NewFromFloat(5.00), pluginCore.ReferenceTypeX402Payment, "tx-456", mock.Anything, uint64(99)).Return(nil)
 	creditSvc.On("GetUserBalance", mock.Anything, uint64(99)).Return(decimal.NewFromFloat(5.00), nil)
 
 	e := echo.New()

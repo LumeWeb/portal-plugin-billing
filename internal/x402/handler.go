@@ -135,7 +135,7 @@ func (h *Handler) HandleCheckout(c echo.Context) error {
 		uint64(userID),
 		pluginCore.TransactionTypeCharge,
 		confirmation.Amount,
-		pluginCore.ReferenceTypeAtlosPayment,
+		pluginCore.ReferenceTypeX402Payment,
 		confirmation.Reference,
 		fmt.Sprintf("x402 payment via %s", gatewayType),
 		uint64(userID),
