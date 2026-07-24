@@ -33,6 +33,7 @@ type PricingPlanInfo struct {
 var (
 	ErrGatewayNotFound     = errors.New("gateway not found")
 	ErrGatewayNotSupported = errors.New("gateway does not support this interface")
+	ErrPaymentPending      = errors.New("payment pending")
 )
 
 // RemotePriceMapping represents a mapping between a pricing plan period and a gateway price ID.
