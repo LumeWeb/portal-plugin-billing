@@ -79,10 +79,14 @@ func NewAPIExtension() core.APIExtensionFactory {
 				return fmt.Errorf("credit service not available")
 			}
 
-			// Initialize x402 handler
+			// Initialize x402 handler with JWT token generator via AuthService
 			nonceStore := x402.NewDBNonceStore(ctx.DB())
 			userSvc := core.GetService[core.UserService](ctx, core.USER_SERVICE)
-			ext.x402Handler = x402.NewHandler(ext.billingService, ext.creditService, nonceStore, userSvc)
+			authSvc := core.GetService[core.AuthService](ctx, core.AUTH_SERVICE)
+			tokenGen := func(userID uint) (string, error) {
+				return authSvc.LoginID(ctx, userID, "", false)
+			}
+			ext.x402Handler = x402.NewHandler(ext.billingService, ext.creditService, nonceStore, userSvc, tokenGen)
 
 			// Initialize SSE server with apt304/sse-go
 			subscriber := sseServer.NewDropOldestSubscriber(sseServer.Options{
@@ -469,33 +473,6 @@ func (e *APIExtension) Configure(gRouter router.Router, accessSvc core.AccessSer
 			router.WithMiddlewares(authMw, accessMw),
 			router.WithCors(),
 		),
-		// x402 crypto checkout endpoint
-		router.NewRoute(http.MethodPost, "/api/account/billing/x402/checkout", e.handleX402Checkout,
-			router.WithSwagger(
-				router.WithSummary("x402 crypto checkout"),
-				router.WithDescription(
-					"Initiates or completes an x402 crypto payment. First call returns 402 Payment Required with an EIP-712 challenge. "+
-						"Client pays via ATLOS and then calls again with X-Payment-Response header containing the signed payload.",
-				),
-				router.WithTags("Billing"),
-				router.WithQueryParam("wallet", "Wallet address for payment", "0xAbC..."),
-				router.WithQueryParam("amount", "USD amount to purchase", "5.00"),
-				router.WithSuccessResponse(http.StatusOK, "Credit purchased",
-					router.WithJSONContent(map[string]interface{}{})),
-				router.WithSuccessResponse(http.StatusPaymentRequired, "Payment required",
-					router.WithHeader("Payment-Required", "x402 challenge")),
-				router.WithErrorResponses(
-					router.DefineSwaggerErrorResponses(
-						router.DefineSwaggerErrorResponse(http.StatusBadRequest, "Invalid request"),
-						router.DefineSwaggerErrorResponse(http.StatusUnauthorized, "Invalid signature or nonce"),
-						router.DefineSwaggerErrorResponse(http.StatusInternalServerError, "Failed to process payment"),
-					),
-				),
-			),
-			router.WithAccess(core.ACCESS_USER_ROLE),
-			router.WithMiddlewares(authMw, accessMw),
-			router.WithCors(),
-		),
 	)
 
 	// Register dashboard routes
@@ -549,6 +526,31 @@ func (e *APIExtension) Configure(gRouter router.Router, accessSvc core.AccessSer
 				),
 			),
 			router.WithMiddlewares(pricingAuthMw),
+			router.WithCors(),
+		),
+		// Public x402 credits purchase endpoint
+		router.NewRoute(http.MethodPost, "/api/billing/credits/purchase", e.handleX402Checkout,
+			router.WithSwagger(
+				router.WithSummary("Purchase credits via x402"),
+				router.WithDescription(
+					"Initiates or completes an x402 crypto payment for credits. First call returns 402 Payment Required with a challenge. "+
+						"Client pays via ATLOS and then calls again with PAYMENT-SIGNATURE header containing the payload.",
+				),
+				router.WithTags("Billing"),
+				router.WithQueryParam("wallet", "Wallet address for payment", "0xAbC..."),
+				router.WithQueryParam("amount", "USD amount to purchase", "5.00"),
+				router.WithSuccessResponse(http.StatusOK, "Credit purchased",
+					router.WithJSONContent(map[string]interface{}{})),
+				router.WithSuccessResponse(http.StatusPaymentRequired, "Payment required",
+					router.WithHeader("Payment-Required", "x402 challenge")),
+				router.WithErrorResponses(
+					router.DefineSwaggerErrorResponses(
+						router.DefineSwaggerErrorResponse(http.StatusBadRequest, "Invalid request"),
+						router.DefineSwaggerErrorResponse(http.StatusUnauthorized, "Invalid nonce or payment not confirmed"),
+						router.DefineSwaggerErrorResponse(http.StatusInternalServerError, "Failed to process payment"),
+					),
+				),
+			),
 			router.WithCors(),
 		),
 	)
@@ -1542,8 +1544,8 @@ func (e *APIExtension) handleGetCheckoutSessionStatus(c echo.Context) error {
 }
 
 // handleX402Checkout processes x402 crypto payments.
-// First call (no X-Payment-Response) returns 402 with challenge.
-// Second call (with X-Payment-Response) verifies signature and issues credits.
+// First call (no PAYMENT-SIGNATURE) returns 402 with challenge.
+// Second call (with PAYMENT-SIGNATURE) confirms payment and issues credits.
 func (e *APIExtension) handleX402Checkout(c echo.Context) error {
 	return e.x402Handler.HandleCheckout(c)
 }

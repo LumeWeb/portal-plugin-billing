@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -23,15 +24,20 @@ type Handler struct {
 	creditService  pluginCore.CreditService
 	nonceStore     NonceStore
 	userService    core.UserService
+	tokenGen       TokenGenerator
 }
 
+// TokenGenerator creates a JWT for a given user ID.
+type TokenGenerator func(userID uint) (string, error)
+
 // NewHandler creates a new x402 handler.
-func NewHandler(billing pluginCore.BillingService, credit pluginCore.CreditService, store NonceStore, users core.UserService) *Handler {
+func NewHandler(billing pluginCore.BillingService, credit pluginCore.CreditService, store NonceStore, users core.UserService, tokenGen TokenGenerator) *Handler {
 	return &Handler{
 		billingService: billing,
 		creditService:  credit,
 		nonceStore:     store,
 		userService:    users,
+		tokenGen:       tokenGen,
 	}
 }
 
@@ -45,15 +51,15 @@ type Challenge struct {
 
 // ChallengeAccepts defines what payment schemes the server accepts.
 type ChallengeAccepts struct {
-	Scheme          string `json:"scheme"`
-	Network         string `json:"network"`
-	Asset           string `json:"asset"`
-	Amount          string `json:"amount"`
-	PayTo           string `json:"payTo"`
-	MaxTimeoutSec   int    `json:"maxTimeoutSeconds"`
+	Scheme        string `json:"scheme"`
+	Network       string `json:"network"`
+	Asset         string `json:"asset"`
+	Amount        string `json:"amount"`
+	PayTo         string `json:"payTo"`
+	MaxTimeoutSec int    `json:"maxTimeoutSeconds"`
 }
 
-// HandleCheckout handles POST /api/account/billing/checkout with x402.
+// HandleCheckout handles POST /api/credits/purchase with x402.
 func (h *Handler) HandleCheckout(c echo.Context) error {
 	ctx := c.Request().Context()
 	wallet := c.QueryParam("wallet")
@@ -70,7 +76,7 @@ func (h *Handler) HandleCheckout(c echo.Context) error {
 	}
 
 	// No payment proof → return challenge
-	sig := c.Request().Header.Get("X-Payment-Response")
+	sig := c.Request().Header.Get("PAYMENT-SIGNATURE")
 	if sig == "" {
 		return h.returnChallenge(c, ctx, wallet, amount)
 	}
@@ -140,14 +146,24 @@ func (h *Handler) HandleCheckout(c echo.Context) error {
 	// Clean up nonce
 	h.nonceStore.Delete(ctx, nonce)
 
-	// Return updated balance
+	// Return updated balance + JWT
 	balance, _ := h.creditService.GetUserBalance(ctx, uint64(userID))
 
-	return c.JSON(http.StatusOK, map[string]interface{}{
+	response := map[string]interface{}{
 		"credit_balance": balance,
 		"amount_paid":    confirmation.Amount.String(),
 		"currency":       confirmation.Currency,
-	})
+	}
+
+	// Generate JWT if token generator is available
+	if h.tokenGen != nil {
+		token, err := h.tokenGen(userID)
+		if err == nil {
+			response["token"] = token
+		}
+	}
+
+	return c.JSON(http.StatusOK, response)
 }
 
 func (h *Handler) returnChallenge(c echo.Context, ctx context.Context, wallet string, amount decimal.Decimal) error {
@@ -156,10 +172,10 @@ func (h *Handler) returnChallenge(c echo.Context, ctx context.Context, wallet st
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to generate nonce"})
 	}
 
-	// Find or create user by wallet
-	user, err := h.userHelper(ctx, wallet)
+	// Find or create user by wallet (creates anonymous account if needed)
+	user, err := h.findOrCreateUserByWallet(ctx, wallet)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "user lookup failed"})
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "user setup failed: " + err.Error()})
 	}
 
 	if err := h.nonceStore.Set(ctx, nonce, user.ID, amount, DefaultGatewayType, 5*time.Minute); err != nil {
@@ -193,10 +209,10 @@ func (h *Handler) returnChallenge(c echo.Context, ctx context.Context, wallet st
 		Nonce:       nonce,
 		ExpiresAt:   time.Now().Add(5 * time.Minute),
 		Accepts: []ChallengeAccepts{{
-			Scheme:        "exact", // direct transfer, no signed authorization
-			Network:       "eip155:8453", // Base mainnet
+			Scheme:        "exact",                                       // direct transfer, no signed authorization
+			Network:       "eip155:8453",                                 // Base mainnet
 			Asset:         "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", // USDC
-			Amount:        amount.Mul(decimal.NewFromInt(1e6)).String(), // 6 decimals
+			Amount:        amount.Mul(decimal.NewFromInt(1e6)).String(),  // 6 decimals
 			PayTo:         paymentAddr.WalletAddress,
 			MaxTimeoutSec: 300,
 		}},
@@ -211,22 +227,56 @@ func (h *Handler) returnChallenge(c echo.Context, ctx context.Context, wallet st
 	return c.NoContent(http.StatusPaymentRequired)
 }
 
-// userHelper finds or creates a user by wallet address.
-func (h *Handler) userHelper(ctx context.Context, wallet string) (*models.User, error) {
+// findOrCreateUserByWallet finds an existing user by wallet pubkey, or creates
+// findOrCreateUserByWallet finds an existing user by wallet pubkey, or creates
+// an anonymous account with the wallet associated.
+func (h *Handler) findOrCreateUserByWallet(ctx context.Context, wallet string) (*models.User, error) {
 	exists, pubkey, err := h.userService.PubkeyExists(ctx, wallet)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("pubkey lookup failed: %w", err)
 	}
 	if exists {
 		return &pubkey.User, nil
 	}
-	return nil, fmt.Errorf("user not found for wallet %s", wallet)
+
+	// Create anonymous account with deterministic email derived from wallet
+	email := fmt.Sprintf("anon_%s@local.invalid", strings.ToLower(wallet))
+	password := core.GenerateSecurityToken() + core.GenerateSecurityToken() // 12 random chars
+
+	user, err := h.userService.CreateAccount(ctx, email, password, false) // verifyEmail=false
+	if err != nil {
+		// If email already exists (race condition), look up the existing user
+		if acctErr := core.AsAccountError(err); acctErr != nil && acctErr.IsErrorType(core.ErrKeyEmailAlreadyExists) {
+			_, existingUser, lookupErr := h.userService.EmailExists(ctx, email)
+			if lookupErr != nil {
+				return nil, fmt.Errorf("email lookup failed: %w", lookupErr)
+			}
+			if existingUser == nil {
+				return nil, fmt.Errorf("email exists but user not found")
+			}
+			return existingUser, nil
+		}
+		return nil, fmt.Errorf("create account failed: %w", err)
+	}
+
+	// Mark as verified (skip email verification)
+	if err := h.userService.UpdateAccountInfo(ctx, user.ID, map[string]interface{}{"verified": true}); err != nil {
+		return nil, fmt.Errorf("verify account failed: %w", err)
+	}
+	user.Verified = true
+
+	// Associate wallet pubkey
+	if err := h.userService.AddPubkeyToAccount(ctx, *user, wallet); err != nil {
+		return nil, fmt.Errorf("add pubkey failed: %w", err)
+	}
+
+	return user, nil
 }
 
-// parsePayload decodes the x402 v2 payment payload from the X-Payment-Response header.
+// parsePayload decodes the x402 v2 payment payload from the PAYMENT-SIGNATURE header.
 func (h *Handler) parsePayload(header string) (*pluginCore.X402PaymentPayload, error) {
 	if header == "" {
-		return nil, errors.New("missing payment response")
+		return nil, errors.New("missing payment signature")
 	}
 
 	decoded, err := base64.StdEncoding.DecodeString(header)
@@ -236,7 +286,7 @@ func (h *Handler) parsePayload(header string) (*pluginCore.X402PaymentPayload, e
 
 	var payload pluginCore.X402PaymentPayload
 	if err := json.Unmarshal(decoded, &payload); err != nil {
-		return nil, fmt.Errorf("invalid payment response format: %w", err)
+		return nil, fmt.Errorf("invalid payment signature format: %w", err)
 	}
 
 	return &payload, nil
