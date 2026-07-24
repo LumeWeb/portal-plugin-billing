@@ -228,7 +228,6 @@ func (h *Handler) returnChallenge(c echo.Context, ctx context.Context, wallet st
 }
 
 // findOrCreateUserByWallet finds an existing user by wallet pubkey, or creates
-// findOrCreateUserByWallet finds an existing user by wallet pubkey, or creates
 // an anonymous account with the wallet associated.
 func (h *Handler) findOrCreateUserByWallet(ctx context.Context, wallet string) (*models.User, error) {
 	exists, pubkey, err := h.userService.PubkeyExists(ctx, wallet)
