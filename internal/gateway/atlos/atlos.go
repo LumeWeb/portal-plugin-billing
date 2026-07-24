@@ -1394,6 +1394,12 @@ func (g *AtlosGateway) HandleWebhook(ctx context.Context, payload []byte) error 
 		return fmt.Errorf("postback notification validation failed: %w", err)
 	}
 
+	// Check if this is an x402 payment (OrderId is a UUID nonce, not an HMAC-signed order)
+	// x402 payments bypass subscription flow and go directly to credit issuance
+	if g.isX402Nonce(notification.OrderId) {
+		return g.handleX402Webhook(ctx, notification)
+	}
+
 	// Parse and verify order ID HMAC to prevent tampering
 	parsed, err := g.ParseOrderID(notification.OrderId)
 	if err != nil {

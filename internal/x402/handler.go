@@ -69,41 +69,41 @@ func (h *Handler) HandleCheckout(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid amount"})
 	}
 
-	// No signature → return challenge (no gateway lookup needed yet)
-	sig := c.Request().Header.Get("PAYMENT-SIGNATURE")
+	// No payment proof → return challenge
+	sig := c.Request().Header.Get("X-Payment-Response")
 	if sig == "" {
 		return h.returnChallenge(c, ctx, wallet, amount)
 	}
 
-	// Get ATLOS gateway from registry (hardcoded)
+	// Get ATLOS gateway from registry
 	gatewayIdentity, err := h.billingService.GetGateway(ctx, gatewayType)
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "gateway not found"})
 	}
 
-	// Check if gateway supports PaymentProcessor
 	processor, ok := gatewayIdentity.(pluginCore.PaymentProcessor)
 	if !ok {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "gateway does not support x402"})
 	}
 
-	// Parse payment payload from signature header
-	nonce, payer, signature, payloadAmount, err := h.parsePayload(sig)
+	// Parse payment proof from x402 payload
+	x402Payload, err := h.parsePayload(sig)
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid payment payload"})
 	}
 
-	// Verify recovered address matches wallet
-	if payer != wallet {
-		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "wallet mismatch"})
+	// Get nonce from payload — used to correlate with stored session
+	nonce := h.extractNonce(x402Payload)
+	if nonce == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "missing nonce in payload"})
 	}
 
-	// Check nonce exists
-	userID, expectedAmount, _, ok, err := h.nonceStore.Get(ctx, nonce)
+	// Look up session
+	userID, expectedAmount, _, found, err := h.nonceStore.Get(ctx, nonce)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "nonce lookup failed"})
 	}
-	if !ok {
+	if !found {
 		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid or expired nonce"})
 	}
 
@@ -111,17 +111,12 @@ func (h *Handler) HandleCheckout(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "amount mismatch"})
 	}
 
-	// Verify signature cryptographically
-	if err := processor.VerifyPaymentSignature(ctx, nonce, payer, signature, payloadAmount); err != nil {
-		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid signature"})
-	}
-
-	// Confirm payment settled
+	// Confirm payment settled with ATLOS
 	confirmation, err := processor.ConfirmPayment(ctx, nonce, amount)
 	if errors.Is(err, pluginCore.ErrPaymentPending) {
 		return c.JSON(http.StatusAccepted, map[string]string{
 			"status":  "pending",
-			"message": "payment not yet confirmed, retry with same signature",
+			"message": "payment not yet confirmed, retry with same proof",
 		})
 	}
 	if err != nil {
@@ -145,13 +140,13 @@ func (h *Handler) HandleCheckout(c echo.Context) error {
 	// Clean up nonce
 	h.nonceStore.Delete(ctx, nonce)
 
-	// Return balance + token
+	// Return updated balance
 	balance, _ := h.creditService.GetUserBalance(ctx, uint64(userID))
-	token := generateJWT(userID)
 
 	return c.JSON(http.StatusOK, map[string]interface{}{
 		"credit_balance": balance,
-		"token":          token,
+		"amount_paid":    confirmation.Amount.String(),
+		"currency":       confirmation.Currency,
 	})
 }
 
@@ -170,17 +165,40 @@ func (h *Handler) returnChallenge(c echo.Context, ctx context.Context, wallet st
 	if err := h.nonceStore.Set(ctx, nonce, user.ID, amount, DefaultGatewayType, 5*time.Minute); err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to store nonce"})
 	}
+
+	// Get ATLOS gateway to create a payment address
+	gatewayIdentity, err := h.billingService.GetGateway(ctx, DefaultGatewayType)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "gateway not found"})
+	}
+
+	addrProvider, ok := gatewayIdentity.(pluginCore.PaymentAddressProvider)
+	if !ok {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "gateway does not support payment addresses"})
+	}
+
+	// Create ATLOS payment to get receiving wallet address
+	paymentAddr, err := addrProvider.CreatePaymentAddress(ctx, "USDC", 8453, amount, nonce)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to create payment address: " + err.Error()})
+	}
+
+	// Store gateway payment ID for webhook correlation
+	if err := h.nonceStore.SetGatewayPaymentID(ctx, nonce, paymentAddr.PaymentID); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to store payment ID"})
+	}
+
 	challenge := Challenge{
 		X402Version: 2,
 		Nonce:       nonce,
 		ExpiresAt:   time.Now().Add(5 * time.Minute),
 		Accepts: []ChallengeAccepts{{
-			Scheme:          "evm_exact",
-			Network:         "eip155:8453", // Base mainnet
-			Asset:           "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", // USDC
-			Amount:          amount.Mul(decimal.NewFromInt(1e6)).String(), // 6 decimals
-			PayTo:           "0x", // TODO: set actual ATLOS deposit address
-			MaxTimeoutSec:   300,
+			Scheme:        "exact", // direct transfer, no signed authorization
+			Network:       "eip155:8453", // Base mainnet
+			Asset:         "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", // USDC
+			Amount:        amount.Mul(decimal.NewFromInt(1e6)).String(), // 6 decimals
+			PayTo:         paymentAddr.WalletAddress,
+			MaxTimeoutSec: 300,
 		}},
 	}
 
@@ -195,7 +213,6 @@ func (h *Handler) returnChallenge(c echo.Context, ctx context.Context, wallet st
 
 // userHelper finds or creates a user by wallet address.
 func (h *Handler) userHelper(ctx context.Context, wallet string) (*models.User, error) {
-	// Check if user exists with this pubkey/wallet
 	exists, pubkey, err := h.userService.PubkeyExists(ctx, wallet)
 	if err != nil {
 		return nil, err
@@ -203,29 +220,51 @@ func (h *Handler) userHelper(ctx context.Context, wallet string) (*models.User, 
 	if exists {
 		return &pubkey.User, nil
 	}
-
-	// Create anonymous user — portal doesn't have built-in wallet-based account creation
-	// For now, return error. This needs user service extension.
 	return nil, fmt.Errorf("user not found for wallet %s", wallet)
 }
 
-// parsePayload extracts nonce, payer, signature, and amount from the PAYMENT-SIGNATURE header.
-func (h *Handler) parsePayload(sig string) (nonce string, payer string, signature string, amount decimal.Decimal, err error) {
-	// TODO: implement actual x402 payload parsing
-	// This is a placeholder — will be replaced with real EIP-712 parsing
-	return "", "", "", decimal.Zero, errors.New("not implemented")
+// parsePayload decodes the x402 v2 payment payload from the X-Payment-Response header.
+func (h *Handler) parsePayload(header string) (*pluginCore.X402PaymentPayload, error) {
+	if header == "" {
+		return nil, errors.New("missing payment response")
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(header)
+	if err != nil {
+		decoded = []byte(header)
+	}
+
+	var payload pluginCore.X402PaymentPayload
+	if err := json.Unmarshal(decoded, &payload); err != nil {
+		return nil, fmt.Errorf("invalid payment response format: %w", err)
+	}
+
+	return &payload, nil
+}
+
+// extractNonce pulls the nonce from the x402 payload.
+// Tries payload.nonce first, then falls back to authorization.nonce for EIP-3009.
+func (h *Handler) extractNonce(payload *pluginCore.X402PaymentPayload) string {
+	if payload == nil {
+		return ""
+	}
+	// For "exact" scheme without authorization, nonce may be at top level
+	if n, ok := payload.Payload["nonce"].(string); ok && n != "" {
+		return n
+	}
+	// For EIP-3009 style, nonce is inside authorization
+	if auth, ok := payload.Payload["authorization"].(map[string]interface{}); ok {
+		if n, ok := auth["nonce"].(string); ok {
+			return n
+		}
+	}
+	return ""
 }
 
 func generateNonce() (string, error) {
-	// Use UUID v4 for uniqueness
 	uid, err := uuid.NewRandom()
 	if err != nil {
 		return "", err
 	}
 	return uid.String(), nil
-}
-
-func generateJWT(userID uint) string {
-	// TODO: integrate with existing JWT service
-	return ""
 }

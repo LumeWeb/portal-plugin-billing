@@ -16,6 +16,10 @@ type NonceStore interface {
 	Set(ctx context.Context, nonce string, userID uint, amount decimal.Decimal, gatewayType string, expiry time.Duration) error
 	Get(ctx context.Context, nonce string) (userID uint, amount decimal.Decimal, gatewayType string, ok bool, err error)
 	Delete(ctx context.Context, nonce string) error
+	// SetGatewayPaymentID associates a gateway payment ID with a nonce for webhook correlation.
+	SetGatewayPaymentID(ctx context.Context, nonce string, paymentID string) error
+	// GetByGatewayPaymentID looks up a nonce by gateway payment ID.
+	GetByGatewayPaymentID(ctx context.Context, paymentID string) (nonce string, userID uint, amount decimal.Decimal, ok bool, err error)
 }
 
 // DBNonceStore uses the database for persistent nonce tracking.
@@ -30,15 +34,16 @@ func NewDBNonceStore(db *gorm.DB) *DBNonceStore {
 
 // X402Nonce represents a stored payment challenge nonce.
 type X402Nonce struct {
-	ID          uint            `gorm:"primaryKey"`
-	Nonce       string          `gorm:"uniqueIndex;size:64;not null"`
-	UserID      uint            `gorm:"not null"`
-	Amount      decimal.Decimal `gorm:"type:decimal(20,10);not null"`
-	GatewayType string          `gorm:"size:32;not null"`
-	Status      string          `gorm:"size:16;not null;default:'pending'"`
-	ExpiresAt   time.Time       `gorm:"not null"`
-	CreatedAt   time.Time
-	SettledAt   *time.Time
+	ID             uint            `gorm:"primaryKey"`
+	Nonce          string          `gorm:"uniqueIndex;size:64;not null"`
+	GatewayPaymentID *string         `gorm:"size:64;index;default:null"` // gateway payment ID for webhook correlation
+	UserID         uint            `gorm:"not null"`
+	Amount         decimal.Decimal `gorm:"type:decimal(20,10);not null"`
+	GatewayType    string          `gorm:"size:32;not null"`
+	Status         string          `gorm:"size:16;not null;default:'pending'"`
+	ExpiresAt      time.Time       `gorm:"not null"`
+	CreatedAt      time.Time
+	SettledAt      *time.Time
 }
 
 // TableName sets the table name for X402Nonce
@@ -75,4 +80,25 @@ func (s *DBNonceStore) Get(ctx context.Context, nonce string) (uint, decimal.Dec
 // Delete removes a nonce record.
 func (s *DBNonceStore) Delete(ctx context.Context, nonce string) error {
 	return s.db.WithContext(ctx).Where("nonce = ?", nonce).Delete(&X402Nonce{}).Error
+}
+
+// SetGatewayPaymentID associates a gateway payment ID with a nonce for webhook correlation.
+func (s *DBNonceStore) SetGatewayPaymentID(ctx context.Context, nonce string, paymentID string) error {
+	return s.db.WithContext(ctx).
+		Model(&X402Nonce{}).
+		Where("nonce = ?", nonce).
+		Update("gateway_payment_id", paymentID).Error
+}
+
+// GetByGatewayPaymentID looks up a nonce by gateway payment ID.
+func (s *DBNonceStore) GetByGatewayPaymentID(ctx context.Context, paymentID string) (string, uint, decimal.Decimal, bool, error) {
+	var record X402Nonce
+	err := s.db.WithContext(ctx).Where("gateway_payment_id = ? AND status = ? AND expires_at > ?", paymentID, "pending", time.Now()).First(&record).Error
+	if err == gorm.ErrRecordNotFound {
+		return "", 0, decimal.Zero, false, nil
+	}
+	if err != nil {
+		return "", 0, decimal.Zero, false, err
+	}
+	return record.Nonce, record.UserID, record.Amount, true, nil
 }

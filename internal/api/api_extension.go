@@ -25,6 +25,7 @@ import (
 	"go.lumeweb.com/portal-plugin-billing/internal/gateway"
 	billingService "go.lumeweb.com/portal-plugin-billing/internal/service/billing"
 	"go.lumeweb.com/portal-plugin-billing/internal/service/pricing"
+	"go.lumeweb.com/portal-plugin-billing/internal/x402"
 	router "go.lumeweb.com/portal-router"
 	"go.lumeweb.com/portal/config"
 	"go.lumeweb.com/portal/core"
@@ -48,7 +49,10 @@ type APIExtension struct {
 	billingService pluginCore.BillingService
 	creditService  pluginCore.CreditService
 	sseServer      *sseServer.Server
+	x402Handler    *x402.Handler
 }
+
+var _ core.APIExtension = (*APIExtension)(nil)
 
 // NewAPIExtension creates a new API extension for billing
 func NewAPIExtension() core.APIExtensionFactory {
@@ -74,6 +78,11 @@ func NewAPIExtension() core.APIExtensionFactory {
 			if ext.creditService = core.GetService[pluginCore.CreditService](ctx, pluginCore.CREDIT_SERVICE); ext.creditService == nil {
 				return fmt.Errorf("credit service not available")
 			}
+
+			// Initialize x402 handler
+			nonceStore := x402.NewDBNonceStore(ctx.DB())
+			userSvc := core.GetService[core.UserService](ctx, core.USER_SERVICE)
+			ext.x402Handler = x402.NewHandler(ext.billingService, ext.creditService, nonceStore, userSvc)
 
 			// Initialize SSE server with apt304/sse-go
 			subscriber := sseServer.NewDropOldestSubscriber(sseServer.Options{
@@ -460,14 +469,13 @@ func (e *APIExtension) Configure(gRouter router.Router, accessSvc core.AccessSer
 			router.WithMiddlewares(authMw, accessMw),
 			router.WithCors(),
 		),
-		// x402 credit purchase endpoint
-		router.NewRoute(http.MethodPost, "/api/account/billing/checkout", e.handleX402Checkout,
+		// x402 crypto checkout endpoint
+		router.NewRoute(http.MethodPost, "/api/account/billing/x402/checkout", e.handleX402Checkout,
 			router.WithSwagger(
-				router.WithSummary("x402 Credit Purchase"),
+				router.WithSummary("x402 crypto checkout"),
 				router.WithDescription(
-					"Initiates or completes an x402 payment for credit purchase. "+
-						"First call (no PAYMENT-SIGNATURE header) returns 402 with challenge. "+
-						"Second call (with PAYMENT-SIGNATURE) verifies payment and issues credits.",
+					"Initiates or completes an x402 crypto payment. First call returns 402 Payment Required with an EIP-712 challenge. "+
+						"Client pays via ATLOS and then calls again with X-Payment-Response header containing the signed payload.",
 				),
 				router.WithTags("Billing"),
 				router.WithQueryParam("wallet", "Wallet address for payment", "0xAbC..."),
@@ -476,14 +484,16 @@ func (e *APIExtension) Configure(gRouter router.Router, accessSvc core.AccessSer
 					router.WithJSONContent(map[string]interface{}{})),
 				router.WithSuccessResponse(http.StatusPaymentRequired, "Payment required",
 					router.WithHeader("Payment-Required", "x402 challenge")),
-				router.WithSuccessResponse(http.StatusAccepted, "Payment pending", nil),
 				router.WithErrorResponses(
 					router.DefineSwaggerErrorResponses(
 						router.DefineSwaggerErrorResponse(http.StatusBadRequest, "Invalid request"),
 						router.DefineSwaggerErrorResponse(http.StatusUnauthorized, "Invalid signature or nonce"),
+						router.DefineSwaggerErrorResponse(http.StatusInternalServerError, "Failed to process payment"),
 					),
 				),
 			),
+			router.WithAccess(core.ACCESS_USER_ROLE),
+			router.WithMiddlewares(authMw, accessMw),
 			router.WithCors(),
 		),
 	)
@@ -1529,4 +1539,11 @@ func (e *APIExtension) handleGetCheckoutSessionStatus(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, response)
+}
+
+// handleX402Checkout processes x402 crypto payments.
+// First call (no X-Payment-Response) returns 402 with challenge.
+// Second call (with X-Payment-Response) verifies signature and issues credits.
+func (e *APIExtension) handleX402Checkout(c echo.Context) error {
+	return e.x402Handler.HandleCheckout(c)
 }

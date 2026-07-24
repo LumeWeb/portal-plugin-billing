@@ -450,16 +450,58 @@ func AsSessionStatusProvider(gateway GatewayIdentity) (SessionStatusProvider, er
 }
 
 // PaymentProcessor is optional for gateways that support x402-style
-// synchronous payment verification (signature check + settlement confirmation)
+// payment settlement confirmation. No signature verification — x402
+// is used as wire comms only; the gateway confirms settlement directly.
 type PaymentProcessor interface {
-	// VerifyPaymentSignature checks if the signed x402 payload is valid.
-	// Does NOT confirm settlement — just cryptographic validity.
-	VerifyPaymentSignature(ctx context.Context, nonce string, payer string, signature string, amount decimal.Decimal) error
-
-	// ConfirmPayment checks if the payment has settled.
+	// ConfirmPayment checks if the payment has settled with the gateway.
 	// For ATLOS: check webhook cache or poll ATLOS API for this nonce.
 	// Returns the settled amount if confirmed, or ErrPaymentPending.
 	ConfirmPayment(ctx context.Context, nonce string, expectedAmount decimal.Decimal) (*PaymentConfirmation, error)
+}
+
+// PaymentAddressProvider is optional for gateways that can generate
+// a receiving address for x402 payments (e.g., ATLOS Payment/Create API).
+type PaymentAddressProvider interface {
+	// CreatePaymentAddress creates a payment session and returns the wallet
+	// address where the client should send funds.
+	CreatePaymentAddress(ctx context.Context, assetCode string, blockchainCode float32, amount decimal.Decimal, nonce string) (*PaymentAddress, error)
+}
+
+// PaymentAddress contains the result of creating a payment address.
+type PaymentAddress struct {
+	PaymentID      string
+	WalletAddress  string
+	AssetCode      string
+	BlockchainCode float32
+	Amount         string // smallest unit, no decimal point
+}
+
+// X402PaymentPayload represents the parsed x402 v2 payment payload.
+// The raw payload is decoded from the X-Payment-Response header.
+type X402PaymentPayload struct {
+	X402Version int                    `json:"x402Version"`
+	Payload     map[string]interface{} `json:"payload"`   // scheme-specific (EIP-3009 authorization, Permit2, etc.)
+	Accepted    X402PaymentRequirements `json:"accepted"` // what the client accepted
+	Resource    *X402ResourceInfo       `json:"resource,omitempty"`
+	Extensions  map[string]interface{} `json:"extensions,omitempty"`
+}
+
+// X402PaymentRequirements represents the payment requirements the client accepted.
+type X402PaymentRequirements struct {
+	Scheme            string                 `json:"scheme"`
+	Network           string                 `json:"network"`
+	Asset             string                 `json:"asset"`
+	Amount            string                 `json:"amount"`
+	PayTo             string                 `json:"payTo"`
+	MaxTimeoutSeconds int                    `json:"maxTimeoutSeconds"`
+	Extra             map[string]interface{} `json:"extra,omitempty"`
+}
+
+// X402ResourceInfo describes the resource being accessed.
+type X402ResourceInfo struct {
+	URL         string   `json:"url"`
+	Description string   `json:"description,omitempty"`
+	MimeType    string   `json:"mimeType,omitempty"`
 }
 
 // PaymentConfirmation contains the result of a confirmed payment
