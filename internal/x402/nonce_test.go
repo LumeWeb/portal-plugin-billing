@@ -8,10 +8,10 @@ import (
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	core "go.lumeweb.com/portal/core"
-	coreTesting "go.lumeweb.com/portal/core/testing"
 	"go.lumeweb.com/portal-plugin-billing/internal"
 	"go.lumeweb.com/portal-plugin-billing/internal/db/migrations"
+	core "go.lumeweb.com/portal/core"
+	coreTesting "go.lumeweb.com/portal/core/testing"
 )
 
 // dummyX402Service is a minimal service for the mock plugin builder

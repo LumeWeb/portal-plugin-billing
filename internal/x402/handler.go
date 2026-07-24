@@ -16,6 +16,7 @@ import (
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
 	core "go.lumeweb.com/portal/core"
 	"go.lumeweb.com/portal/db/models"
+	"go.uber.org/zap"
 )
 
 // Handler handles x402 challenge/response for credit purchases.
@@ -158,7 +159,12 @@ func (h *Handler) HandleCheckout(c echo.Context) error {
 	// Generate JWT if token generator is available
 	if h.tokenGen != nil {
 		token, err := h.tokenGen(userID)
-		if err == nil {
+		if err != nil {
+			h.creditService.Logger().Error("failed to generate JWT for x402 payment",
+				zap.Uint("user_id", userID),
+				zap.Error(err),
+			)
+		} else {
 			response["token"] = token
 		}
 	}
@@ -209,10 +215,10 @@ func (h *Handler) returnChallenge(c echo.Context, ctx context.Context, wallet st
 		Nonce:       nonce,
 		ExpiresAt:   time.Now().Add(5 * time.Minute),
 		Accepts: []ChallengeAccepts{{
-			Scheme:        "exact",                                       // direct transfer, no signed authorization
-			Network:       "eip155:8453",                                 // Base mainnet
+			Scheme:        "exact",                                      // direct transfer, no signed authorization
+			Network:       "eip155:8453",                                // Base mainnet
 			Asset:         "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", // USDC
-			Amount:        amount.Mul(decimal.NewFromInt(1e6)).String(),  // 6 decimals
+			Amount:        amount.Mul(decimal.NewFromInt(1e6)).String(), // 6 decimals
 			PayTo:         paymentAddr.WalletAddress,
 			MaxTimeoutSec: 300,
 		}},

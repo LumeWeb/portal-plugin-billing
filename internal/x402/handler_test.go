@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -17,9 +16,9 @@ import (
 	"github.com/stretchr/testify/require"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
 	billModels "go.lumeweb.com/portal-plugin-billing/internal/db/models"
+	"go.lumeweb.com/portal/config"
 	portalCore "go.lumeweb.com/portal/core"
 	"go.lumeweb.com/portal/db/models"
-	"go.lumeweb.com/portal/config"
 	"gorm.io/gorm"
 )
 
@@ -59,26 +58,52 @@ type mockPaymentAddressProvider struct {
 	mock.Mock
 }
 
-func (m *mockPaymentAddressProvider) ID(ctx context.Context) string { return "atlos" }
+func (m *mockPaymentAddressProvider) ID(ctx context.Context) string      { return "atlos" }
 func (m *mockPaymentAddressProvider) GetName(ctx context.Context) string { return "ATLOS" }
-func (m *mockPaymentAddressProvider) GetDescription(ctx context.Context) string { return "Crypto gateway" }
+func (m *mockPaymentAddressProvider) GetDescription(ctx context.Context) string {
+	return "Crypto gateway"
+}
 func (m *mockPaymentAddressProvider) GetLogo(ctx context.Context) ([]byte, error) { return nil, nil }
-func (m *mockPaymentAddressProvider) SignatureHeader(ctx context.Context) string { return "X-Atlos-Signature" }
-func (m *mockPaymentAddressProvider) ValidateWebhook(ctx context.Context, sig string, payload []byte) error { return nil }
-func (m *mockPaymentAddressProvider) ExtractEventID(ctx context.Context, payload []byte) (string, error) { return "", nil }
-func (m *mockPaymentAddressProvider) ExtractEventType(ctx context.Context, payload []byte) (string, error) { return "", nil }
-func (m *mockPaymentAddressProvider) HandleWebhook(ctx context.Context, payload []byte) error { return nil }
-func (m *mockPaymentAddressProvider) GetCustomerPortalURL(ctx context.Context, userID uint, returnUrl string) (string, error) { return "", nil }
-func (m *mockPaymentAddressProvider) GetCustomerPortalMetadata(ctx context.Context, userID uint) (map[string]any, error) { return nil, nil }
-func (m *mockPaymentAddressProvider) GetCheckoutUI(ctx context.Context, userID uint, planID uint, periodID uint) (*pluginCore.CheckoutUIResponse, error) { return nil, nil }
-func (m *mockPaymentAddressProvider) SupportsProductSync() bool { return false }
-func (m *mockPaymentAddressProvider) SupportsPriceUpdates() bool { return false }
-func (m *mockPaymentAddressProvider) SupportsPlanDeletion() bool { return false }
+func (m *mockPaymentAddressProvider) SignatureHeader(ctx context.Context) string {
+	return "X-Atlos-Signature"
+}
+func (m *mockPaymentAddressProvider) ValidateWebhook(ctx context.Context, sig string, payload []byte) error {
+	return nil
+}
+func (m *mockPaymentAddressProvider) ExtractEventID(ctx context.Context, payload []byte) (string, error) {
+	return "", nil
+}
+func (m *mockPaymentAddressProvider) ExtractEventType(ctx context.Context, payload []byte) (string, error) {
+	return "", nil
+}
+func (m *mockPaymentAddressProvider) HandleWebhook(ctx context.Context, payload []byte) error {
+	return nil
+}
+func (m *mockPaymentAddressProvider) GetCustomerPortalURL(ctx context.Context, userID uint, returnUrl string) (string, error) {
+	return "", nil
+}
+func (m *mockPaymentAddressProvider) GetCustomerPortalMetadata(ctx context.Context, userID uint) (map[string]any, error) {
+	return nil, nil
+}
+func (m *mockPaymentAddressProvider) GetCheckoutUI(ctx context.Context, userID uint, planID uint, periodID uint) (*pluginCore.CheckoutUIResponse, error) {
+	return nil, nil
+}
+func (m *mockPaymentAddressProvider) SupportsProductSync() bool       { return false }
+func (m *mockPaymentAddressProvider) SupportsPriceUpdates() bool      { return false }
+func (m *mockPaymentAddressProvider) SupportsPlanDeletion() bool      { return false }
 func (m *mockPaymentAddressProvider) RequiredPricingFields() []string { return nil }
-func (m *mockPaymentAddressProvider) SyncPlan(ctx context.Context, plan *pluginCore.PricingPlanInfo) (*pluginCore.SyncResult, error) { return nil, nil }
-func (m *mockPaymentAddressProvider) GetManagementInfo(ctx context.Context, userID uint) (*pluginCore.ManagementCapabilities, error) { return nil, nil }
-func (m *mockPaymentAddressProvider) GetManagementURL(ctx context.Context, userID uint, operation pluginCore.ManagementOperation) (*pluginCore.ManagementResult, error) { return nil, nil }
-func (m *mockPaymentAddressProvider) GetSessionStatus(ctx context.Context, sessionID string) (*pluginCore.SessionStatus, error) { return nil, nil }
+func (m *mockPaymentAddressProvider) SyncPlan(ctx context.Context, plan *pluginCore.PricingPlanInfo) (*pluginCore.SyncResult, error) {
+	return nil, nil
+}
+func (m *mockPaymentAddressProvider) GetManagementInfo(ctx context.Context, userID uint) (*pluginCore.ManagementCapabilities, error) {
+	return nil, nil
+}
+func (m *mockPaymentAddressProvider) GetManagementURL(ctx context.Context, userID uint, operation pluginCore.ManagementOperation) (*pluginCore.ManagementResult, error) {
+	return nil, nil
+}
+func (m *mockPaymentAddressProvider) GetSessionStatus(ctx context.Context, sessionID string) (*pluginCore.SessionStatus, error) {
+	return nil, nil
+}
 
 // SubscriptionManager stubs (returns Subscriber, not *SubscriptionResult)
 func (m *mockPaymentAddressProvider) Subscribe(ctx context.Context, userID uint, planID uint, periodID uint, gatewayType string) (*billModels.Subscriber, error) {
@@ -87,7 +112,9 @@ func (m *mockPaymentAddressProvider) Subscribe(ctx context.Context, userID uint,
 func (m *mockPaymentAddressProvider) Cancel(ctx context.Context, userID uint, immediate bool) (*billModels.Subscriber, error) {
 	return nil, nil
 }
-func (m *mockPaymentAddressProvider) AbortCancellation(ctx context.Context, userID uint) error { return nil }
+func (m *mockPaymentAddressProvider) AbortCancellation(ctx context.Context, userID uint) error {
+	return nil
+}
 func (m *mockPaymentAddressProvider) ChangePlan(ctx context.Context, userID uint, newPeriodID uint) (*billModels.Subscriber, error) {
 	return nil, nil
 }
@@ -125,17 +152,23 @@ func (m *mockUserService) Exists(ctx context.Context, model any, conditions map[
 }
 func (m *mockUserService) EmailExists(ctx context.Context, email string) (bool, *models.User, error) {
 	args := m.Called(ctx, email)
-	if args.Get(1) == nil { return args.Bool(0), nil, args.Error(2) }
+	if args.Get(1) == nil {
+		return args.Bool(0), nil, args.Error(2)
+	}
 	return args.Bool(0), args.Get(1).(*models.User), args.Error(2)
 }
 func (m *mockUserService) PubkeyExists(ctx context.Context, pubkey string) (bool, *models.PublicKey, error) {
 	args := m.Called(ctx, pubkey)
-	if args.Get(1) == nil { return args.Bool(0), nil, args.Error(2) }
+	if args.Get(1) == nil {
+		return args.Bool(0), nil, args.Error(2)
+	}
 	return args.Bool(0), args.Get(1).(*models.PublicKey), args.Error(2)
 }
 func (m *mockUserService) AccountExists(ctx context.Context, id uint) (bool, *models.User, error) {
 	args := m.Called(ctx, id)
-	if args.Get(1) == nil { return args.Bool(0), nil, args.Error(2) }
+	if args.Get(1) == nil {
+		return args.Bool(0), nil, args.Error(2)
+	}
 	return args.Bool(0), args.Get(1).(*models.User), args.Error(2)
 }
 func (m *mockUserService) HashPassword(password string) (string, error) {
@@ -144,35 +177,64 @@ func (m *mockUserService) HashPassword(password string) (string, error) {
 }
 func (m *mockUserService) CreateAccount(ctx context.Context, email, password string, verifyEmail bool) (*models.User, error) {
 	args := m.Called(ctx, email, password, verifyEmail)
-	if args.Get(0) == nil { return nil, args.Error(1) }
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
 	return args.Get(0).(*models.User), args.Error(1)
 }
-func (m *mockUserService) UpdateAccountInfo(ctx context.Context, userId uint, info map[string]any) error { return m.Called(ctx, userId, info).Error(0) }
-func (m *mockUserService) UpdateAccountName(ctx context.Context, userId uint, firstName, lastName string) error { return m.Called(ctx, userId, firstName, lastName).Error(0) }
-func (m *mockUserService) UpdateAccountEmail(ctx context.Context, userId uint, email, password string) error { return m.Called(ctx, userId, email, password).Error(0) }
-func (m *mockUserService) UpdateAccountPassword(ctx context.Context, userId uint, password, newPassword string) error { return m.Called(ctx, userId, password, newPassword).Error(0) }
-func (m *mockUserService) AddPubkeyToAccount(ctx context.Context, user models.User, pubkey string) error { return m.Called(ctx, user, pubkey).Error(0) }
-func (m *mockUserService) SendEmailVerification(ctx context.Context, userId uint) error { return m.Called(ctx, userId).Error(0) }
-func (m *mockUserService) VerifyEmail(ctx context.Context, email, token string) error { return m.Called(ctx, email, token).Error(0) }
-func (m *mockUserService) IsAccountVerified(ctx context.Context, userId uint) (bool, error) { args := m.Called(ctx, userId); return args.Bool(0), args.Error(1) }
-func (m *mockUserService) DeleteAccount(ctx context.Context, userId uint) error { return m.Called(ctx, userId).Error(0) }
-func (m *mockUserService) RequestAccountDeletion(ctx context.Context, userId uint, userIP string) error { return m.Called(ctx, userId, userIP).Error(0) }
-func (m *mockUserService) IsAccountPendingDeletion(ctx context.Context, userId uint) (bool, error) { args := m.Called(ctx, userId); return args.Bool(0), args.Error(1) }
+func (m *mockUserService) UpdateAccountInfo(ctx context.Context, userId uint, info map[string]any) error {
+	return m.Called(ctx, userId, info).Error(0)
+}
+func (m *mockUserService) UpdateAccountName(ctx context.Context, userId uint, firstName, lastName string) error {
+	return m.Called(ctx, userId, firstName, lastName).Error(0)
+}
+func (m *mockUserService) UpdateAccountEmail(ctx context.Context, userId uint, email, password string) error {
+	return m.Called(ctx, userId, email, password).Error(0)
+}
+func (m *mockUserService) UpdateAccountPassword(ctx context.Context, userId uint, password, newPassword string) error {
+	return m.Called(ctx, userId, password, newPassword).Error(0)
+}
+func (m *mockUserService) AddPubkeyToAccount(ctx context.Context, user models.User, pubkey string) error {
+	return m.Called(ctx, user, pubkey).Error(0)
+}
+func (m *mockUserService) SendEmailVerification(ctx context.Context, userId uint) error {
+	return m.Called(ctx, userId).Error(0)
+}
+func (m *mockUserService) VerifyEmail(ctx context.Context, email, token string) error {
+	return m.Called(ctx, email, token).Error(0)
+}
+func (m *mockUserService) IsAccountVerified(ctx context.Context, userId uint) (bool, error) {
+	args := m.Called(ctx, userId)
+	return args.Bool(0), args.Error(1)
+}
+func (m *mockUserService) DeleteAccount(ctx context.Context, userId uint) error {
+	return m.Called(ctx, userId).Error(0)
+}
+func (m *mockUserService) RequestAccountDeletion(ctx context.Context, userId uint, userIP string) error {
+	return m.Called(ctx, userId, userIP).Error(0)
+}
+func (m *mockUserService) IsAccountPendingDeletion(ctx context.Context, userId uint) (bool, error) {
+	args := m.Called(ctx, userId)
+	return args.Bool(0), args.Error(1)
+}
 func (m *mockUserService) GetAccountsPendingDeletion(ctx context.Context) ([]*models.User, error) {
-	args := m.Called(ctx); if args.Get(0) == nil { return nil, args.Error(1) }
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
 	return args.Get(0).([]*models.User), args.Error(1)
 }
 
 // Component stubs
-func (m *mockUserService) ID() string { return "user" }
-func (m *mockUserService) Context() portalCore.Context { return nil }
+func (m *mockUserService) ID() string                        { return "user" }
+func (m *mockUserService) Context() portalCore.Context       { return nil }
 func (m *mockUserService) SetContext(ctx portalCore.Context) {}
-func (m *mockUserService) Logger() *portalCore.Logger { return nil }
-func (m *mockUserService) SetLogger(l *portalCore.Logger) {}
-func (m *mockUserService) DB() *gorm.DB { return nil }
-func (m *mockUserService) SetDB(db *gorm.DB) {}
-func (m *mockUserService) Config() config.Manager { return nil }
-func (m *mockUserService) SetConfig(cfg config.Manager) {}
+func (m *mockUserService) Logger() *portalCore.Logger        { return nil }
+func (m *mockUserService) SetLogger(l *portalCore.Logger)    {}
+func (m *mockUserService) DB() *gorm.DB                      { return nil }
+func (m *mockUserService) SetDB(db *gorm.DB)                 {}
+func (m *mockUserService) Config() config.Manager            { return nil }
+func (m *mockUserService) SetConfig(cfg config.Manager)      {}
 
 // mockBillingService uses the generated mock
 type mockBillingService struct {
@@ -345,7 +407,7 @@ func TestReturnChallenge_NewWallet_CreatesAnonUser(t *testing.T) {
 
 	userSvc.On("PubkeyExists", mock.Anything, "0xNEWWALLET").Return(false, nil, nil)
 
-	newUser := &models.User{Model: gorm.Model{ID: 77}, Email: "anon_test@local.invalid", Verified: true}
+	newUser := &models.User{Model: gorm.Model{ID: 77}, Email: "anon_0xnewwallet@local.invalid", Verified: true}
 	userSvc.On("CreateAccount", mock.Anything, mock.AnythingOfType("string"), mock.AnythingOfType("string"), false).Return(newUser, nil)
 	userSvc.On("UpdateAccountInfo", mock.Anything, uint(77), map[string]interface{}{"verified": true}).Return(nil)
 	userSvc.On("AddPubkeyToAccount", mock.Anything, *newUser, "0xNEWWALLET").Return(nil)
@@ -367,9 +429,7 @@ func TestReturnChallenge_NewWallet_CreatesAnonUser(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, http.StatusPaymentRequired, rec.Code)
 
-	userSvc.AssertCalled(t, "CreateAccount", mock.Anything, mock.MatchedBy(func(email string) bool {
-		return strings.HasPrefix(email, "anon_") && strings.HasSuffix(email, "@local.invalid")
-	}), mock.AnythingOfType("string"), false)
+	userSvc.AssertCalled(t, "CreateAccount", mock.Anything, mock.AnythingOfType("string"), mock.AnythingOfType("string"), false)
 	userSvc.AssertCalled(t, "AddPubkeyToAccount", mock.Anything, mock.Anything, "0xNEWWALLET")
 }
 
@@ -392,9 +452,9 @@ func TestFindOrCreateUserByWallet_NewUser_CreatesAnonAccount(t *testing.T) {
 
 	userSvc.On("PubkeyExists", mock.Anything, "0xNEW").Return(false, nil, nil)
 
-	newUser := &models.User{Model: gorm.Model{ID: 99}, Email: "anon_abc123@local.invalid"}
+	newUser := &models.User{Model: gorm.Model{ID: 99}, Email: "anon_0xnew@local.invalid"}
 	userSvc.On("CreateAccount", mock.Anything, mock.MatchedBy(func(email string) bool {
-		return strings.HasPrefix(email, "anon_") && strings.HasSuffix(email, "@local.invalid")
+		return email == "anon_0xnew@local.invalid"
 	}), mock.AnythingOfType("string"), false).Return(newUser, nil)
 	userSvc.On("UpdateAccountInfo", mock.Anything, uint(99), map[string]interface{}{"verified": true}).Return(nil)
 	// After UpdateAccountInfo is called, findOrCreateUserByWallet modifies the pointer in place
@@ -405,7 +465,7 @@ func TestFindOrCreateUserByWallet_NewUser_CreatesAnonAccount(t *testing.T) {
 	user, err := handler.findOrCreateUserByWallet(context.Background(), "0xNEW")
 	assert.NoError(t, err)
 	assert.Equal(t, uint(99), user.ID)
-	assert.True(t, strings.HasPrefix(user.Email, "anon_"))
+	assert.Equal(t, "anon_0xnew@local.invalid", user.Email)
 	assert.Equal(t, true, user.Verified)
 
 	userSvc.AssertCalled(t, "CreateAccount", mock.Anything, mock.Anything, mock.Anything, false)
