@@ -460,6 +460,32 @@ func (e *APIExtension) Configure(gRouter router.Router, accessSvc core.AccessSer
 			router.WithMiddlewares(authMw, accessMw),
 			router.WithCors(),
 		),
+		// x402 credit purchase endpoint
+		router.NewRoute(http.MethodPost, "/api/account/billing/checkout", e.handleX402Checkout,
+			router.WithSwagger(
+				router.WithSummary("x402 Credit Purchase"),
+				router.WithDescription(
+					"Initiates or completes an x402 payment for credit purchase. "+
+						"First call (no PAYMENT-SIGNATURE header) returns 402 with challenge. "+
+						"Second call (with PAYMENT-SIGNATURE) verifies payment and issues credits.",
+				),
+				router.WithTags("Billing"),
+				router.WithQueryParam("wallet", "Wallet address for payment", "0xAbC..."),
+				router.WithQueryParam("amount", "USD amount to purchase", "5.00"),
+				router.WithSuccessResponse(http.StatusOK, "Credit purchased",
+					router.WithJSONContent(map[string]interface{}{})),
+				router.WithSuccessResponse(http.StatusPaymentRequired, "Payment required",
+					router.WithHeader("Payment-Required", "x402 challenge")),
+				router.WithSuccessResponse(http.StatusAccepted, "Payment pending", nil),
+				router.WithErrorResponses(
+					router.DefineSwaggerErrorResponses(
+						router.DefineSwaggerErrorResponse(http.StatusBadRequest, "Invalid request"),
+						router.DefineSwaggerErrorResponse(http.StatusUnauthorized, "Invalid signature or nonce"),
+					),
+				),
+			),
+			router.WithCors(),
+		),
 	)
 
 	// Register dashboard routes

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/shopspring/decimal"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
@@ -216,8 +217,12 @@ func (h *Handler) parsePayload(sig string) (nonce string, payer string, signatur
 }
 
 func generateNonce() (string, error) {
-	// TODO: use crypto/rand or ulid
-	return "test-nonce", nil
+	// Use UUID v4 for uniqueness
+	uid, err := uuid.NewRandom()
+	if err != nil {
+		return "", err
+	}
+	return uid.String(), nil
 }
 
 func generateJWT(userID uint) string {
