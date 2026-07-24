@@ -233,14 +233,15 @@ var (
 
 // AtlosGateway implements the PaymentGateway interface for ATLOS payment widget
 type AtlosGateway struct {
-	coreCtx core.Context
-	config  config.AtlosConfig
-	http    core.HTTPService
-	quota   quotaCore.QuotaService
-	users   core.UserService
-	billing pluginCore.BillingService
-	pricing pluginCore.PricingService
-	credit  pluginCore.CreditService
+	coreCtx      core.Context
+	config       config.AtlosConfig
+	http         core.HTTPService
+	quota        quotaCore.QuotaService
+	users        core.UserService
+	billing      pluginCore.BillingService
+	pricing      pluginCore.PricingService
+	credit       pluginCore.CreditService
+	webhookCache *WebhookNonceCache // x402 payment lookup cache
 }
 
 // New creates a new AtlosGateway instance
@@ -255,14 +256,15 @@ func New(
 	credit pluginCore.CreditService,
 ) *AtlosGateway {
 	return &AtlosGateway{
-		coreCtx: coreCtx,
-		config:  cfg,
-		http:    http,
-		quota:   quota,
-		users:   users,
-		billing: billing,
-		pricing: pricing,
-		credit:  credit,
+		coreCtx:      coreCtx,
+		config:       cfg,
+		http:         http,
+		quota:        quota,
+		users:        users,
+		billing:      billing,
+		pricing:      pricing,
+		credit:       credit,
+		webhookCache: NewWebhookNonceCache(),
 	}
 }
 
