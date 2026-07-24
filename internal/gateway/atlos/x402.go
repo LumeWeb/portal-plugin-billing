@@ -13,6 +13,23 @@ import (
 	"go.uber.org/zap"
 )
 
+// x402NonceDB mirrors the billing_x402_nonces table for direct DB queries.
+type x402NonceDB struct {
+	ID               uint
+	Nonce            string
+	GatewayPaymentID *string
+	UserID           uint
+	Amount           decimal.Decimal `gorm:"type:decimal(20,10)"`
+	GatewayType      string
+	Status           string
+	Reference        string
+	ExpiresAt        time.Time
+	CreatedAt        time.Time
+	SettledAt        *time.Time
+}
+
+func (x402NonceDB) TableName() string { return "billing_x402_nonces" }
+
 // Compile-time checks
 var (
 	_ pluginCore.PaymentProcessor       = (*AtlosGateway)(nil)
@@ -115,7 +132,22 @@ func (g *AtlosGateway) CreatePaymentAddress(ctx context.Context, assetCode strin
 }
 
 // ConfirmPayment checks if ATLOS has received payment for this nonce.
+// Queries the database first (source of truth), falls back to in-memory webhook cache.
 func (g *AtlosGateway) ConfirmPayment(ctx context.Context, nonce string, expectedAmount decimal.Decimal) (*pluginCore.PaymentConfirmation, error) {
+	// Primary: check database for settled status
+	var record x402NonceDB
+	err := g.coreCtx.DB().WithContext(ctx).
+		Where("nonce = ? AND status = ?", nonce, "settled").
+		First(&record).Error
+	if err == nil {
+		return &pluginCore.PaymentConfirmation{
+			Amount:    record.Amount,
+			Currency:  "USD",
+			Reference: record.Reference,
+		}, nil
+	}
+
+	// Fallback: check in-memory webhook cache (for settled-before-DB scenarios during migration)
 	payment, ok := g.webhookCache.Get(nonce)
 	if !ok {
 		return nil, pluginCore.ErrPaymentPending
@@ -156,34 +188,52 @@ func (g *AtlosGateway) isX402Nonce(orderID string) bool {
 }
 
 // handleX402Webhook handles ATLOS webhooks for x402 payments.
-// The OrderId in the postback is our invoice ID. We correlate via the nonce
-// stored in the invoice memo or via the ATLOS payment ID in our nonce store.
+// Marks the nonce as settled in the database and caches for in-memory lookup.
 func (g *AtlosGateway) handleX402Webhook(ctx context.Context, notification atlos.PostbackNotification) error {
 	paidAmount := decimal.NewFromFloat(notification.PaidAmount)
 
-	// Try to use OrderId as nonce (for direct correlation)
-	// or look up by OrderId if it's an invoice ID
 	nonce := notification.OrderId
 	if !g.isX402Nonce(nonce) {
-		// OrderId is not a nonce (e.g., it's an invoice ID)
-		// The x402 flow should set OrderId to our nonce via the invoice
-		// For now, skip non-x402 orders
-		g.coreCtx.Logger().Debug("webhook OrderId is not an x402 nonce, skipping cache",
+		g.coreCtx.Logger().Debug("webhook OrderId is not an x402 nonce, skipping",
 			zap.String("order_id", nonce),
 		)
 		return nil
 	}
 
+	// Mark nonce as settled in database (source of truth)
+	result := g.coreCtx.DB().WithContext(ctx).
+		Model(&x402NonceDB{}).
+		Where("nonce = ? AND status = ?", nonce, "pending").
+		Updates(map[string]interface{}{
+			"status":     "settled",
+			"settled_at": time.Now(),
+			"reference":  notification.TransactionId,
+		})
+	if result.Error != nil {
+		g.coreCtx.Logger().Error("failed to settle x402 nonce in DB",
+			zap.String("nonce", nonce),
+			zap.Error(result.Error),
+		)
+		return fmt.Errorf("failed to settle nonce: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		g.coreCtx.Logger().Warn("x402 webhook received for unknown or already-settled nonce",
+			zap.String("nonce", nonce),
+		)
+	}
+
+	// Also cache in-memory for fast lookup (optional, cache is secondary)
 	g.webhookCache.Set(nonce, &cachedPayment{
 		TransactionId: notification.TransactionId,
 		PaidAmount:    paidAmount,
 		PaidAt:        time.Now(),
 	})
 
-	g.coreCtx.Logger().Info("x402 payment cached from webhook",
+	g.coreCtx.Logger().Info("x402 payment settled",
 		zap.String("nonce", nonce),
 		zap.String("transaction_id", notification.TransactionId),
 		zap.String("paid_amount", paidAmount.String()),
+		zap.Int64("rows_affected", result.RowsAffected),
 	)
 
 	return nil

@@ -20,6 +20,8 @@ type NonceStore interface {
 	SetGatewayPaymentID(ctx context.Context, nonce string, paymentID string) error
 	// GetByGatewayPaymentID looks up a nonce by gateway payment ID.
 	GetByGatewayPaymentID(ctx context.Context, paymentID string) (nonce string, userID uint, amount decimal.Decimal, ok bool, err error)
+	// Settle marks a nonce as settled and records the transaction reference.
+	Settle(ctx context.Context, nonce string, reference string) error
 }
 
 // DBNonceStore uses the database for persistent nonce tracking.
@@ -34,16 +36,17 @@ func NewDBNonceStore(db *gorm.DB) *DBNonceStore {
 
 // X402Nonce represents a stored payment challenge nonce.
 type X402Nonce struct {
-	ID             uint            `gorm:"primaryKey"`
-	Nonce          string          `gorm:"uniqueIndex;size:64;not null"`
+	ID               uint            `gorm:"primaryKey"`
+	Nonce            string          `gorm:"uniqueIndex;size:64;not null"`
 	GatewayPaymentID *string         `gorm:"size:64;index;default:null"` // gateway payment ID for webhook correlation
-	UserID         uint            `gorm:"not null"`
-	Amount         decimal.Decimal `gorm:"type:decimal(20,10);not null"`
-	GatewayType    string          `gorm:"size:32;not null"`
-	Status         string          `gorm:"size:16;not null;default:'pending'"`
-	ExpiresAt      time.Time       `gorm:"not null"`
-	CreatedAt      time.Time
-	SettledAt      *time.Time
+	UserID           uint            `gorm:"not null"`
+	Amount           decimal.Decimal `gorm:"type:decimal(20,10);not null"`
+	GatewayType      string          `gorm:"size:32;not null"`
+	Status           string          `gorm:"size:16;not null;default:'pending'"`
+	Reference        string          `gorm:"size:128;default:null"` // transaction reference when settled
+	ExpiresAt        time.Time       `gorm:"not null"`
+	CreatedAt        time.Time
+	SettledAt        *time.Time
 }
 
 // TableName sets the table name for X402Nonce
@@ -101,4 +104,17 @@ func (s *DBNonceStore) GetByGatewayPaymentID(ctx context.Context, paymentID stri
 		return "", 0, decimal.Zero, false, err
 	}
 	return record.Nonce, record.UserID, record.Amount, true, nil
+}
+
+// Settle marks a nonce as settled with a transaction reference.
+func (s *DBNonceStore) Settle(ctx context.Context, nonce string, reference string) error {
+	now := time.Now()
+	return s.db.WithContext(ctx).
+		Model(&X402Nonce{}).
+		Where("nonce = ? AND status = ?", nonce, "pending").
+		Updates(map[string]interface{}{
+			"status":     "settled",
+			"settled_at": now,
+			"reference":  reference,
+		}).Error
 }

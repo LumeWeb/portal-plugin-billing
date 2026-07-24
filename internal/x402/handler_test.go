@@ -50,6 +50,10 @@ func (m *mockNonceStore) GetByGatewayPaymentID(ctx context.Context, paymentID st
 	return args.String(0), args.Get(1).(uint), args.Get(2).(decimal.Decimal), args.Bool(3), args.Error(4)
 }
 
+func (m *mockNonceStore) Settle(ctx context.Context, nonce string, reference string) error {
+	return m.Called(ctx, nonce, reference).Error(0)
+}
+
 // mockPaymentAddressProvider implements PaymentAddressProvider + GatewayIdentity
 type mockPaymentAddressProvider struct {
 	mock.Mock
