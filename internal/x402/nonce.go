@@ -41,6 +41,11 @@ type X402Nonce struct {
 	SettledAt   *time.Time
 }
 
+// TableName sets the table name for X402Nonce
+func (X402Nonce) TableName() string {
+	return "billing_x402_nonces"
+}
+
 // Set stores a new nonce record.
 func (s *DBNonceStore) Set(ctx context.Context, nonce string, userID uint, amount decimal.Decimal, gatewayType string, expiry time.Duration) error {
 	record := X402Nonce{

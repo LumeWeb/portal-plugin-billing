@@ -68,6 +68,12 @@ func (h *Handler) HandleCheckout(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid amount"})
 	}
 
+	// No signature → return challenge (no gateway lookup needed yet)
+	sig := c.Request().Header.Get("PAYMENT-SIGNATURE")
+	if sig == "" {
+		return h.returnChallenge(c, ctx, wallet, amount)
+	}
+
 	// Get ATLOS gateway from registry (hardcoded)
 	gatewayIdentity, err := h.billingService.GetGateway(ctx, gatewayType)
 	if err != nil {
@@ -78,12 +84,6 @@ func (h *Handler) HandleCheckout(c echo.Context) error {
 	processor, ok := gatewayIdentity.(pluginCore.PaymentProcessor)
 	if !ok {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "gateway does not support x402"})
-	}
-
-	// No signature → return challenge
-	sig := c.Request().Header.Get("PAYMENT-SIGNATURE")
-	if sig == "" {
-		return h.returnChallenge(c, ctx, wallet, amount)
 	}
 
 	// Parse payment payload from signature header
