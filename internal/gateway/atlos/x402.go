@@ -13,8 +13,8 @@ import (
 	"go.uber.org/zap"
 )
 
-// x402NonceDB mirrors the billing_x402_nonces table for direct DB queries.
-type x402NonceDB struct {
+// x402Nonce is a minimal GORM model for the billing_x402_nonces table.
+type x402Nonce struct {
 	ID               uint
 	Nonce            string
 	GatewayPaymentID *string
@@ -28,7 +28,7 @@ type x402NonceDB struct {
 	SettledAt        *time.Time
 }
 
-func (x402NonceDB) TableName() string { return "billing_x402_nonces" }
+func (x402Nonce) TableName() string { return "billing_x402_nonces" }
 
 // Compile-time checks
 var (
@@ -121,7 +121,7 @@ func (g *AtlosGateway) CreatePaymentAddress(ctx context.Context, assetCode strin
 }
 
 func (g *AtlosGateway) ConfirmPayment(ctx context.Context, nonce string, expectedAmount decimal.Decimal) (*pluginCore.PaymentConfirmation, error) {
-	var record x402NonceDB
+	var record x402Nonce
 	err := g.coreCtx.DB().WithContext(ctx).
 		Where("nonce = ? AND status = ?", nonce, "settled").
 		First(&record).Error
@@ -183,7 +183,7 @@ func (g *AtlosGateway) handleX402Webhook(ctx context.Context, notification atlos
 	}
 
 	result := g.coreCtx.DB().WithContext(ctx).
-		Model(&x402NonceDB{}).
+		Model(&x402Nonce{}).
 		Where("nonce = ? AND status = ?", nonce, "pending").
 		Updates(map[string]interface{}{
 			"status":     "settled",
