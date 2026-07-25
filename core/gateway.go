@@ -449,13 +449,9 @@ func AsSessionStatusProvider(gateway GatewayIdentity) (SessionStatusProvider, er
 	return provider, nil
 }
 
-// PaymentProcessor is optional for gateways that support x402-style
-// payment settlement confirmation. No signature verification — x402
-// is used as wire comms only; the gateway confirms settlement directly.
+// PaymentProcessor is optional for gateways supporting x402 wire protocol payments.
+// Settlement is confirmed by the gateway (webhook or poll); no signature verification.
 type PaymentProcessor interface {
-	// ConfirmPayment checks if the payment has settled with the gateway.
-	// For ATLOS: check webhook cache or poll ATLOS API for this nonce.
-	// Returns the settled amount if confirmed, or ErrPaymentPending.
 	ConfirmPayment(ctx context.Context, nonce string, expectedAmount decimal.Decimal) (*PaymentConfirmation, error)
 }
 
@@ -477,13 +473,13 @@ type PaymentAddress struct {
 }
 
 // X402PaymentPayload represents the parsed x402 v2 payment payload.
-// The raw payload is decoded from the X-Payment-Response header.
+// The raw payload is decoded from the PAYMENT-SIGNATURE header.
 type X402PaymentPayload struct {
-	X402Version int                    `json:"x402Version"`
-	Payload     map[string]interface{} `json:"payload"`   // scheme-specific (EIP-3009 authorization, Permit2, etc.)
+	X402Version int                     `json:"x402Version"`
+	Payload     map[string]interface{}  `json:"payload"`  // scheme-specific (EIP-3009 authorization, Permit2, etc.)
 	Accepted    X402PaymentRequirements `json:"accepted"` // what the client accepted
 	Resource    *X402ResourceInfo       `json:"resource,omitempty"`
-	Extensions  map[string]interface{} `json:"extensions,omitempty"`
+	Extensions  map[string]interface{}  `json:"extensions,omitempty"`
 }
 
 // X402PaymentRequirements represents the payment requirements the client accepted.
@@ -499,9 +495,9 @@ type X402PaymentRequirements struct {
 
 // X402ResourceInfo describes the resource being accessed.
 type X402ResourceInfo struct {
-	URL         string   `json:"url"`
-	Description string   `json:"description,omitempty"`
-	MimeType    string   `json:"mimeType,omitempty"`
+	URL         string `json:"url"`
+	Description string `json:"description,omitempty"`
+	MimeType    string `json:"mimeType,omitempty"`
 }
 
 // PaymentConfirmation contains the result of a confirmed payment
@@ -526,5 +522,3 @@ func AsPaymentProcessor(gateway GatewayIdentity) (PaymentProcessor, error) {
 	}
 	return processor, nil
 }
-
-

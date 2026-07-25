@@ -33,9 +33,9 @@
 //   - PaidAmount (float64, USD): The Amount value converted to OrderCurrency.
 //     This is the actual fiat value of the crypto received. Used for:
 //     (1) price verification via priceMatchesExpected() — ensures checkout
-//         config wasn't tampered with;
+//     config wasn't tampered with;
 //     (2) payment credit (IssueCreditWithIdempotency) — the user receives
-//         the full fiat value they paid. The ATLOS fee does NOT reduce this.
+//     the full fiat value they paid. The ATLOS fee does NOT reduce this.
 //
 //   - OrderCurrency (string): Fiat currency code (always "USD" for us).
 //
@@ -53,10 +53,10 @@
 // # Proration credit flow
 //
 // When a user has partial ledger credit at plan change time:
-//   1. Plan change: detect credit, reduce checkout amount by credit, but do NOT debit it
-//   2. Webhook: recalculate full proration, infer credit = fullProration - paidAmount,
-//      cap at user balance, verify priceMatchesExpected(paidAmount, fullProration - credit),
-//      then debit the inferred credit from user's balance
+//  1. Plan change: detect credit, reduce checkout amount by credit, but do NOT debit it
+//  2. Webhook: recalculate full proration, infer credit = fullProration - paidAmount,
+//     cap at user balance, verify priceMatchesExpected(paidAmount, fullProration - credit),
+//     then debit the inferred credit from user's balance
 package atlos
 
 import (
@@ -74,8 +74,8 @@ import (
 	"go.lumeweb.com/atlos-sdk"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
 	"go.lumeweb.com/portal-plugin-billing/internal/config"
-	billingEvent "go.lumeweb.com/portal-plugin-billing/internal/event"
 	billingModels "go.lumeweb.com/portal-plugin-billing/internal/db/models"
+	billingEvent "go.lumeweb.com/portal-plugin-billing/internal/event"
 	"go.lumeweb.com/portal-plugin-billing/internal/gateway"
 	"go.lumeweb.com/portal-plugin-billing/pkg/subscription"
 	quotaCore "go.lumeweb.com/portal-plugin-quota/core"
@@ -149,8 +149,8 @@ func (g *AtlosGateway) ParseOrderID(orderID string) (*ParsedOrderID, error) {
 
 // atlosPaymentConfigData contains configuration for ATLOS payment widget templates
 type atlosPaymentConfigData struct {
-	ButtonID    string
-	ConfigJSON  string // Serialized JSON configuration for the widget
+	ButtonID   string
+	ConfigJSON string // Serialized JSON configuration for the widget
 }
 
 // ATLOS recurrence unit constants
@@ -179,40 +179,40 @@ func cadenceToAtlosUnit(cadence string) int {
 // atlOSConfig represents the raw config data structure for ATLOS widget
 // This is serialized to JSON and passed to the frontend for Object.assign merging
 type atlOSConfig struct {
-	MerchantID     string `json:"merchantId"`
-	OrderID        string `json:"orderId"`
-	OrderAmount    float64 `json:"orderAmount"`
-	OrderCurrency  string `json:"orderCurrency"`
-	UserName       string `json:"userName"`
-	UserEmail      string `json:"userEmail"`
-	CaptureEmail   bool   `json:"captureEmail"`
-	PostbackURL    string `json:"postbackUrl"`
-	Subscription   []atlOSSubscriptionItem `json:"subscription,omitempty"`
-	Language       string `json:"language"`
-	Theme          string `json:"theme"`
+	MerchantID    string                  `json:"merchantId"`
+	OrderID       string                  `json:"orderId"`
+	OrderAmount   float64                 `json:"orderAmount"`
+	OrderCurrency string                  `json:"orderCurrency"`
+	UserName      string                  `json:"userName"`
+	UserEmail     string                  `json:"userEmail"`
+	CaptureEmail  bool                    `json:"captureEmail"`
+	PostbackURL   string                  `json:"postbackUrl"`
+	Subscription  []atlOSSubscriptionItem `json:"subscription,omitempty"`
+	Language      string                  `json:"language"`
+	Theme         string                  `json:"theme"`
 }
 
 // atlOSSubscriptionItem represents a single subscription item
 type atlOSSubscriptionItem struct {
-	Amount     float64 `json:"amount"`
-	Unit       int     `json:"unit"`
-	Interval   int     `json:"interval"`
-	StartInterval int  `json:"startInterval"`
+	Amount        float64 `json:"amount"`
+	Unit          int     `json:"unit"`
+	Interval      int     `json:"interval"`
+	StartInterval int     `json:"startInterval"`
 }
 
 // PlanChangeCalculation contains the business logic results for a plan change
 type PlanChangeCalculation struct {
-	OldPeriod              *billingModels.PricingPlanPeriod
-	NewPeriod              *billingModels.PricingPlanPeriod
-	ProrationResult        subscription.ProrationResult
-	NetAmountDue           decimal.Decimal
-	CheckoutAmount         decimal.Decimal
-	ActionType             PlanChangeActionType
-	CreditToIssue          decimal.Decimal
-	ExistingCreditApplied  decimal.Decimal
-	EffectiveDate           time.Time
-	CurrentSub             *billingModels.Subscriber
-	NewPlan                *billingModels.PricingPlan
+	OldPeriod             *billingModels.PricingPlanPeriod
+	NewPeriod             *billingModels.PricingPlanPeriod
+	ProrationResult       subscription.ProrationResult
+	NetAmountDue          decimal.Decimal
+	CheckoutAmount        decimal.Decimal
+	ActionType            PlanChangeActionType
+	CreditToIssue         decimal.Decimal
+	ExistingCreditApplied decimal.Decimal
+	EffectiveDate         time.Time
+	CurrentSub            *billingModels.Subscriber
+	NewPlan               *billingModels.PricingPlan
 }
 
 // PlanChangeActionType defines the type of action needed for a plan change
@@ -384,6 +384,7 @@ func (g *AtlosGateway) DeactivateSubscriber(ctx context.Context, userID uint, ga
 // For ATLOS:
 //   - If immediate=true: cancels immediately, issues proration credit, deactivates subscriber
 //   - If immediate=false: schedules cancellation at the end of the current billing period
+//
 // The reconciliation cron job will process scheduled cancellations when WillCancelAt is reached.
 // Returns a CancellationResult indicating the cancellation status and whether it can be aborted.
 func (g *AtlosGateway) ExecuteCancel(ctx context.Context, userID uint, immediate bool) (*pluginCore.CancellationResult, error) {
@@ -751,9 +752,10 @@ func (g *AtlosGateway) AbortCancellation(ctx context.Context, userID uint) error
 // 2. Gets the current subscription and its period
 // 3. Calculates proration between old and new plans
 // 4. Determines the appropriate action based on net amount due
-//    - CreditOnly: User has net credit, skip checkout, issue credit directly
-//    - ZeroAmount: Exact proration match, skip checkout, activate immediately
-//    - CheckoutRequired: User owes money, show prorated checkout
+//   - CreditOnly: User has net credit, skip checkout, issue credit directly
+//   - ZeroAmount: Exact proration match, skip checkout, activate immediately
+//   - CheckoutRequired: User owes money, show prorated checkout
+//
 // 5. Executes the determined action
 //
 // The customer pays the prorated difference in a single transaction for better UX.
@@ -2211,4 +2213,3 @@ func priceMatchesExpected(paidAmount, expectedPrice decimal.Decimal) bool {
 func (g *AtlosGateway) Metrics() []prometheus.Collector {
 	return GetCollectors()
 }
-

@@ -36,7 +36,6 @@ var (
 	_ pluginCore.PaymentAddressProvider = (*AtlosGateway)(nil)
 )
 
-// WebhookNonceCache stores nonce → payment mapping from ATLOS postbacks
 type WebhookNonceCache struct {
 	mu      sync.RWMutex
 	entries map[string]*cachedPayment
@@ -48,19 +47,16 @@ type cachedPayment struct {
 	PaidAt        time.Time
 }
 
-// NewWebhookNonceCache creates a new in-memory webhook nonce cache.
 func NewWebhookNonceCache() *WebhookNonceCache {
 	return &WebhookNonceCache{entries: make(map[string]*cachedPayment)}
 }
 
-// Set stores a payment record for a nonce.
 func (c *WebhookNonceCache) Set(nonce string, payment *cachedPayment) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.entries[nonce] = payment
 }
 
-// Get retrieves a payment record by nonce.
 func (c *WebhookNonceCache) Get(nonce string) (*cachedPayment, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -68,28 +64,22 @@ func (c *WebhookNonceCache) Get(nonce string) (*cachedPayment, bool) {
 	return p, ok
 }
 
-// AtlosPaymentInfo stores the ATLOS payment details returned from CreatePayment API.
 type AtlosPaymentInfo struct {
-	PaymentID       string
-	WalletAddress   string
-	AssetCode       string
-	BlockchainCode  float32
-	Amount          string // smallest unit, no decimal point
+	PaymentID      string
+	WalletAddress  string
+	AssetCode      string
+	BlockchainCode float32
+	Amount         string // smallest unit, no decimal point
 }
 
-// CreatePaymentAddress creates an ATLOS payment and returns the receiving wallet address.
 func (g *AtlosGateway) CreatePaymentAddress(ctx context.Context, assetCode string, blockchainCode float32, amount decimal.Decimal, nonce string) (*pluginCore.PaymentAddress, error) {
 	client, err := g.newAtlosClient()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ATLOS client: %w", err)
 	}
 
-	// Convert amount to smallest unit string (no decimal point)
-	// For USDC with 6 decimals, $10.50 becomes "10500000"
 	amountStr := amount.Mul(decimal.NewFromInt(1e6)).Truncate(0).String()
 
-	// Create the payment with an invoice that contains the nonce as OrderId
-	// This allows ATLOS webhooks to correlate by nonce directly
 	invoiceResp, err := client.InvoiceCreate(ctx, atlos.InvoiceCreatePostRequest{
 		MerchantId:    g.config.MerchantID,
 		OrderAmount:   float32(amount.InexactFloat64()),
@@ -103,7 +93,6 @@ func (g *AtlosGateway) CreatePaymentAddress(ctx context.Context, assetCode strin
 
 	invoiceId := *invoiceResp.Id
 
-	// Now create the payment against this invoice
 	payment, err := client.CreatePayment(ctx, atlos.CreatePaymentPostRequest{
 		AssetCode:      assetCode,
 		BlockchainCode: blockchainCode,
@@ -131,10 +120,7 @@ func (g *AtlosGateway) CreatePaymentAddress(ctx context.Context, assetCode strin
 	}, nil
 }
 
-// ConfirmPayment checks if ATLOS has received payment for this nonce.
-// Queries the database first (source of truth), falls back to in-memory webhook cache.
 func (g *AtlosGateway) ConfirmPayment(ctx context.Context, nonce string, expectedAmount decimal.Decimal) (*pluginCore.PaymentConfirmation, error) {
-	// Primary: check database for settled status
 	var record x402NonceDB
 	err := g.coreCtx.DB().WithContext(ctx).
 		Where("nonce = ? AND status = ?", nonce, "settled").
@@ -147,7 +133,6 @@ func (g *AtlosGateway) ConfirmPayment(ctx context.Context, nonce string, expecte
 		}, nil
 	}
 
-	// Fallback: check in-memory webhook cache (for settled-before-DB scenarios during migration)
 	payment, ok := g.webhookCache.Get(nonce)
 	if !ok {
 		return nil, pluginCore.ErrPaymentPending
@@ -164,7 +149,6 @@ func (g *AtlosGateway) ConfirmPayment(ctx context.Context, nonce string, expecte
 	}, nil
 }
 
-// isX402Nonce checks if an order ID is an x402 nonce (UUID format).
 func (g *AtlosGateway) isX402Nonce(orderID string) bool {
 	if len(orderID) != 36 {
 		return false
@@ -187,8 +171,6 @@ func (g *AtlosGateway) isX402Nonce(orderID string) bool {
 	return true
 }
 
-// handleX402Webhook handles ATLOS webhooks for x402 payments.
-// Marks the nonce as settled in the database and caches for in-memory lookup.
 func (g *AtlosGateway) handleX402Webhook(ctx context.Context, notification atlos.PostbackNotification) error {
 	paidAmount := decimal.NewFromFloat(notification.PaidAmount)
 
@@ -200,7 +182,6 @@ func (g *AtlosGateway) handleX402Webhook(ctx context.Context, notification atlos
 		return nil
 	}
 
-	// Mark nonce as settled in database (source of truth)
 	result := g.coreCtx.DB().WithContext(ctx).
 		Model(&x402NonceDB{}).
 		Where("nonce = ? AND status = ?", nonce, "pending").
@@ -222,7 +203,6 @@ func (g *AtlosGateway) handleX402Webhook(ctx context.Context, notification atlos
 		)
 	}
 
-	// Also cache in-memory for fast lookup (optional, cache is secondary)
 	g.webhookCache.Set(nonce, &cachedPayment{
 		TransactionId: notification.TransactionId,
 		PaidAmount:    paidAmount,

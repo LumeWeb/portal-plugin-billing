@@ -29,11 +29,11 @@ const (
 
 // Predefined management endpoint paths
 const (
-	CancelEndpointPath      = "/api/account/billing/cancel"
-	AbortCancelEndpointPath = "/api/account/billing/cancel/abort"
-	ChangePlanEndpointPath  = "/api/account/billing/change-plan"
-	PauseEndpointPath       = "/api/account/billing/pause"
-	ResumeEndpointPath      = "/api/account/billing/resume"
+	CancelEndpointPath         = "/api/account/billing/cancel"
+	AbortCancelEndpointPath    = "/api/account/billing/cancel/abort"
+	ChangePlanEndpointPath     = "/api/account/billing/change-plan"
+	PauseEndpointPath          = "/api/account/billing/pause"
+	ResumeEndpointPath         = "/api/account/billing/resume"
 	CustomerPortalEndpointPath = "/api/account/billing/customer-portal"
 )
 

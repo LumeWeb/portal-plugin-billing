@@ -3,8 +3,8 @@ package core
 import (
 	"context"
 
-	"go.lumeweb.com/portal/core"
 	quotaCore "go.lumeweb.com/portal-plugin-quota/core"
+	"go.lumeweb.com/portal/core"
 )
 
 // GatewaySetupFunc is a function that sets up and registers a gateway

@@ -92,7 +92,6 @@ type CreditService interface {
 		changeType SubscriptionChangeType,
 		expectedAmount decimal.Decimal,
 	) error
-
 }
 
 // DefaultSoftDeleteRetention is the default retention period for soft-deleted credits (30 days)

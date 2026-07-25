@@ -19,7 +19,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// Handler handles x402 challenge/response for credit purchases.
 type Handler struct {
 	billingService pluginCore.BillingService
 	creditService  pluginCore.CreditService
@@ -28,10 +27,8 @@ type Handler struct {
 	tokenGen       TokenGenerator
 }
 
-// TokenGenerator creates a JWT for a given user ID.
 type TokenGenerator func(userID uint) (string, error)
 
-// NewHandler creates a new x402 handler.
 func NewHandler(billing pluginCore.BillingService, credit pluginCore.CreditService, store NonceStore, users core.UserService, tokenGen TokenGenerator) *Handler {
 	return &Handler{
 		billingService: billing,
@@ -42,7 +39,6 @@ func NewHandler(billing pluginCore.BillingService, credit pluginCore.CreditServi
 	}
 }
 
-// Challenge represents an x402 payment challenge.
 type Challenge struct {
 	X402Version int                `json:"x402Version"`
 	Accepts     []ChallengeAccepts `json:"accepts"`
@@ -50,7 +46,6 @@ type Challenge struct {
 	ExpiresAt   time.Time          `json:"expiresAt"`
 }
 
-// ChallengeAccepts defines what payment schemes the server accepts.
 type ChallengeAccepts struct {
 	Scheme        string `json:"scheme"`
 	Network       string `json:"network"`
@@ -60,7 +55,6 @@ type ChallengeAccepts struct {
 	MaxTimeoutSec int    `json:"maxTimeoutSeconds"`
 }
 
-// HandleCheckout handles POST /api/credits/purchase with x402.
 func (h *Handler) HandleCheckout(c echo.Context) error {
 	ctx := c.Request().Context()
 	wallet := c.QueryParam("wallet")
@@ -76,13 +70,11 @@ func (h *Handler) HandleCheckout(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid amount"})
 	}
 
-	// No payment proof → return challenge
 	sig := c.Request().Header.Get("PAYMENT-SIGNATURE")
 	if sig == "" {
 		return h.returnChallenge(c, ctx, wallet, amount)
 	}
 
-	// Get ATLOS gateway from registry
 	gatewayIdentity, err := h.billingService.GetGateway(ctx, gatewayType)
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "gateway not found"})
@@ -93,19 +85,16 @@ func (h *Handler) HandleCheckout(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "gateway does not support x402"})
 	}
 
-	// Parse payment proof from x402 payload
 	x402Payload, err := h.parsePayload(sig)
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid payment payload"})
 	}
 
-	// Get nonce from payload — used to correlate with stored session
 	nonce := h.extractNonce(x402Payload)
 	if nonce == "" {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "missing nonce in payload"})
 	}
 
-	// Look up session
 	userID, expectedAmount, _, found, err := h.nonceStore.Get(ctx, nonce)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "nonce lookup failed"})
@@ -118,7 +107,6 @@ func (h *Handler) HandleCheckout(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "amount mismatch"})
 	}
 
-	// Confirm payment settled with ATLOS
 	confirmation, err := processor.ConfirmPayment(ctx, nonce, amount)
 	if errors.Is(err, pluginCore.ErrPaymentPending) {
 		return c.JSON(http.StatusAccepted, map[string]string{
@@ -130,7 +118,6 @@ func (h *Handler) HandleCheckout(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
 
-	// Issue credit
 	if err := h.creditService.IssueCreditFromGateway(
 		ctx,
 		uint64(userID),
@@ -144,10 +131,8 @@ func (h *Handler) HandleCheckout(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to issue credit"})
 	}
 
-	// Clean up nonce
 	h.nonceStore.Delete(ctx, nonce)
 
-	// Return updated balance + JWT
 	balance, _ := h.creditService.GetUserBalance(ctx, uint64(userID))
 
 	response := map[string]interface{}{
@@ -156,7 +141,6 @@ func (h *Handler) HandleCheckout(c echo.Context) error {
 		"currency":       confirmation.Currency,
 	}
 
-	// Generate JWT if token generator is available
 	if h.tokenGen != nil {
 		token, err := h.tokenGen(userID)
 		if err != nil {
@@ -178,7 +162,6 @@ func (h *Handler) returnChallenge(c echo.Context, ctx context.Context, wallet st
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to generate nonce"})
 	}
 
-	// Find or create user by wallet (creates anonymous account if needed)
 	user, err := h.findOrCreateUserByWallet(ctx, wallet)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "user setup failed: " + err.Error()})
@@ -188,7 +171,6 @@ func (h *Handler) returnChallenge(c echo.Context, ctx context.Context, wallet st
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to store nonce"})
 	}
 
-	// Get ATLOS gateway to create a payment address
 	gatewayIdentity, err := h.billingService.GetGateway(ctx, DefaultGatewayType)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "gateway not found"})
@@ -199,13 +181,11 @@ func (h *Handler) returnChallenge(c echo.Context, ctx context.Context, wallet st
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "gateway does not support payment addresses"})
 	}
 
-	// Create ATLOS payment to get receiving wallet address
 	paymentAddr, err := addrProvider.CreatePaymentAddress(ctx, "USDC", 8453, amount, nonce)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to create payment address: " + err.Error()})
 	}
 
-	// Store gateway payment ID for webhook correlation
 	if err := h.nonceStore.SetGatewayPaymentID(ctx, nonce, paymentAddr.PaymentID); err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to store payment ID"})
 	}
@@ -233,8 +213,6 @@ func (h *Handler) returnChallenge(c echo.Context, ctx context.Context, wallet st
 	return c.NoContent(http.StatusPaymentRequired)
 }
 
-// findOrCreateUserByWallet finds an existing user by wallet pubkey, or creates
-// an anonymous account with the wallet associated.
 func (h *Handler) findOrCreateUserByWallet(ctx context.Context, wallet string) (*models.User, error) {
 	exists, pubkey, err := h.userService.PubkeyExists(ctx, wallet)
 	if err != nil {
@@ -244,7 +222,6 @@ func (h *Handler) findOrCreateUserByWallet(ctx context.Context, wallet string) (
 		return &pubkey.User, nil
 	}
 
-	// Create anonymous account with deterministic email derived from wallet
 	email := fmt.Sprintf("anon_%s@local.invalid", strings.ToLower(wallet))
 	password := core.GenerateSecurityToken() + core.GenerateSecurityToken() // 12 random chars
 
@@ -264,13 +241,11 @@ func (h *Handler) findOrCreateUserByWallet(ctx context.Context, wallet string) (
 		return nil, fmt.Errorf("create account failed: %w", err)
 	}
 
-	// Mark as verified (skip email verification)
 	if err := h.userService.UpdateAccountInfo(ctx, user.ID, map[string]interface{}{"verified": true}); err != nil {
 		return nil, fmt.Errorf("verify account failed: %w", err)
 	}
 	user.Verified = true
 
-	// Associate wallet pubkey
 	if err := h.userService.AddPubkeyToAccount(ctx, *user, wallet); err != nil {
 		return nil, fmt.Errorf("add pubkey failed: %w", err)
 	}
@@ -278,7 +253,6 @@ func (h *Handler) findOrCreateUserByWallet(ctx context.Context, wallet string) (
 	return user, nil
 }
 
-// parsePayload decodes the x402 v2 payment payload from the PAYMENT-SIGNATURE header.
 func (h *Handler) parsePayload(header string) (*pluginCore.X402PaymentPayload, error) {
 	if header == "" {
 		return nil, errors.New("missing payment signature")
@@ -297,17 +271,13 @@ func (h *Handler) parsePayload(header string) (*pluginCore.X402PaymentPayload, e
 	return &payload, nil
 }
 
-// extractNonce pulls the nonce from the x402 payload.
-// Tries payload.nonce first, then falls back to authorization.nonce for EIP-3009.
 func (h *Handler) extractNonce(payload *pluginCore.X402PaymentPayload) string {
 	if payload == nil {
 		return ""
 	}
-	// For "exact" scheme without authorization, nonce may be at top level
 	if n, ok := payload.Payload["nonce"].(string); ok && n != "" {
 		return n
 	}
-	// For EIP-3009 style, nonce is inside authorization
 	if auth, ok := payload.Payload["authorization"].(map[string]interface{}); ok {
 		if n, ok := auth["nonce"].(string); ok {
 			return n
