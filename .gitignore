@@ -2,4 +2,4 @@
 vendor
 .idea
 .zed/
-*.test
+*.testTARGET-PLAN-*.md
