@@ -242,6 +242,7 @@ type AtlosGateway struct {
 	pricing      pluginCore.PricingService
 	credit       pluginCore.CreditService
 	webhookCache *WebhookNonceCache // x402 payment lookup cache
+	assetCache   *assetLookup
 }
 
 // New creates a new AtlosGateway instance
@@ -265,6 +266,7 @@ func New(
 		pricing:      pricing,
 		credit:       credit,
 		webhookCache: NewWebhookNonceCache(),
+		assetCache:   newAssetLookup(),
 	}
 }
 

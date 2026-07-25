@@ -133,6 +133,14 @@ func (m *mockPaymentAddressProvider) CreatePaymentAddress(ctx context.Context, a
 	return args.Get(0).(*pluginCore.PaymentAddress), args.Error(1)
 }
 
+func (m *mockPaymentAddressProvider) SupportedAssets(ctx context.Context) ([]pluginCore.SupportedAsset, error) {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]pluginCore.SupportedAsset), args.Error(1)
+}
+
 func (m *mockPaymentAddressProvider) ConfirmPayment(ctx context.Context, nonce string, expectedAmount decimal.Decimal) (*pluginCore.PaymentConfirmation, error) {
 	args := m.Called(ctx, nonce, expectedAmount)
 	if args.Get(0) == nil {
@@ -157,12 +165,12 @@ func (m *mockUserService) EmailExists(ctx context.Context, email string) (bool, 
 	}
 	return args.Bool(0), args.Get(1).(*models.User), args.Error(2)
 }
-func (m *mockUserService) PubkeyExists(ctx context.Context, pubkey string) (bool, *models.PublicKey, error) {
-	args := m.Called(ctx, pubkey)
+func (m *mockUserService) KeyIdentityExists(ctx context.Context, keyType string, key string) (bool, *models.KeyIdentity, error) {
+	args := m.Called(ctx, keyType, key)
 	if args.Get(1) == nil {
 		return args.Bool(0), nil, args.Error(2)
 	}
-	return args.Bool(0), args.Get(1).(*models.PublicKey), args.Error(2)
+	return args.Bool(0), args.Get(1).(*models.KeyIdentity), args.Error(2)
 }
 func (m *mockUserService) AccountExists(ctx context.Context, id uint) (bool, *models.User, error) {
 	args := m.Called(ctx, id)
@@ -194,8 +202,18 @@ func (m *mockUserService) UpdateAccountEmail(ctx context.Context, userId uint, e
 func (m *mockUserService) UpdateAccountPassword(ctx context.Context, userId uint, password, newPassword string) error {
 	return m.Called(ctx, userId, password, newPassword).Error(0)
 }
-func (m *mockUserService) AddPubkeyToAccount(ctx context.Context, user models.User, pubkey string) error {
-	return m.Called(ctx, user, pubkey).Error(0)
+func (m *mockUserService) AddKeyIdentity(ctx context.Context, userId uint, keyType string, key string, metadata json.RawMessage) error {
+	return m.Called(ctx, userId, keyType, key, metadata).Error(0)
+}
+func (m *mockUserService) RemoveKeyIdentity(ctx context.Context, userId uint, keyType string, key string) error {
+	return m.Called(ctx, userId, keyType, key).Error(0)
+}
+func (m *mockUserService) ListKeyIdentities(ctx context.Context, userId uint) ([]models.KeyIdentity, error) {
+	args := m.Called(ctx, userId)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]models.KeyIdentity), args.Error(1)
 }
 func (m *mockUserService) SendEmailVerification(ctx context.Context, userId uint) error {
 	return m.Called(ctx, userId).Error(0)
@@ -254,7 +272,7 @@ func setupTestHandler(t *testing.T) (*Handler, *mockBillingService, *mockCreditS
 
 	tokenGen := func(userID uint) (string, error) { return "test-jwt-token", nil }
 
-	handler := NewHandler(billingSvc, creditSvc, nonceStore, userSvc, tokenGen)
+	handler := NewHandler(billingSvc, creditSvc, nonceStore, nil, userSvc, tokenGen)
 	return handler, billingSvc, creditSvc, nonceStore, userSvc
 }
 
@@ -288,12 +306,25 @@ func TestHandleCheckout_NoPaymentSignature_ReturnsChallenge(t *testing.T) {
 	handler, billingSvc, _, nonceStore, userSvc := setupTestHandler(t)
 
 	existingUser := &models.User{Model: gorm.Model{ID: 42}, Email: "user@example.com"}
-	pubkey := &models.PublicKey{UserID: 42, User: *existingUser}
-	userSvc.On("PubkeyExists", mock.Anything, "0x1234").Return(true, pubkey, nil)
+	keyIdentity := &models.KeyIdentity{UserID: 42, User: *existingUser}
+	userSvc.On("KeyIdentityExists", mock.Anything, "ethereum", "0x1234").Return(true, keyIdentity, nil)
+
+	testAssets := []pluginCore.SupportedAsset{
+		{
+			AssetCode:      "usdc",
+			AssetName:      "USD Coin",
+			BlockchainCode:  8453,
+			BlockchainName: "Base",
+			TokenAddress:   "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+			Decimals:       6,
+			IsStable:       true,
+		},
+	}
 
 	gateway := &mockPaymentAddressProvider{}
-	gateway.On("CreatePaymentAddress", mock.Anything, "USDC", float32(8453), mock.Anything, mock.Anything).
-		Return(&pluginCore.PaymentAddress{PaymentID: "pay-123", WalletAddress: "0xATLOS"}, nil)
+	gateway.On("SupportedAssets", mock.Anything).Return(testAssets, nil)
+	gateway.On("CreatePaymentAddress", mock.Anything, "usdc", float32(8453), mock.Anything, mock.Anything).
+		Return(&pluginCore.PaymentAddress{PaymentID: "pay-123", WalletAddress: "0xATLOS", Amount: "5000000"}, nil)
 	billingSvc.On("GetGateway", mock.Anything, "atlos").Return(gateway, nil)
 
 	nonceStore.On("Set", mock.Anything, mock.AnythingOfType("string"), uint(42), mock.Anything, "atlos", 5*time.Minute).Return(nil)
@@ -319,6 +350,8 @@ func TestHandleCheckout_NoPaymentSignature_ReturnsChallenge(t *testing.T) {
 	assert.Equal(t, 2, challenge.X402Version)
 	assert.Len(t, challenge.Accepts, 1)
 	assert.Equal(t, "exact", challenge.Accepts[0].Scheme)
+	assert.Equal(t, "eip155:8453", challenge.Accepts[0].Network)
+	assert.Equal(t, "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", challenge.Accepts[0].Asset)
 	assert.Equal(t, "0xATLOS", challenge.Accepts[0].PayTo)
 	assert.NotEmpty(t, challenge.Nonce)
 }
@@ -328,8 +361,8 @@ func TestHandleCheckout_WithPaymentSignature_ExistingUser_CreditsIssued(t *testi
 
 	payload := pluginCore.X402PaymentPayload{
 		X402Version: 2,
-		Payload: map[string]interface{}{
-			"authorization": map[string]interface{}{"nonce": "test-nonce-123"},
+		Payload: pluginCore.X402Payload{
+			Authorization: &pluginCore.X402Authorization{Nonce: "test-nonce-123"},
 		},
 	}
 	payloadBytes, _ := json.Marshal(payload)
@@ -357,12 +390,12 @@ func TestHandleCheckout_WithPaymentSignature_ExistingUser_CreditsIssued(t *testi
 	assert.NoError(t, err)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	var response map[string]interface{}
+	var response pluginCore.X402PaymentResponse
 	err = json.Unmarshal(rec.Body.Bytes(), &response)
 	require.NoError(t, err)
-	assert.Equal(t, "test-jwt-token", response["token"])
-	assert.Equal(t, "10", response["credit_balance"])
-	assert.Equal(t, "5", response["amount_paid"])
+	assert.Equal(t, "test-jwt-token", response.Token)
+	assert.Equal(t, "10", response.CreditBalance)
+	assert.Equal(t, "5", response.AmountPaid)
 }
 
 func TestHandleCheckout_WithPaymentSignature_NewUser_AnonAccountCreated(t *testing.T) {
@@ -370,8 +403,8 @@ func TestHandleCheckout_WithPaymentSignature_NewUser_AnonAccountCreated(t *testi
 
 	payload := pluginCore.X402PaymentPayload{
 		X402Version: 2,
-		Payload: map[string]interface{}{
-			"nonce": "new-user-nonce",
+		Payload: pluginCore.X402Payload{
+			Nonce: "new-user-nonce",
 		},
 	}
 	payloadBytes, _ := json.Marshal(payload)
@@ -405,16 +438,19 @@ func TestHandleCheckout_WithPaymentSignature_NewUser_AnonAccountCreated(t *testi
 func TestReturnChallenge_NewWallet_CreatesAnonUser(t *testing.T) {
 	handler, billingSvc, _, nonceStore, userSvc := setupTestHandler(t)
 
-	userSvc.On("PubkeyExists", mock.Anything, "0xNEWWALLET").Return(false, nil, nil)
+	userSvc.On("KeyIdentityExists", mock.Anything, "ethereum", "0xNEWWALLET").Return(false, nil, nil)
 
 	newUser := &models.User{Model: gorm.Model{ID: 77}, Email: "anon_0xnewwallet@local.invalid", Verified: true}
 	userSvc.On("CreateAccount", mock.Anything, mock.AnythingOfType("string"), mock.AnythingOfType("string"), false).Return(newUser, nil)
 	userSvc.On("UpdateAccountInfo", mock.Anything, uint(77), map[string]interface{}{"verified": true}).Return(nil)
-	userSvc.On("AddPubkeyToAccount", mock.Anything, *newUser, "0xNEWWALLET").Return(nil)
+	userSvc.On("AddKeyIdentity", mock.Anything, uint(77), "ethereum", "0xNEWWALLET", mock.Anything).Return(nil)
 
 	gateway := &mockPaymentAddressProvider{}
-	gateway.On("CreatePaymentAddress", mock.Anything, "USDC", float32(8453), mock.Anything, mock.Anything).
-		Return(&pluginCore.PaymentAddress{PaymentID: "pay-new", WalletAddress: "0xATLOSNEW"}, nil)
+	gateway.On("SupportedAssets", mock.Anything).Return([]pluginCore.SupportedAsset{
+		{AssetCode: "usdc", BlockchainCode: 8453, TokenAddress: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", Decimals: 6, IsStable: true},
+	}, nil)
+	gateway.On("CreatePaymentAddress", mock.Anything, "usdc", float32(8453), mock.Anything, mock.Anything).
+		Return(&pluginCore.PaymentAddress{PaymentID: "pay-new", WalletAddress: "0xATLOSNEW", Amount: "5000000"}, nil)
 	billingSvc.On("GetGateway", mock.Anything, "atlos").Return(gateway, nil)
 
 	nonceStore.On("Set", mock.Anything, mock.AnythingOfType("string"), uint(77), mock.Anything, "atlos", 5*time.Minute).Return(nil)
@@ -430,15 +466,15 @@ func TestReturnChallenge_NewWallet_CreatesAnonUser(t *testing.T) {
 	assert.Equal(t, http.StatusPaymentRequired, rec.Code)
 
 	userSvc.AssertCalled(t, "CreateAccount", mock.Anything, mock.AnythingOfType("string"), mock.AnythingOfType("string"), false)
-	userSvc.AssertCalled(t, "AddPubkeyToAccount", mock.Anything, mock.Anything, "0xNEWWALLET")
+	userSvc.AssertCalled(t, "AddKeyIdentity", mock.Anything, mock.Anything, "ethereum", "0xNEWWALLET", mock.Anything)
 }
 
 func TestFindOrCreateUserByWallet_ExistingUser_ReturnsUser(t *testing.T) {
 	handler, _, _, _, userSvc := setupTestHandler(t)
 
 	existingUser := &models.User{Model: gorm.Model{ID: 42}, Email: "existing@example.com"}
-	pubkey := &models.PublicKey{UserID: 42, User: *existingUser}
-	userSvc.On("PubkeyExists", mock.Anything, "0xEXISTING").Return(true, pubkey, nil)
+	keyIdentity := &models.KeyIdentity{UserID: 42, User: *existingUser}
+	userSvc.On("KeyIdentityExists", mock.Anything, "ethereum", "0xEXISTING").Return(true, keyIdentity, nil)
 
 	user, err := handler.findOrCreateUserByWallet(context.Background(), "0xEXISTING")
 	assert.NoError(t, err)
@@ -450,7 +486,7 @@ func TestFindOrCreateUserByWallet_ExistingUser_ReturnsUser(t *testing.T) {
 func TestFindOrCreateUserByWallet_NewUser_CreatesAnonAccount(t *testing.T) {
 	handler, _, _, _, userSvc := setupTestHandler(t)
 
-	userSvc.On("PubkeyExists", mock.Anything, "0xNEW").Return(false, nil, nil)
+	userSvc.On("KeyIdentityExists", mock.Anything, "ethereum", "0xNEW").Return(false, nil, nil)
 
 	newUser := &models.User{Model: gorm.Model{ID: 99}, Email: "anon_0xnew@local.invalid"}
 	userSvc.On("CreateAccount", mock.Anything, mock.MatchedBy(func(email string) bool {
@@ -458,9 +494,9 @@ func TestFindOrCreateUserByWallet_NewUser_CreatesAnonAccount(t *testing.T) {
 	}), mock.AnythingOfType("string"), false).Return(newUser, nil)
 	userSvc.On("UpdateAccountInfo", mock.Anything, uint(99), map[string]interface{}{"verified": true}).Return(nil)
 	// After UpdateAccountInfo is called, findOrCreateUserByWallet modifies the pointer in place
-	userSvc.On("AddPubkeyToAccount", mock.Anything, mock.MatchedBy(func(user models.User) bool {
-		return user.ID == 99 && user.Verified == true
-	}), "0xNEW").Return(nil)
+	userSvc.On("AddKeyIdentity", mock.Anything, mock.MatchedBy(func(userID uint) bool {
+		return userID == 99
+	}), "ethereum", "0xNEW", mock.Anything).Return(nil)
 
 	user, err := handler.findOrCreateUserByWallet(context.Background(), "0xNEW")
 	assert.NoError(t, err)
@@ -469,7 +505,7 @@ func TestFindOrCreateUserByWallet_NewUser_CreatesAnonAccount(t *testing.T) {
 	assert.Equal(t, true, user.Verified)
 
 	userSvc.AssertCalled(t, "CreateAccount", mock.Anything, mock.Anything, mock.Anything, false)
-	userSvc.AssertCalled(t, "AddPubkeyToAccount", mock.Anything, mock.Anything, "0xNEW")
+	userSvc.AssertCalled(t, "AddKeyIdentity", mock.Anything, mock.Anything, "ethereum", "0xNEW", mock.Anything)
 }
 
 func TestParsePayload_PaymentSignatureHeader(t *testing.T) {
@@ -477,8 +513,8 @@ func TestParsePayload_PaymentSignatureHeader(t *testing.T) {
 
 	payload := pluginCore.X402PaymentPayload{
 		X402Version: 2,
-		Payload: map[string]interface{}{
-			"nonce": "test-nonce",
+		Payload: pluginCore.X402Payload{
+			Nonce: "test-nonce",
 		},
 	}
 	payloadBytes, _ := json.Marshal(payload)
@@ -507,8 +543,8 @@ func TestHandleCheckout_PaymentPending_ReturnsAccepted(t *testing.T) {
 
 	payload := pluginCore.X402PaymentPayload{
 		X402Version: 2,
-		Payload: map[string]interface{}{
-			"nonce": "pending-nonce",
+		Payload: pluginCore.X402Payload{
+			Nonce: "pending-nonce",
 		},
 	}
 	payloadBytes, _ := json.Marshal(payload)
@@ -531,17 +567,17 @@ func TestHandleCheckout_PaymentPending_ReturnsAccepted(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, http.StatusAccepted, rec.Code)
 
-	var response map[string]string
+	var response pluginCore.X402PendingResponse
 	json.Unmarshal(rec.Body.Bytes(), &response)
-	assert.Equal(t, "pending", response["status"])
+	assert.Equal(t, "pending", response.Status)
 }
 func TestHandleCheckout_AmountMismatch_ReturnsBadRequest(t *testing.T) {
 	handler, billingSvc, _, nonceStore, _ := setupTestHandler(t)
 
 	payload := pluginCore.X402PaymentPayload{
 		X402Version: 2,
-		Payload: map[string]interface{}{
-			"nonce": "mismatch-nonce",
+		Payload: pluginCore.X402Payload{
+			Nonce: "mismatch-nonce",
 		},
 	}
 	payloadBytes, _ := json.Marshal(payload)

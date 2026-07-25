@@ -458,9 +458,25 @@ type PaymentProcessor interface {
 // PaymentAddressProvider is optional for gateways that can generate
 // a receiving address for x402 payments (e.g., ATLOS Payment/Create API).
 type PaymentAddressProvider interface {
+	// SupportedAssets returns the asset/blockchain pairs this gateway
+	// accepts for x402 payments. The handler uses these to populate the
+	// challenge Accepts array.
+	SupportedAssets(ctx context.Context) ([]SupportedAsset, error)
+
 	// CreatePaymentAddress creates a payment session and returns the wallet
 	// address where the client should send funds.
 	CreatePaymentAddress(ctx context.Context, assetCode string, blockchainCode float32, amount decimal.Decimal, nonce string) (*PaymentAddress, error)
+}
+
+// SupportedAsset describes a single asset+blockchain pair the gateway accepts.
+type SupportedAsset struct {
+	AssetCode      string  // e.g. "usdc"
+	AssetName      string  // e.g. "USD Coin"
+	BlockchainCode float32 // EVM chain ID, e.g. 8453 for Base
+	BlockchainName string  // e.g. "Base"
+	TokenAddress   string  // ERC20 contract address
+	Decimals       int32   // decimals for smallest-unit conversion
+	IsStable       bool
 }
 
 // PaymentAddress contains the result of creating a payment address.
@@ -472,14 +488,26 @@ type PaymentAddress struct {
 	Amount         string // smallest unit, no decimal point
 }
 
+// X402Authorization represents the nested authorization object used in
+// certain x402 schemes (e.g. EIP-3009).
+type X402Authorization struct {
+	Nonce string `json:"nonce"`
+}
+
+// X402Payload represents the scheme-specific "payload" object inside an x402
+// payment signature. The nonce may be at the top level (simple "exact") or
+// nested under "authorization".
+type X402Payload struct {
+	Nonce         string             `json:"nonce,omitempty"`
+	Authorization *X402Authorization `json:"authorization,omitempty"`
+}
+
 // X402PaymentPayload represents the parsed x402 v2 payment payload.
-// The raw payload is decoded from the PAYMENT-SIGNATURE header.
 type X402PaymentPayload struct {
 	X402Version int                     `json:"x402Version"`
-	Payload     map[string]interface{}  `json:"payload"`  // scheme-specific (EIP-3009 authorization, Permit2, etc.)
-	Accepted    X402PaymentRequirements `json:"accepted"` // what the client accepted
+	Payload     X402Payload             `json:"payload"`
+	Accepted    X402PaymentRequirements `json:"accepted"`
 	Resource    *X402ResourceInfo       `json:"resource,omitempty"`
-	Extensions  map[string]interface{}  `json:"extensions,omitempty"`
 }
 
 // X402PaymentRequirements represents the payment requirements the client accepted.
@@ -498,6 +526,26 @@ type X402ResourceInfo struct {
 	URL         string `json:"url"`
 	Description string `json:"description,omitempty"`
 	MimeType    string `json:"mimeType,omitempty"`
+}
+
+// X402ErrorResponse is the standard error body returned by x402 endpoints.
+type X402ErrorResponse struct {
+	Error string `json:"error"`
+}
+
+// X402PendingResponse is returned with 202 when a valid payment proof was
+// received but on-chain settlement has not completed yet.
+type X402PendingResponse struct {
+	Status  string `json:"status"`
+	Message string `json:"message"`
+}
+
+// X402PaymentResponse is returned on successful x402 payment + credit issuance.
+type X402PaymentResponse struct {
+	CreditBalance string `json:"credit_balance"`
+	AmountPaid    string `json:"amount_paid"`
+	Currency      string `json:"currency"`
+	Token         string `json:"token,omitempty"`
 }
 
 // PaymentConfirmation contains the result of a confirmed payment

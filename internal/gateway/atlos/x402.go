@@ -72,13 +72,70 @@ type AtlosPaymentInfo struct {
 	Amount         string // smallest unit, no decimal point
 }
 
+func (g *AtlosGateway) SupportedAssets(ctx context.Context) ([]pluginCore.SupportedAsset, error) {
+	client, err := g.newAtlosClient()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create ATLOS client: %w", err)
+	}
+
+	assets, err := client.AssetList(ctx, atlos.AssetListPostRequest{
+		MerchantId:    g.config.MerchantID,
+		OrderAmount:   1.00,
+		OrderCurrency: strPtr("USD"),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch asset list from ATLOS: %w", err)
+	}
+
+	var result []pluginCore.SupportedAsset
+	for _, asset := range assets {
+		if asset.Code == nil || asset.IsStable == nil || !*asset.IsStable {
+			continue
+		}
+		if asset.IsToken == nil || !*asset.IsToken {
+			continue
+		}
+		if asset.Blockchains == nil {
+			continue
+		}
+		for _, chain := range *asset.Blockchains {
+			if chain.Code == nil || chain.ChainId == nil || chain.IsEvm == nil || !*chain.IsEvm {
+				continue
+			}
+			tokenAddr := ""
+			if chain.TokenAddress != nil {
+				tokenAddr = *chain.TokenAddress
+			}
+			var decimals int32
+			if chain.Decimals != nil {
+				decimals = int32(*chain.Decimals)
+			}
+			chainName := ""
+			if chain.Name != nil {
+				chainName = *chain.Name
+			}
+			result = append(result, pluginCore.SupportedAsset{
+				AssetCode:      *asset.Code,
+				AssetName:      ptrStr(asset.Name),
+				BlockchainCode: *chain.ChainId,
+				BlockchainName: chainName,
+				TokenAddress:   tokenAddr,
+				Decimals:       decimals,
+				IsStable:       true,
+			})
+		}
+	}
+	return result, nil
+}
+
 func (g *AtlosGateway) CreatePaymentAddress(ctx context.Context, assetCode string, blockchainCode float32, amount decimal.Decimal, nonce string) (*pluginCore.PaymentAddress, error) {
 	client, err := g.newAtlosClient()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ATLOS client: %w", err)
 	}
 
-	amountStr := amount.Mul(decimal.NewFromInt(1e6)).Truncate(0).String()
+	decimals := g.findDecimals(assetCode, blockchainCode)
+	amountStr := amount.Mul(decimal.NewFromInt(10).Pow(decimal.NewFromInt(int64(decimals)))).Truncate(0).String()
 
 	invoiceResp, err := client.InvoiceCreate(ctx, atlos.InvoiceCreatePostRequest{
 		MerchantId:    g.config.MerchantID,
@@ -118,6 +175,67 @@ func (g *AtlosGateway) CreatePaymentAddress(ctx context.Context, assetCode strin
 		BlockchainCode: blockchainCode,
 		Amount:         amountStr,
 	}, nil
+}
+
+type assetLookup struct {
+	cache   []atlos.Asset
+	expires time.Time
+	ttl     time.Duration
+}
+
+func newAssetLookup() *assetLookup {
+	return &assetLookup{ttl: 5 * time.Minute}
+}
+
+func (a *assetLookup) get(ctx context.Context, g *AtlosGateway) ([]atlos.Asset, error) {
+	if a.cache != nil && time.Now().Before(a.expires) {
+		return a.cache, nil
+	}
+	client, err := g.newAtlosClient()
+	if err != nil {
+		return nil, err
+	}
+	assets, err := client.AssetList(ctx, atlos.AssetListPostRequest{
+		MerchantId:    g.config.MerchantID,
+		OrderAmount:   1.00,
+		OrderCurrency: strPtr("USD"),
+	})
+	if err != nil {
+		return nil, err
+	}
+	a.cache = assets
+	a.expires = time.Now().Add(a.ttl)
+	return assets, nil
+}
+
+func (g *AtlosGateway) findDecimals(assetCode string, blockchainCode float32) int32 {
+	assets, err := g.assetCache.get(context.Background(), g)
+	if err != nil {
+		return 6
+	}
+	for _, asset := range assets {
+		if asset.Code == nil || !strings.EqualFold(*asset.Code, assetCode) {
+			continue
+		}
+		if asset.Blockchains == nil {
+			continue
+		}
+		for _, chain := range *asset.Blockchains {
+			if chain.ChainId != nil && *chain.ChainId == blockchainCode {
+				if chain.Decimals != nil {
+					return int32(*chain.Decimals)
+				}
+			}
+		}
+	}
+	return 6
+}
+
+func ptrStr(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 func (g *AtlosGateway) ConfirmPayment(ctx context.Context, nonce string, expectedAmount decimal.Decimal) (*pluginCore.PaymentConfirmation, error) {

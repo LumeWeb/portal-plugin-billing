@@ -81,12 +81,13 @@ func NewAPIExtension() core.APIExtensionFactory {
 
 			// Initialize x402 handler with JWT token generator via AuthService
 			nonceStore := x402.NewDBNonceStore(ctx.DB())
+			addrStore := x402.NewPaymentAddressStore(ctx.DB())
 			userSvc := core.GetService[core.UserService](ctx, core.USER_SERVICE)
 			authSvc := core.GetService[core.AuthService](ctx, core.AUTH_SERVICE)
 			tokenGen := func(userID uint) (string, error) {
 				return authSvc.LoginID(ctx, userID, "", false)
 			}
-			ext.x402Handler = x402.NewHandler(ext.billingService, ext.creditService, nonceStore, userSvc, tokenGen)
+			ext.x402Handler = x402.NewHandler(ext.billingService, ext.creditService, nonceStore, addrStore, userSvc, tokenGen)
 
 			// Initialize SSE server with apt304/sse-go
 			subscriber := sseServer.NewDropOldestSubscriber(sseServer.Options{

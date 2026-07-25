@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -19,23 +18,36 @@ import (
 	"go.uber.org/zap"
 )
 
+const (
+	// keyIdentityType is the KeyIdentityHandler type for EVM wallet auth.
+	keyIdentityType = "ethereum"
+)
+
+const (
+	// x402 credit purchase defaults
+	x402Scheme        = "exact"
+	x402MaxTimeoutSec = 300
+)
+
 type Handler struct {
-	billingService pluginCore.BillingService
-	creditService  pluginCore.CreditService
-	nonceStore     NonceStore
-	userService    core.UserService
-	tokenGen       TokenGenerator
+	billingService   pluginCore.BillingService
+	creditService    pluginCore.CreditService
+	nonceStore       NonceStore
+	paymentAddrStore *PaymentAddressStore
+	userService      core.UserService
+	tokenGen         TokenGenerator
 }
 
 type TokenGenerator func(userID uint) (string, error)
 
-func NewHandler(billing pluginCore.BillingService, credit pluginCore.CreditService, store NonceStore, users core.UserService, tokenGen TokenGenerator) *Handler {
+func NewHandler(billing pluginCore.BillingService, credit pluginCore.CreditService, store NonceStore, addrStore *PaymentAddressStore, users core.UserService, tokenGen TokenGenerator) *Handler {
 	return &Handler{
-		billingService: billing,
-		creditService:  credit,
-		nonceStore:     store,
-		userService:    users,
-		tokenGen:       tokenGen,
+		billingService:   billing,
+		creditService:    credit,
+		nonceStore:       store,
+		paymentAddrStore: addrStore,
+		userService:      users,
+		tokenGen:         tokenGen,
 	}
 }
 
@@ -67,7 +79,7 @@ func (h *Handler) HandleCheckout(c echo.Context) error {
 
 	amount, err := decimal.NewFromString(amountStr)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid amount"})
+		return h.writeError(c, http.StatusBadRequest, "invalid amount")
 	}
 
 	sig := c.Request().Header.Get("PAYMENT-SIGNATURE")
@@ -77,45 +89,45 @@ func (h *Handler) HandleCheckout(c echo.Context) error {
 
 	gatewayIdentity, err := h.billingService.GetGateway(ctx, gatewayType)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "gateway not found"})
+		return h.writeError(c, http.StatusBadRequest, "gateway not found")
 	}
 
 	processor, ok := gatewayIdentity.(pluginCore.PaymentProcessor)
 	if !ok {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "gateway does not support x402"})
+		return h.writeError(c, http.StatusBadRequest, "gateway does not support x402")
 	}
 
 	x402Payload, err := h.parsePayload(sig)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid payment payload"})
+		return h.writeError(c, http.StatusBadRequest, "invalid payment payload")
 	}
 
 	nonce := h.extractNonce(x402Payload)
 	if nonce == "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "missing nonce in payload"})
+		return h.writeError(c, http.StatusBadRequest, "missing nonce in payload")
 	}
 
 	userID, expectedAmount, _, found, err := h.nonceStore.Get(ctx, nonce)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "nonce lookup failed"})
+		return h.writeError(c, http.StatusInternalServerError, "nonce lookup failed")
 	}
 	if !found {
-		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid or expired nonce"})
+		return h.writeError(c, http.StatusUnauthorized, "invalid or expired nonce")
 	}
 
 	if !expectedAmount.Equal(amount) {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "amount mismatch"})
+		return h.writeError(c, http.StatusBadRequest, "amount mismatch")
 	}
 
 	confirmation, err := processor.ConfirmPayment(ctx, nonce, amount)
 	if errors.Is(err, pluginCore.ErrPaymentPending) {
-		return c.JSON(http.StatusAccepted, map[string]string{
-			"status":  "pending",
-			"message": "payment not yet confirmed, retry with same proof",
+		return c.JSON(http.StatusAccepted, pluginCore.X402PendingResponse{
+			Status:  "pending",
+			Message: "payment not yet confirmed, retry with same proof",
 		})
 	}
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return h.writeError(c, http.StatusBadRequest, err.Error())
 	}
 
 	if err := h.creditService.IssueCreditFromGateway(
@@ -128,19 +140,22 @@ func (h *Handler) HandleCheckout(c echo.Context) error {
 		fmt.Sprintf("x402 payment via %s", gatewayType),
 		uint64(userID),
 	); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to issue credit"})
+		return h.writeError(c, http.StatusInternalServerError, "failed to issue credit")
 	}
 
 	h.nonceStore.Delete(ctx, nonce)
 
 	balance, _ := h.creditService.GetUserBalance(ctx, uint64(userID))
 
-	response := map[string]interface{}{
-		"credit_balance": balance,
-		"amount_paid":    confirmation.Amount.String(),
-		"currency":       confirmation.Currency,
+	response := pluginCore.X402PaymentResponse{
+		CreditBalance: balance.String(),
+		AmountPaid:    confirmation.Amount.String(),
+		Currency:      confirmation.Currency,
 	}
 
+	// tokenGen is always supplied by the API extension (via AuthService.LoginID).
+	// Guard remains for defensive coding (e.g. direct handler construction in tests).
+	// If nil, we simply omit the JWT token from the response (no fallback token generation).
 	if h.tokenGen != nil {
 		token, err := h.tokenGen(userID)
 		if err != nil {
@@ -149,7 +164,7 @@ func (h *Handler) HandleCheckout(c echo.Context) error {
 				zap.Error(err),
 			)
 		} else {
-			response["token"] = token
+			response.Token = token
 		}
 	}
 
@@ -159,75 +174,101 @@ func (h *Handler) HandleCheckout(c echo.Context) error {
 func (h *Handler) returnChallenge(c echo.Context, ctx context.Context, wallet string, amount decimal.Decimal) error {
 	nonce, err := generateNonce()
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to generate nonce"})
+		return h.writeError(c, http.StatusInternalServerError, "failed to generate nonce")
 	}
 
 	user, err := h.findOrCreateUserByWallet(ctx, wallet)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "user setup failed: " + err.Error()})
+		return h.writeError(c, http.StatusInternalServerError, "user setup failed: "+err.Error())
 	}
 
 	if err := h.nonceStore.Set(ctx, nonce, user.ID, amount, DefaultGatewayType, 5*time.Minute); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to store nonce"})
+		return h.writeError(c, http.StatusInternalServerError, "failed to store nonce")
 	}
 
 	gatewayIdentity, err := h.billingService.GetGateway(ctx, DefaultGatewayType)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "gateway not found"})
+		return h.writeError(c, http.StatusInternalServerError, "gateway not found")
 	}
 
 	addrProvider, ok := gatewayIdentity.(pluginCore.PaymentAddressProvider)
 	if !ok {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "gateway does not support payment addresses"})
+		return h.writeError(c, http.StatusInternalServerError, "gateway does not support payment addresses")
 	}
 
-	paymentAddr, err := addrProvider.CreatePaymentAddress(ctx, "USDC", 8453, amount, nonce)
+	assets, err := addrProvider.SupportedAssets(ctx)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to create payment address: " + err.Error()})
+		return h.writeError(c, http.StatusInternalServerError, "failed to get supported assets: "+err.Error())
 	}
 
-	if err := h.nonceStore.SetGatewayPaymentID(ctx, nonce, paymentAddr.PaymentID); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to store payment ID"})
+	accepts := make([]ChallengeAccepts, 0, len(assets))
+	for _, asset := range assets {
+		paymentAddr, err := addrProvider.CreatePaymentAddress(ctx, asset.AssetCode, asset.BlockchainCode, amount, nonce)
+		if err != nil {
+			return h.writeError(c, http.StatusInternalServerError, "failed to create payment address: "+err.Error())
+		}
+
+		if h.paymentAddrStore != nil {
+			if err := h.paymentAddrStore.Create(ctx, X402PaymentAddress{
+				Nonce:          nonce,
+				PaymentID:      paymentAddr.PaymentID,
+				WalletAddress:  paymentAddr.WalletAddress,
+				AssetCode:      asset.AssetCode,
+				BlockchainCode: asset.BlockchainCode,
+				Amount:         paymentAddr.Amount,
+			}); err != nil {
+				return h.writeError(c, http.StatusInternalServerError, "failed to store payment address")
+			}
+		}
+
+		if err := h.nonceStore.SetGatewayPaymentID(ctx, nonce, paymentAddr.PaymentID); err != nil {
+			return h.writeError(c, http.StatusInternalServerError, "failed to store payment ID")
+		}
+
+		accepts = append(accepts, ChallengeAccepts{
+			Scheme:        x402Scheme,
+			Network:       fmt.Sprintf("eip155:%d", int64(asset.BlockchainCode)),
+			Asset:         asset.TokenAddress,
+			Amount:        paymentAddr.Amount,
+			PayTo:         paymentAddr.WalletAddress,
+			MaxTimeoutSec: x402MaxTimeoutSec,
+		})
 	}
 
 	challenge := Challenge{
 		X402Version: 2,
 		Nonce:       nonce,
 		ExpiresAt:   time.Now().Add(5 * time.Minute),
-		Accepts: []ChallengeAccepts{{
-			Scheme:        "exact",                                      // direct transfer, no signed authorization
-			Network:       "eip155:8453",                                // Base mainnet
-			Asset:         "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", // USDC
-			Amount:        amount.Mul(decimal.NewFromInt(1e6)).String(), // 6 decimals
-			PayTo:         paymentAddr.WalletAddress,
-			MaxTimeoutSec: 300,
-		}},
+		Accepts:     accepts,
 	}
 
 	challengeJSON, err := json.Marshal(challenge)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to marshal challenge"})
+		return h.writeError(c, http.StatusInternalServerError, "failed to marshal challenge")
 	}
 
 	c.Response().Header().Set("Payment-Required", base64.StdEncoding.EncodeToString(challengeJSON))
 	return c.NoContent(http.StatusPaymentRequired)
 }
 
+func (h *Handler) writeError(c echo.Context, status int, msg string) error {
+	return c.JSON(status, pluginCore.X402ErrorResponse{Error: msg})
+}
+
 func (h *Handler) findOrCreateUserByWallet(ctx context.Context, wallet string) (*models.User, error) {
-	exists, pubkey, err := h.userService.PubkeyExists(ctx, wallet)
+	exists, keyIdentity, err := h.userService.KeyIdentityExists(ctx, keyIdentityType, wallet)
 	if err != nil {
-		return nil, fmt.Errorf("pubkey lookup failed: %w", err)
+		return nil, fmt.Errorf("key identity lookup failed: %w", err)
 	}
 	if exists {
-		return &pubkey.User, nil
+		return &keyIdentity.User, nil
 	}
 
-	email := fmt.Sprintf("anon_%s@local.invalid", strings.ToLower(wallet))
-	password := core.GenerateSecurityToken() + core.GenerateSecurityToken() // 12 random chars
+	email := core.AnonEmail(wallet)
+	password := core.GenerateSecurityToken() + core.GenerateSecurityToken()
 
-	user, err := h.userService.CreateAccount(ctx, email, password, false) // verifyEmail=false
+	user, err := h.userService.CreateAccount(ctx, email, password, false)
 	if err != nil {
-		// If email already exists (race condition), look up the existing user
 		if acctErr := core.AsAccountError(err); acctErr != nil && acctErr.IsErrorType(core.ErrKeyEmailAlreadyExists) {
 			_, existingUser, lookupErr := h.userService.EmailExists(ctx, email)
 			if lookupErr != nil {
@@ -246,8 +287,8 @@ func (h *Handler) findOrCreateUserByWallet(ctx context.Context, wallet string) (
 	}
 	user.Verified = true
 
-	if err := h.userService.AddPubkeyToAccount(ctx, *user, wallet); err != nil {
-		return nil, fmt.Errorf("add pubkey failed: %w", err)
+	if err := h.userService.AddKeyIdentity(ctx, user.ID, keyIdentityType, wallet, nil); err != nil {
+		return nil, fmt.Errorf("add key identity failed: %w", err)
 	}
 
 	return user, nil
@@ -275,13 +316,11 @@ func (h *Handler) extractNonce(payload *pluginCore.X402PaymentPayload) string {
 	if payload == nil {
 		return ""
 	}
-	if n, ok := payload.Payload["nonce"].(string); ok && n != "" {
-		return n
+	if payload.Payload.Nonce != "" {
+		return payload.Payload.Nonce
 	}
-	if auth, ok := payload.Payload["authorization"].(map[string]interface{}); ok {
-		if n, ok := auth["nonce"].(string); ok {
-			return n
-		}
+	if payload.Payload.Authorization != nil && payload.Payload.Authorization.Nonce != "" {
+		return payload.Payload.Authorization.Nonce
 	}
 	return ""
 }
