@@ -8,10 +8,12 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	sseServer "github.com/apt304/sse-go/server"
 	"github.com/gabriel-vasile/mimetype"
+	"github.com/hashicorp/golang-lru/v2"
 	"github.com/labstack/echo/v4"
 	"github.com/prometheus/client_golang/prometheus"
 	"go.lumeweb.com/httputil"
@@ -25,14 +27,66 @@ import (
 	"go.lumeweb.com/portal-plugin-billing/internal/gateway"
 	billingService "go.lumeweb.com/portal-plugin-billing/internal/service/billing"
 	"go.lumeweb.com/portal-plugin-billing/internal/service/pricing"
+	"go.lumeweb.com/portal-plugin-billing/internal/x402"
 	router "go.lumeweb.com/portal-router"
 	"go.lumeweb.com/portal/config"
 	"go.lumeweb.com/portal/core"
 	"go.lumeweb.com/queryutil"
 	queryutilHttp "go.lumeweb.com/queryutil/http"
 	"go.uber.org/zap"
+	"golang.org/x/time/rate"
 	"gorm.io/gorm"
 )
+
+// x402RateLimiter limits per-IP request rate on the public x402 purchase endpoint.
+const x402RateLimitPerMin = 10
+
+// x402Limiter is a per-IP rate limiter backed by golang-lru/v2.
+// Uses golang-lru/v2 (not a plain map) because the LRU's O(1) eviction is
+// needed here — the limiter cache persists for the lifetime of the process
+// and IPs are unbounded, unlike the WebhookNonceCache which self-bounds.
+type x402Limiter struct {
+	cache *lru.Cache[string, *rate.Limiter]
+	rate  rate.Limit
+	burst int
+	mu    sync.Mutex
+}
+
+func newX402Limiter(rps rate.Limit, burst int) *x402Limiter {
+	cache, _ := lru.New[string, *rate.Limiter](10000)
+	return &x402Limiter{
+		cache: cache,
+		rate:  rps,
+		burst: burst,
+	}
+}
+
+func (l *x402Limiter) allow(ip string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	lim, ok := l.cache.Get(ip)
+	if !ok {
+		lim = rate.NewLimiter(l.rate, l.burst)
+		l.cache.Add(ip, lim)
+	}
+	return lim.Allow()
+}
+
+func x402RateLimitMiddleware(limiter *x402Limiter) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			// RealIP() respects a configured Echo IPExtractor and
+			// falls back to RemoteAddr when no extractor is set.
+			ip := c.RealIP()
+			if !limiter.allow(ip) {
+				return c.JSON(http.StatusTooManyRequests, map[string]string{
+					"error": "rate limit exceeded, try again later",
+				})
+			}
+			return next(c)
+		}
+	}
+}
 
 // Read the full request body with size limit (1 MiB)
 const maxWebhookPayload = 1 << 20 // 1 MiB
@@ -48,7 +102,11 @@ type APIExtension struct {
 	billingService pluginCore.BillingService
 	creditService  pluginCore.CreditService
 	sseServer      *sseServer.Server
+	x402Handler    *x402.Handler
+	x402Limiter    *x402Limiter
 }
+
+var _ core.APIExtension = (*APIExtension)(nil)
 
 // NewAPIExtension creates a new API extension for billing
 func NewAPIExtension() core.APIExtensionFactory {
@@ -75,6 +133,22 @@ func NewAPIExtension() core.APIExtensionFactory {
 				return fmt.Errorf("credit service not available")
 			}
 
+			// Initialize x402 handler with JWT token generator via AuthService
+			nonceStore := x402.NewDBNonceStore(ctx.DB())
+			addrStore := x402.NewPaymentAddressStore(ctx.DB())
+			userSvc := core.GetService[core.UserService](ctx, core.USER_SERVICE)
+			if userSvc == nil {
+				return fmt.Errorf("x402: user service not available")
+			}
+			authSvc := core.GetService[core.AuthService](ctx, core.AUTH_SERVICE)
+			if authSvc == nil {
+				return fmt.Errorf("x402: auth service not available")
+			}
+			jwtIssuer := func(userID uint) (string, error) {
+				return authSvc.LoginID(ctx, userID, "", false)
+			}
+			ext.x402Handler = x402.NewHandler(ext.billingService, ext.creditService, nonceStore, addrStore, userSvc, jwtIssuer)
+
 			// Initialize SSE server with apt304/sse-go
 			subscriber := sseServer.NewDropOldestSubscriber(sseServer.Options{
 				Buffer:            100,              // Store up to 100 events per subscriber
@@ -86,6 +160,9 @@ func NewAPIExtension() core.APIExtensionFactory {
 			ext.registerBillingEventListeners(ctx)
 
 			ctx.Logger().Info("SSE server initialized for billing plugin with heartbeat support")
+
+			// Initialize x402 rate limiter (10 req/min per IP)
+			ext.x402Limiter = newX402Limiter(rate.Limit(x402RateLimitPerMin/60.0), x402RateLimitPerMin)
 
 			return nil
 		})), nil
@@ -513,6 +590,33 @@ func (e *APIExtension) Configure(gRouter router.Router, accessSvc core.AccessSer
 				),
 			),
 			router.WithMiddlewares(pricingAuthMw),
+			router.WithCors(),
+		),
+		// Public x402 credits purchase endpoint (rate-limited, CORS enabled)
+		router.NewRoute(http.MethodPost, "/api/billing/credits/purchase", e.handleX402Checkout,
+			router.WithSwagger(
+				router.WithSummary("Purchase credits via x402"),
+				router.WithDescription(
+					"Initiates or completes an x402 crypto payment for credits. First call returns 402 Payment Required with a challenge. "+
+						"Client pays via ATLOS and then calls again with PAYMENT-SIGNATURE header containing the payload.",
+				),
+				router.WithTags("Billing"),
+				router.WithQueryParam("wallet", "Wallet address for payment", "0xAbC..."),
+				router.WithQueryParam("amount", "USD amount to purchase", "5.00"),
+				router.WithSuccessResponse(http.StatusOK, "Credit purchased",
+					router.WithJSONContent(map[string]interface{}{})),
+				router.WithSuccessResponse(http.StatusPaymentRequired, "Payment required",
+					router.WithHeader("Payment-Required", "x402 challenge")),
+				router.WithErrorResponses(
+					router.DefineSwaggerErrorResponses(
+						router.DefineSwaggerErrorResponse(http.StatusBadRequest, "Invalid request"),
+						router.DefineSwaggerErrorResponse(http.StatusUnauthorized, "Invalid nonce or payment not confirmed"),
+						router.DefineSwaggerErrorResponse(http.StatusTooManyRequests, "Rate limit exceeded"),
+						router.DefineSwaggerErrorResponse(http.StatusInternalServerError, "Failed to process payment"),
+					),
+				),
+			),
+			router.WithMiddlewares(x402RateLimitMiddleware(e.x402Limiter)),
 			router.WithCors(),
 		),
 	)
@@ -1503,4 +1607,11 @@ func (e *APIExtension) handleGetCheckoutSessionStatus(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, response)
+}
+
+// handleX402Checkout processes x402 crypto payments.
+// First call (no PAYMENT-SIGNATURE) returns 402 with challenge.
+// Second call (with PAYMENT-SIGNATURE) confirms payment and issues credits.
+func (e *APIExtension) handleX402Checkout(c echo.Context) error {
+	return e.x402Handler.HandleCheckout(c)
 }

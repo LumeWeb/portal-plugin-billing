@@ -2,11 +2,14 @@ package ledger
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
+	"gorm.io/gorm"
 )
 
 // Ledger provides credit/debit operations with repository and registry integration.
@@ -140,6 +143,36 @@ func (l *Ledger) IssueIdempotentCredit(
 	}
 	metadata.Raw["idempotency_key"] = idempotencyKey
 
-	return l.IssueCredit(ctx, userID, amount, creditType, CreditDirection,
+	err = l.IssueCredit(ctx, userID, amount, creditType, CreditDirection,
 		referenceID, referenceType, metadata)
+
+	// If the DB-level unique constraint on (reference_id, reference_type)
+	// fires, the credit was already issued by a concurrent path. Treat as
+	// a successful idempotent no-op.
+	if err != nil && isUniqueConstraintViolation(err) {
+		return nil
+	}
+	return err
+}
+
+
+// isUniqueConstraintViolation returns true if the error is a database
+// unique constraint violation. Handles SQLite, MySQL, and gorm.ErrDuplicatedKey.
+func isUniqueConstraintViolation(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, gorm.ErrDuplicatedKey) {
+		return true
+	}
+	msg := err.Error()
+	// SQLite: "UNIQUE constraint failed"
+	if strings.Contains(msg, "UNIQUE constraint failed") {
+		return true
+	}
+	// MySQL: Error 1062 (Duplicate entry)
+	if strings.Contains(msg, "1062") || strings.Contains(msg, "Duplicate entry") {
+		return true
+	}
+	return false
 }

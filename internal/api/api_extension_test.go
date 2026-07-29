@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -2659,4 +2660,52 @@ func TestHandleChangePlanOperation_GatewayNotSubscriptionManager(t *testing.T) {
 		assert.Equal(tb, http.StatusInternalServerError, w.Code)
 
 	}, getUserAPITestOptions())
+}
+
+// --- Regression: x402Limiter is goroutine-safe (no duplicate limiters per IP) ---
+
+func TestRegression_X402Limiter_ConcurrentAllowNoRace(t *testing.T) {
+	limiter := newX402Limiter(100, 1) // 100 rps, burst 1
+
+	// Fire 50 concurrent requests from the same IP.
+	// With the mutex fix, only one limiter is created and the burst is
+	// respected. Without the fix, multiple limiters with full burst
+	// could be created, allowing more than 1 immediate Allow().
+	var allowed int
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if limiter.allow("10.0.0.1") {
+				mu.Lock()
+				allowed++
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+
+	// With burst=1, at most 1 should be allowed immediately.
+	// Without the mutex, multiple limiters could allow more.
+	assert.Equal(t, 1, allowed, "burst=1 should only allow 1 concurrent request, got %d", allowed)
+}
+
+func TestRegression_X402Limiter_DoesNotPanicUnderConcurrentLoad(t *testing.T) {
+	limiter := newX402Limiter(1000, 10)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			ip := fmt.Sprintf("10.0.0.%d", n%5) // 5 distinct IPs
+			for j := 0; j < 10; j++ {
+				limiter.allow(ip)
+			}
+		}(i)
+	}
+	wg.Wait()
+	// Test passes if no panic or race detected.
 }

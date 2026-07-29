@@ -2,10 +2,12 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/shopspring/decimal"
 )
 
 // PricingVariant represents a single pricing variant with billing period and pricing details.
@@ -32,6 +34,7 @@ type PricingPlanInfo struct {
 var (
 	ErrGatewayNotFound     = errors.New("gateway not found")
 	ErrGatewayNotSupported = errors.New("gateway does not support this interface")
+	ErrPaymentPending      = errors.New("payment pending")
 )
 
 // RemotePriceMapping represents a mapping between a pricing plan period and a gateway price ID.
@@ -447,4 +450,175 @@ func AsSessionStatusProvider(gateway GatewayIdentity) (SessionStatusProvider, er
 	return provider, nil
 }
 
+// PaymentProcessor is optional for gateways supporting x402 wire protocol payments.
+// Settlement is confirmed by the gateway (webhook or poll); no signature verification.
+type PaymentProcessor interface {
+	ConfirmPayment(ctx context.Context, nonce string, expectedAmount decimal.Decimal) (*PaymentConfirmation, error)
+}
 
+// PaymentAddressProvider is optional for gateways that can generate
+// a receiving address for x402 payments (e.g., ATLOS Payment/Create API).
+type PaymentAddressProvider interface {
+	// SupportedAssets returns the asset/blockchain pairs this gateway
+	// accepts for x402 payments. The handler uses these to populate the
+	// challenge Accepts array.
+	SupportedAssets(ctx context.Context) ([]SupportedAsset, error)
+
+	// CreatePaymentAddress creates a payment session and returns the wallet
+	// address where the client should send funds.
+	CreatePaymentAddress(ctx context.Context, assetCode string, blockchainCode int64, amount decimal.Decimal, nonce string) (*PaymentAddress, error)
+
+	// CancelPaymentAddress cancels a previously-created payment session.
+	// Used for rollback when a later asset fails during batch creation.
+	CancelPaymentAddress(ctx context.Context, paymentID string) error
+}
+
+// BatchPaymentAddressProvider is an optional interface for gateways that
+// can create all per-asset payment sessions against a single invoice,
+// avoiding N orphaned invoices when only one asset is paid.
+type BatchPaymentAddressProvider interface {
+	PaymentAddressProvider
+	// CreatePaymentAddresses creates payment sessions for all assets under
+	// a single invoice. Returns one PaymentAddress per asset, in order.
+	CreatePaymentAddresses(ctx context.Context, assets []SupportedAsset, amount decimal.Decimal, nonce string) ([]*PaymentAddress, error)
+}
+
+// SupportedAsset describes a single asset+blockchain pair the gateway accepts.
+type SupportedAsset struct {
+	AssetCode      string  // e.g. "usdc"
+	AssetName      string  // e.g. "USD Coin"
+	BlockchainCode int64  // EVM chain ID, e.g. 8453 for Base
+	BlockchainName string  // e.g. "Base"
+	TokenAddress   string  // ERC20 contract address
+	TokenVersion   string  // EIP-712 domain separator version (from token contract)
+	Decimals       int32   // decimals for smallest-unit conversion
+	IsStable       bool
+}
+
+// PaymentAddress contains the result of creating a payment address.
+type PaymentAddress struct {
+	PaymentID      string
+	InvoiceID      string // ATLOS invoice ID for cancellation/rollback
+	WalletAddress  string
+	AssetCode      string
+	BlockchainCode int64
+	Amount         string // smallest unit, no decimal point
+}
+
+// X402Authorization represents the EIP-3009 authorization parameters inside
+// the payload. Per the x402 v2 spec, this carries the from/to/value/validAfter/
+// validBefore/nonce fields of a TransferWithAuthorization.
+type X402Authorization struct {
+	From        string `json:"from"`
+	To          string `json:"to"`
+	Value       string `json:"value"`
+	ValidAfter  string `json:"validAfter"`
+	ValidBefore string `json:"validBefore"`
+	Nonce       string `json:"nonce"`
+}
+
+// X402Payload represents the scheme-specific "payload" object inside an x402
+// PaymentPayload. Per the x402 v2 spec, this contains the EIP-712 signature
+// and the EIP-3009 authorization.
+type X402Payload struct {
+	Signature     string             `json:"signature"`
+	Authorization *X402Authorization `json:"authorization"`
+}
+
+// X402PaymentPayload represents the parsed x402 v2 PaymentPayload (sent by
+// the client in the PAYMENT-SIGNATURE header).
+type X402PaymentPayload struct {
+	X402Version int                     `json:"x402Version"`
+	Resource    *X402ResourceInfo        `json:"resource,omitempty"`
+	Accepted    X402PaymentRequirements `json:"accepted"`
+	Payload     X402Payload             `json:"payload"`
+	Extensions  map[string]X402Extension `json:"extensions,omitempty"`
+}
+
+// X402Extension is a single extension entry (info + JSON schema).
+type X402Extension struct {
+	Info   json.RawMessage `json:"info"`
+	Schema json.RawMessage `json:"schema,omitempty"`
+}
+
+// X402PaymentRequirements represents the payment requirements the client accepted.
+type X402PaymentRequirements struct {
+	Scheme            string                 `json:"scheme"`
+	Network           string                 `json:"network"`
+	Asset             string                 `json:"asset"`
+	Amount            string                 `json:"amount"`
+	PayTo             string                 `json:"payTo"`
+	MaxTimeoutSeconds int                    `json:"maxTimeoutSeconds"`
+	Extra             map[string]interface{} `json:"extra,omitempty"`
+}
+
+// X402ResourceInfo describes the resource being accessed.
+type X402ResourceInfo struct {
+	URL         string `json:"url"`
+	Description string `json:"description,omitempty"`
+	MimeType    string `json:"mimeType,omitempty"`
+}
+
+// X402PaymentRequired is the PaymentRequired schema sent by the server in the
+// PAYMENT-REQUIRED header (HTTP 402 response). Per the x402 v2 spec.
+type X402PaymentRequired struct {
+	X402Version int                        `json:"x402Version"`
+	Error      string                      `json:"error,omitempty"`
+	Resource   *X402ResourceInfo           `json:"resource,omitempty"`
+	Accepts    []X402PaymentRequirements   `json:"accepts"`
+	Extensions map[string]X402Extension    `json:"extensions,omitempty"`
+}
+
+// X402SettlementResponse is the SettlementResponse schema sent by the server
+// in the PAYMENT-RESPONSE header. Per the x402 v2 spec.
+type X402SettlementResponse struct {
+	Success      bool   `json:"success"`
+	ErrorReason  string `json:"errorReason,omitempty"`
+	Payer        string `json:"payer,omitempty"`
+	Transaction  string `json:"transaction"`
+	Network      string `json:"network"`
+	Amount       string `json:"amount,omitempty"`
+}
+
+// X402ErrorResponse is the standard error body returned by x402 endpoints.
+type X402ErrorResponse struct {
+	Error string `json:"error"`
+}
+
+// X402PendingResponse is returned with 202 when a valid payment proof was
+// received but on-chain settlement has not completed yet.
+type X402PendingResponse struct {
+	Status  string `json:"status"`
+	Message string `json:"message"`
+}
+
+// X402PaymentResponse is returned on successful x402 payment + credit issuance.
+type X402PaymentResponse struct {
+	CreditBalance string `json:"credit_balance"`
+	AmountPaid    string `json:"amount_paid"`
+	Currency      string `json:"currency"`
+	Token         string `json:"token,omitempty"`
+}
+
+// PaymentConfirmation contains the result of a confirmed payment
+type PaymentConfirmation struct {
+	Amount    decimal.Decimal
+	Currency  string
+	Reference string // tx hash, session id, etc.
+}
+
+// IsPaymentProcessor checks if the gateway implements PaymentProcessor.
+func IsPaymentProcessor(gateway GatewayIdentity) bool {
+	_, ok := gateway.(PaymentProcessor)
+	return ok
+}
+
+// AsPaymentProcessor attempts to cast the gateway to PaymentProcessor.
+// Returns nil and an error if the gateway does not implement PaymentProcessor.
+func AsPaymentProcessor(gateway GatewayIdentity) (PaymentProcessor, error) {
+	processor, ok := gateway.(PaymentProcessor)
+	if !ok {
+		return nil, ErrGatewayNotSupported
+	}
+	return processor, nil
+}

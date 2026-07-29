@@ -176,7 +176,7 @@ func TestParseOrderID_InvalidHMAC(t *testing.T) {
 	require.NoError(t, err)
 
 	orderID := generateOrderID(secret, 123, 456)
-	
+
 	// Tamper with the order ID (flip last character of HMAC)
 	tampered := orderID[:len(orderID)-1] + "x"
 
