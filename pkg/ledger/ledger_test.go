@@ -308,3 +308,79 @@ func TestIssueIdempotentCredit_GetCreditsError(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "database error")
 }
+
+// --- Regression: unique constraint violation treated as idempotent no-op ---
+
+func TestRegression_IssueIdempotentCredit_UniqueConstraintViolation_ReturnsNil(t *testing.T) {
+	ctx := context.Background()
+	mockRepo := new(MockCreditRepository)
+	registry := NewRegistry()
+
+	err := registry.RegisterType("test_type", CreditDirection,
+		decimal.NewFromInt(1), decimal.NewFromInt(1000), "Test type")
+	require.NoError(t, err)
+
+	ledgerService := NewLedger(mockRepo, registry)
+
+	userID := uint64(12345)
+	amount := decimal.NewFromInt(100)
+	referenceID := "x402-0xabcdef"
+	idempotencyKey := "x402_payment:0xabcdef"
+	metadata := CreditMetadata{
+		Description: "Test credit",
+		CreatedBy:   67890,
+	}
+
+	// No existing credit — the race window.
+	mockRepo.On("GetCreditsByReference", ctx, referenceID, "").
+		Return([]Credit{}, nil)
+
+	// CreateCredit fails with a unique constraint violation — simulating
+	// a concurrent insert winning the race.
+	mockRepo.On("CreateCredit", ctx, mock.MatchedBy(func(c *Credit) bool {
+		return c.ReferenceID == referenceID
+	})).Return(errors.New("UNIQUE constraint failed: billing_credits.reference_id, billing_credits.reference_type"))
+
+	err = ledgerService.IssueIdempotentCredit(ctx, userID, amount, "test_type", referenceID,
+		"x402_payment", idempotencyKey, metadata)
+
+	assert.NoError(t, err, "unique constraint violation should be treated as idempotent no-op")
+	mockRepo.AssertExpectations(t)
+}
+
+func TestRegression_IssueIdempotentCredit_NonUniqueError_Propagates(t *testing.T) {
+	ctx := context.Background()
+	mockRepo := new(MockCreditRepository)
+	registry := NewRegistry()
+
+	err := registry.RegisterType("test_type", CreditDirection,
+		decimal.NewFromInt(1), decimal.NewFromInt(1000), "Test type")
+	require.NoError(t, err)
+
+	ledgerService := NewLedger(mockRepo, registry)
+
+	userID := uint64(12345)
+	amount := decimal.NewFromInt(100)
+	referenceID := "x402-0xabcdef"
+	idempotencyKey := "x402_payment:0xabcdef"
+	metadata := CreditMetadata{
+		Description: "Test credit",
+		CreatedBy:   67890,
+	}
+
+	// No existing credit.
+	mockRepo.On("GetCreditsByReference", ctx, referenceID, "").
+		Return([]Credit{}, nil)
+
+	// CreateCredit fails with a non-unique-constraint error.
+	mockRepo.On("CreateCredit", ctx, mock.MatchedBy(func(c *Credit) bool {
+		return c.ReferenceID == referenceID
+	})).Return(errors.New("connection refused"))
+
+	err = ledgerService.IssueIdempotentCredit(ctx, userID, amount, "test_type", referenceID,
+		"x402_payment", idempotencyKey, metadata)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "connection refused")
+	mockRepo.AssertExpectations(t)
+}

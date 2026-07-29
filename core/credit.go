@@ -92,7 +92,6 @@ type CreditService interface {
 		changeType SubscriptionChangeType,
 		expectedAmount decimal.Decimal,
 	) error
-
 }
 
 // DefaultSoftDeleteRetention is the default retention period for soft-deleted credits (30 days)
@@ -104,6 +103,7 @@ const (
 	// Gateway-specific event sources
 	ReferenceTypeStripeInvoice = "stripe.invoice"
 	ReferenceTypeAtlosPayment  = "atlos.payment"
+	ReferenceTypeX402Payment   = "x402.payment" // x402 wire protocol payment via ATLOS
 
 	// System-generated reference types
 	ReferenceTypeManual = "manual" // For admin-created manual adjustments

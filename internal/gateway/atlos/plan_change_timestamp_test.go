@@ -34,7 +34,7 @@ func TestCalculatePlanChangeProration_ProrationTimeClampedToCycle(t *testing.T) 
 		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
 
 		gateway := &AtlosGateway{
-			coreCtx:  ctx,
+			coreCtx: ctx,
 			pricing: mockPricing,
 			billing: mockBilling,
 		}
@@ -117,7 +117,7 @@ func TestCalculatePlanChangeProration_ExpiredBillingCycleClamped(t *testing.T) {
 		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
 
 		gateway := &AtlosGateway{
-			coreCtx:  ctx,
+			coreCtx: ctx,
 			pricing: mockPricing,
 			billing: mockBilling,
 		}

@@ -528,6 +528,7 @@ func (s *CreditServiceDefault) isValidReferenceType(referenceType string) bool {
 		// Gateway-specific reference types
 		pluginCore.ReferenceTypeStripeInvoice: true,
 		pluginCore.ReferenceTypeAtlosPayment:  true,
+		pluginCore.ReferenceTypeX402Payment:   true,
 		// System-generated reference types
 		pluginCore.ReferenceTypeManual: true,
 		pluginCore.ReferenceTypeUsage:  true,

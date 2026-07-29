@@ -82,11 +82,11 @@ func generateProratedOrderID(secret []byte, userID uint, oldPeriodID uint, newPe
 
 // ParsedOrderID holds the fields extracted from a verified order ID.
 type ParsedOrderID struct {
-	UserID       uint
-	OldPeriodID  uint // Only valid when IsProrated=true
-	NewPeriodID  uint
-	IsProrated   bool
-	Timestamp    int64
+	UserID      uint
+	OldPeriodID uint // Only valid when IsProrated=true
+	NewPeriodID uint
+	IsProrated  bool
+	Timestamp   int64
 }
 
 // parseOrderID verifies the HMAC in an order ID and extracts its fields.
