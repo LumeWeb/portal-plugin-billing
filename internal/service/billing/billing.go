@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/samber/lo"
@@ -300,13 +299,28 @@ func (s *BillingServiceDefault) CreateOrUpdateSubscriber(ctx context.Context, us
 				}
 			}
 
-			// Prepare updates map with option fields if provided
+			// Activation is monotonic: a pending-create (isActive=false) from
+			// checkout.session.completed must NOT deactivate a subscription that
+			// invoice.paid already activated. Webhook events arrive out of order,
+			// so checkout may be processed AFTER the invoice. Only a true activate
+			// (or an explicit Deactivate/Pause from a cancel/pause event) flips a
+			// subscriber to inactive. This prevents the reverse-clobber under
+			// reordering.
+			activate := isActive
+
+			// Prepare updates map. is_active is expressed with a CASE so it is
+			// monotonic: it only ever flips inactive->active (never active->inactive)
+			// on this create/update path. pricing_plan_period_id is only written when
+			// this call carries a non-nil value, so a late pending write (nil period)
+			// never regresses a plan already set on an active subscription.
 			updates := map[string]any{
-				"external_id":            externalID,
-				"subscription_id":        subscriptionID,
-				"is_active":              isActive,
-				"pricing_plan_period_id": pricingPlanPeriodID,
-				"deleted_at":             nil,
+				"external_id":     externalID,
+				"subscription_id": subscriptionID,
+				"is_active":       gorm.Expr("CASE WHEN is_active = ? THEN ? ELSE ? END", true, true, activate),
+				"deleted_at":      nil,
+			}
+			if pricingPlanPeriodID != nil {
+				updates["pricing_plan_period_id"] = *pricingPlanPeriodID
 			}
 			if subOptions.BillingPeriodStart != nil {
 				updates["billing_period_start"] = *subOptions.BillingPeriodStart
@@ -321,47 +335,134 @@ func (s *BillingServiceDefault) CreateOrUpdateSubscriber(ctx context.Context, us
 			}
 
 			return db.RetryableComponentTransaction(s, ctx, func(tx *gorm.DB) *gorm.DB {
-				result := tx.Unscoped().Model(&models.Subscriber{}).
-					Where("user_id = ? AND gateway_type = ?", userID, gatewayType).
-					Updates(updates)
+				if subscriptionID != "" {
+					// A user has at most ONE active subscription per gateway. When
+					// activating a (possibly new) subscription, first retire any other
+					// active row for this user/gateway so the partial active index
+					// (active_gateway_key) slot is free. This also handles plan changes
+					// where the old subscription is superseded. Monotonic guard: only a
+					// true activation retires peers; a pending write never does.
+					if activate {
+						retire := tx.Model(&models.Subscriber{}).
+							Where("user_id = ? AND gateway_type = ? AND is_active = ? AND subscription_id <> ?",
+								userID, gatewayType, true, subscriptionID).
+							Updates(map[string]any{"is_active": false})
+						if retire.Error != nil {
+							return retire
+						}
+					}
 
-				if result.Error != nil {
-					return result
+					// One real subscription => one local row. The unique index on
+					// subscription_id guarantees a concurrent writer cannot create a
+					// second row.
+					exact := tx.Unscoped().Model(&models.Subscriber{}).
+						Where("user_id = ? AND gateway_type = ? AND subscription_id = ?",
+							userID, gatewayType, subscriptionID).
+						Updates(updates)
+					if exact.Error != nil {
+						return exact
+					}
+					if exact.RowsAffected > 0 {
+						return exact
+					}
+
+					// No row with this subscription id yet. Adopt a pending row that
+					// was created without a subscription id (e.g. ATLOS credit-only
+					// pre-subscription state). Never clobber a row carrying a
+					// different real subscription id.
+					adopt := tx.Unscoped().Model(&models.Subscriber{}).
+						Where("user_id = ? AND gateway_type = ? AND (subscription_id = '' OR subscription_id IS NULL)",
+							userID, gatewayType).
+						Updates(updates)
+					if adopt.Error != nil {
+						return adopt
+					}
+					if adopt.RowsAffected > 0 {
+						return adopt
+					}
+
+					// Nothing to update - insert. ON CONFLICT makes it atomic: if a
+					// concurrent writer inserted first, update that row rather than
+					// creating a duplicate.
+					sub := models.Subscriber{
+						UserID:              userID,
+						GatewayType:         gatewayType,
+						ExternalID:          externalID,
+						SubscriptionID:      subscriptionID,
+						IsActive:            activate,
+						PricingPlanPeriodID: pricingPlanPeriodID,
+						BillingPeriodStart:  subOptions.BillingPeriodStart,
+						BillingPeriodEnd:    subOptions.BillingPeriodEnd,
+					}
+					if !subOptions.ClearWillCancelAt && subOptions.WillCancelAt != nil {
+						sub.WillCancelAt = subOptions.WillCancelAt
+					}
+					// The conflict update must be monotonic for is_active, the same
+					// as the exact/adopt update paths. On MySQL, "ON CONFLICT
+					// (user_id, gateway_type, sub_key)" degrades to ON DUPLICATE KEY
+					// UPDATE, which fires on ANY unique index (including
+					// active_gateway_key). Writing is_active raw from `activate`
+					// would let a late pending write (isActive=false) deactivate a
+					// row made active by a competing event. The CASE expression
+					// keeps an already-active row active regardless of which unique
+					// key the insert collides on.
+					//
+					// Ownership is NOT reassigned here: user_id and gateway_type are
+					// part of the unique key and deliberately absent from the
+					// assignments, so a cross-user collision can never hijack
+					// another user's subscription row.
+					now := time.Now().UTC()
+					assignments := map[string]interface{}{
+						"external_id":          externalID,
+						"is_active":            gorm.Expr("CASE WHEN is_active = ? THEN ? ELSE ? END", true, true, activate),
+						"billing_period_start": subOptions.BillingPeriodStart,
+						"billing_period_end":   subOptions.BillingPeriodEnd,
+						"deleted_at":           nil,
+						"updated_at":           now,
+					}
+					if pricingPlanPeriodID != nil {
+						assignments["pricing_plan_period_id"] = *pricingPlanPeriodID
+					}
+					if !subOptions.ClearWillCancelAt && subOptions.WillCancelAt != nil {
+						assignments["will_cancel_at"] = subOptions.WillCancelAt
+					} else if subOptions.ClearWillCancelAt {
+						assignments["will_cancel_at"] = nil
+					}
+					return tx.Clauses(clause.OnConflict{
+						Columns: []clause.Column{
+							{Name: "user_id"},
+							{Name: "gateway_type"},
+							{Name: "sub_key"},
+						},
+						DoUpdates: clause.Assignments(assignments),
+					}).Create(&sub)
 				}
 
-				if result.RowsAffected > 0 {
-					return result
+				// Empty subscription id (ATLOS plan change before a subscription
+				// exists): single row per (user, gateway).
+				fallback := tx.Unscoped().Model(&models.Subscriber{}).
+					Where("user_id = ? AND gateway_type = ?", userID, gatewayType).
+					Updates(updates)
+				if fallback.Error != nil {
+					return fallback
+				}
+				if fallback.RowsAffected > 0 {
+					return fallback
 				}
 
 				sub := models.Subscriber{
 					UserID:              userID,
 					GatewayType:         gatewayType,
 					ExternalID:          externalID,
-					SubscriptionID:      subscriptionID,
-					IsActive:            isActive,
+					IsActive:            activate,
 					PricingPlanPeriodID: pricingPlanPeriodID,
 					BillingPeriodStart:  subOptions.BillingPeriodStart,
 					BillingPeriodEnd:    subOptions.BillingPeriodEnd,
 				}
-				// Only set WillCancelAt if not clearing it
 				if !subOptions.ClearWillCancelAt && subOptions.WillCancelAt != nil {
 					sub.WillCancelAt = subOptions.WillCancelAt
 				}
-
-				result = tx.Create(&sub)
-				if result.Error == nil {
-					return result
-				}
-
-				if strings.Contains(result.Error.Error(), "UNIQUE constraint failed") {
-					result = tx.Unscoped().Model(&models.Subscriber{}).
-						Where("user_id = ? AND gateway_type = ?", userID, gatewayType).
-						Updates(updates)
-
-					return result
-				}
-
-				return result
+				return tx.Create(&sub)
 			})
 		},
 	)
