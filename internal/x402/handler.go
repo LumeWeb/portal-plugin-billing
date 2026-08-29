@@ -504,6 +504,11 @@ func (h *Handler) returnChallenge(c echo.Context, ctx context.Context, wallet st
 	paymentRequired := pluginCore.X402PaymentRequired{
 		X402Version: 2,
 		Error:       "PAYMENT-SIGNATURE header is required",
+		Resource: &pluginCore.X402ResourceInfo{
+			URL:         h.challengeResourceURL(c),
+			Description: "Billing credits purchase",
+			MimeType:    "application/json",
+		},
 		Accepts:     accepts,
 		}
 
@@ -514,6 +519,18 @@ func (h *Handler) returnChallenge(c echo.Context, ctx context.Context, wallet st
 
 		c.Response().Header().Set("PAYMENT-REQUIRED", base64.StdEncoding.EncodeToString(challengeJSON))
 		return c.NoContent(http.StatusPaymentRequired)
+}
+
+// challengeResourceURL derives the URL of the protected resource advertised in
+// the PAYMENT-REQUIRED challenge. The scheme is taken from the request's TLS
+// state rather than hardcoded so the URL stays correct behind TLS-terminating
+// proxies or over plain HTTP.
+func (h *Handler) challengeResourceURL(c echo.Context) string {
+	scheme := "http"
+	if c.Request().TLS != nil {
+		scheme = "https"
+	}
+	return scheme + "://" + c.Request().Host + c.Request().URL.Path
 }
 
 func (h *Handler) writeError(c echo.Context, status int, msg string) error {
