@@ -52,10 +52,11 @@ func NewHandler(billing pluginCore.BillingService, credit pluginCore.CreditServi
 }
 
 type Challenge struct {
-	X402Version int                `json:"x402Version"`
-	Accepts     []ChallengeAccepts `json:"accepts"`
-	Nonce       string             `json:"nonce"`
-	ExpiresAt   time.Time          `json:"expiresAt"`
+	X402Version int                          `json:"x402Version"`
+	Accepts     []ChallengeAccepts           `json:"accepts"`
+	Resource    *pluginCore.X402ResourceInfo `json:"resource,omitempty"`
+	Nonce       string                       `json:"nonce"`
+	ExpiresAt   time.Time                    `json:"expiresAt"`
 }
 
 type ChallengeAccepts struct {
@@ -168,6 +169,17 @@ func (h *Handler) HandleCheckout(c echo.Context) error {
 		}
 	}
 
+	settlement := pluginCore.X402SettlementResponse{
+		Success:     true,
+		Transaction: confirmation.Reference,
+		Network:     x402Payload.Accepted.Network,
+		Payer:       wallet,
+		Amount:      confirmation.Amount.String(),
+	}
+	if settlementJSON, err := json.Marshal(settlement); err == nil {
+		c.Response().Header().Set("PAYMENT-RESPONSE", base64.StdEncoding.EncodeToString(settlementJSON))
+	}
+
 	return c.JSON(http.StatusOK, response)
 }
 
@@ -240,6 +252,11 @@ func (h *Handler) returnChallenge(c echo.Context, ctx context.Context, wallet st
 		Nonce:       nonce,
 		ExpiresAt:   time.Now().Add(5 * time.Minute),
 		Accepts:     accepts,
+		Resource: &pluginCore.X402ResourceInfo{
+			URL:         "https://" + c.Request().Host + c.Request().URL.Path,
+			Description: "Billing credits purchase",
+			MimeType:    "application/json",
+		},
 	}
 
 	challengeJSON, err := json.Marshal(challenge)

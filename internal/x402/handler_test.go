@@ -313,7 +313,7 @@ func TestHandleCheckout_NoPaymentSignature_ReturnsChallenge(t *testing.T) {
 		{
 			AssetCode:      "usdc",
 			AssetName:      "USD Coin",
-			BlockchainCode:  8453,
+			BlockchainCode: 8453,
 			BlockchainName: "Base",
 			TokenAddress:   "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
 			Decimals:       6,
@@ -354,6 +354,9 @@ func TestHandleCheckout_NoPaymentSignature_ReturnsChallenge(t *testing.T) {
 	assert.Equal(t, "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", challenge.Accepts[0].Asset)
 	assert.Equal(t, "0xATLOS", challenge.Accepts[0].PayTo)
 	assert.NotEmpty(t, challenge.Nonce)
+	require.NotNil(t, challenge.Resource)
+	assert.Equal(t, "application/json", challenge.Resource.MimeType)
+	assert.NotEmpty(t, challenge.Resource.URL)
 }
 
 func TestHandleCheckout_WithPaymentSignature_ExistingUser_CreditsIssued(t *testing.T) {
@@ -396,6 +399,17 @@ func TestHandleCheckout_WithPaymentSignature_ExistingUser_CreditsIssued(t *testi
 	assert.Equal(t, "test-jwt-token", response.Token)
 	assert.Equal(t, "10", response.CreditBalance)
 	assert.Equal(t, "5", response.AmountPaid)
+
+	paymentResponse := rec.Header().Get("PAYMENT-RESPONSE")
+	require.NotEmpty(t, paymentResponse)
+	settlementJSON, err := base64.StdEncoding.DecodeString(paymentResponse)
+	require.NoError(t, err)
+	var settlement pluginCore.X402SettlementResponse
+	err = json.Unmarshal(settlementJSON, &settlement)
+	require.NoError(t, err)
+	assert.True(t, settlement.Success)
+	assert.Equal(t, "tx-123", settlement.Transaction)
+	assert.Equal(t, "0x1234", settlement.Payer)
 }
 
 func TestHandleCheckout_WithPaymentSignature_NewUser_AnonAccountCreated(t *testing.T) {

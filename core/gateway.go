@@ -548,6 +548,17 @@ type X402PaymentResponse struct {
 	Token         string `json:"token,omitempty"`
 }
 
+// X402SettlementResponse mirrors the x402 SettlementResponse schema (spec v2 §5.3).
+// It is base64-encoded into the PAYMENT-RESPONSE header on settlement.
+type X402SettlementResponse struct {
+	Success     bool   `json:"success"`
+	ErrorReason string `json:"errorReason,omitempty"`
+	Payer       string `json:"payer,omitempty"`
+	Transaction string `json:"transaction"`
+	Network     string `json:"network,omitempty"`
+	Amount      string `json:"amount,omitempty"`
+}
+
 // PaymentConfirmation contains the result of a confirmed payment
 type PaymentConfirmation struct {
 	Amount    decimal.Decimal
