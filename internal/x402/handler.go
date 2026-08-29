@@ -504,6 +504,11 @@ func (h *Handler) returnChallenge(c echo.Context, ctx context.Context, wallet st
 	paymentRequired := pluginCore.X402PaymentRequired{
 		X402Version: 2,
 		Error:       "PAYMENT-SIGNATURE header is required",
+		Resource: &pluginCore.X402ResourceInfo{
+			URL:         "https://" + c.Request().Host + c.Request().URL.Path,
+			Description: "Billing credits purchase",
+			MimeType:    "application/json",
+		},
 		Accepts:     accepts,
 		}
 

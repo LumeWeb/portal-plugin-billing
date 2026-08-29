@@ -386,6 +386,9 @@ func TestHandleCheckout_NoPaymentSignature_ReturnsChallenge(t *testing.T) {
 	assert.Equal(t, "eip155:8453", pr.Accepts[0].Network)
 	assert.Equal(t, "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", pr.Accepts[0].Asset)
 	assert.Equal(t, "0xATLOS", pr.Accepts[0].PayTo)
+	require.NotNil(t, pr.Resource)
+	assert.Equal(t, "application/json", pr.Resource.MimeType)
+	assert.NotEmpty(t, pr.Resource.URL)
 }
 
 const (
