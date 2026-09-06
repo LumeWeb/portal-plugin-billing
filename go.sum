@@ -503,6 +503,8 @@ go.lumeweb.com/portal v0.5.2-0.20260729215200-51304bbfe4d5 h1:4kRQp4UhORmH5JTZYV
 go.lumeweb.com/portal v0.5.2-0.20260729215200-51304bbfe4d5/go.mod h1:2SIqnPMKGGFPZ8ccX486PunznsQdeeCTsIvL+JqeNJ8=
 go.lumeweb.com/portal-middleware v0.3.7 h1:kq4SZq4T/uhauqHehw2JaTbNJpPpE8/EQAC3R737H7c=
 go.lumeweb.com/portal-middleware v0.3.7/go.mod h1:Yn9ZsFy5n3x2jUJ085M9B/aoZ+ANQV5QD/MAE0BpJXo=
+go.lumeweb.com/portal-middleware v0.3.8 h1:wFY9JSkHLMr7IIYdLbkaBi0i9pKy+j/dwT8bRu8hirY=
+go.lumeweb.com/portal-middleware v0.3.8/go.mod h1:Yn9ZsFy5n3x2jUJ085M9B/aoZ+ANQV5QD/MAE0BpJXo=
 go.lumeweb.com/portal-plugin-quota v0.1.0 h1:q1G7wpC8XRILc+mEpkVMEJEOkgEMXWX1If0oIAnYRaA=
 go.lumeweb.com/portal-plugin-quota v0.1.0/go.mod h1:DFdg/dVyfJEWlHdWvVUSAuAYCC/acQhG7YDOVhD9JQ8=
 go.lumeweb.com/portal-router v0.7.6 h1:9q4i4SqhaE39ecJSlLfBIDF6vZ5Jd2S+tYSOZb11cfk=

@@ -21,7 +21,7 @@ require (
 	go.lumeweb.com/atlos-sdk v0.1.3
 	go.lumeweb.com/httputil v0.5.6
 	go.lumeweb.com/portal v0.5.2-0.20260729215200-51304bbfe4d5
-	go.lumeweb.com/portal-middleware v0.3.7
+	go.lumeweb.com/portal-middleware v0.3.8
 	go.lumeweb.com/portal-plugin-quota v0.1.0
 	go.lumeweb.com/portal-router v0.7.6
 	go.lumeweb.com/queryutil v0.3.17
