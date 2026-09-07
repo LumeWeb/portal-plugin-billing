@@ -3,7 +3,7 @@ module go.lumeweb.com/portal-plugin-billing // v0.1.0
 go 1.26.0
 
 require (
-	github.com/Oudwins/zog v0.22.2
+	github.com/Oudwins/zog v0.23.0
 	github.com/apt304/sse-go v0.0.3
 	github.com/avast/retry-go v3.0.0+incompatible
 	github.com/gabriel-vasile/mimetype v1.4.15
