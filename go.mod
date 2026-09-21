@@ -28,7 +28,7 @@ require (
 	go.lumeweb.com/web/go/portal-plugin-billing v0.0.0-20260921145210-452f6c7da66c
 	go.uber.org/zap v1.28.0
 	golang.org/x/crypto v0.54.0
-	golang.org/x/time v0.15.0
+	golang.org/x/time v0.16.0
 	gorm.io/datatypes v1.2.7
 	gorm.io/gorm v1.31.2
 )
