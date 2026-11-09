@@ -935,7 +935,15 @@ func (e *APIExtension) handleListPricingPlans(c echo.Context) error {
 				return nil, 0, fmt.Errorf("failed to retrieve plans: %w", err)
 			}
 
-			return plans, int64(len(plans)), nil
+			// Raw price-line reads also serve administration and gateway sync.
+			// Apply public eligibility here before counting or loading periods.
+			visiblePlans := make([]*models.PricingPlan, 0, len(plans))
+			for _, plan := range plans {
+				if plan != nil && plan.IsActive && plan.IsPublic {
+					visiblePlans = append(visiblePlans, plan)
+				}
+			}
+			return visiblePlans, int64(len(visiblePlans)), nil
 		},
 		func(plan *models.PricingPlan) dto.PublicPricingPlanResponse {
 			var resp dto.PublicPricingPlanResponse
