@@ -12,7 +12,7 @@ import (
 	"go.lumeweb.com/portal-plugin-billing/internal/db/models"
 	"go.lumeweb.com/portal-plugin-billing/pkg/ledger"
 	"go.lumeweb.com/queryutil"
-	queryutilHttp "go.lumeweb.com/queryutil/http"
+	queryutilHTTP "go.lumeweb.com/queryutil/http"
 	"go.uber.org/zap"
 )
 
@@ -338,10 +338,11 @@ func (e *APIExtension) handleListUserCredits(c echo.Context) error {
 		return ctx.Error(NewError(ErrKeyUnauthorized, fmt.Errorf("failed to get user ID")), http.StatusUnauthorized)
 	}
 
-	return queryutilHttp.ProcessListRequest(
+	policy := dto.UserCreditQueryPolicy()
+	return queryutilHTTP.ProcessListRequestWithPolicy(
 		c.Response(),
 		c.Request(),
-		"credits",
+		"credits", policy.QueryPolicy,
 		func(filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination) ([]*models.CreditModel, int64, error) {
 			// Always filter by the authenticated user's ID
 			userFilter := queryutil.FieldEqual("user_id", userID)
@@ -353,7 +354,7 @@ func (e *APIExtension) handleListUserCredits(c echo.Context) error {
 				e.Logger().Error("failed to list credits",
 					zap.Uint("user_id", userID),
 					zap.Error(err))
-				return nil, 0, err
+				return nil, 0, publicListError(err)
 			}
 
 			// Convert ledger.Credit to CreditModel for response
@@ -368,5 +369,6 @@ func (e *APIExtension) handleListUserCredits(c echo.Context) error {
 			resp.FromModel(credit)
 			return resp
 		},
+		queryutil.WithStringFields(policy.StringFields...),
 	)
 }

@@ -32,7 +32,7 @@ import (
 	"go.lumeweb.com/portal/config"
 	"go.lumeweb.com/portal/core"
 	"go.lumeweb.com/queryutil"
-	queryutilHttp "go.lumeweb.com/queryutil/http"
+	queryutilHTTP "go.lumeweb.com/queryutil/http"
 	"go.uber.org/zap"
 	"golang.org/x/time/rate"
 	"gorm.io/gorm"
@@ -903,10 +903,10 @@ func (e *APIExtension) handleListPricingPlans(c echo.Context) error {
 	// Get authenticated user ID from context (may be empty if not authenticated)
 	userID, ok := e.getUserIDFromContext(c)
 
-	return queryutilHttp.ProcessListRequest(
+	return queryutilHTTP.ProcessListRequestWithPolicy(
 		c.Response(),
 		c.Request(),
-		"pricing_plans",
+		"pricing_plans", dto.CollectionQueryPolicy().QueryPolicy,
 		func(filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination) ([]*models.PricingPlan, int64, error) {
 			var priceLineID uint
 
@@ -915,7 +915,7 @@ func (e *APIExtension) handleListPricingPlans(c echo.Context) error {
 				priceLine, err := e.pricingService.GetDefaultPriceLine(reqCtx)
 				if err != nil {
 					e.Logger().Error("failed to get default price line", zap.Error(err))
-					return nil, 0, fmt.Errorf("failed to retrieve pricing: %w", err)
+					return nil, 0, publicListError(err)
 				}
 				priceLineID = priceLine.ID
 			} else {
@@ -923,7 +923,7 @@ func (e *APIExtension) handleListPricingPlans(c echo.Context) error {
 				priceLine, err := e.pricingService.GetEffectivePriceLineForUser(reqCtx, userID)
 				if err != nil {
 					e.Logger().Error("failed to get effective price line", zap.Error(err))
-					return nil, 0, fmt.Errorf("failed to retrieve pricing: %w", err)
+					return nil, 0, publicListError(err)
 				}
 				priceLineID = priceLine.ID
 			}
@@ -932,7 +932,7 @@ func (e *APIExtension) handleListPricingPlans(c echo.Context) error {
 			plans, err := e.pricingService.GetPlansForPriceLine(reqCtx, priceLineID)
 			if err != nil {
 				e.Logger().Error("failed to get pricing plans", zap.Error(err))
-				return nil, 0, fmt.Errorf("failed to retrieve plans: %w", err)
+				return nil, 0, publicListError(err)
 			}
 
 			// Raw price-line reads also serve administration and gateway sync.
@@ -943,7 +943,16 @@ func (e *APIExtension) handleListPricingPlans(c echo.Context) error {
 					visiblePlans = append(visiblePlans, plan)
 				}
 			}
-			return visiblePlans, int64(len(visiblePlans)), nil
+			total := int64(len(visiblePlans))
+			start := pagination.GetOffset()
+			if start >= len(visiblePlans) {
+				return visiblePlans[len(visiblePlans):], total, nil
+			}
+			end := start + pagination.GetLimit()
+			if end > len(visiblePlans) {
+				end = len(visiblePlans)
+			}
+			return visiblePlans[start:end], total, nil
 		},
 		func(plan *models.PricingPlan) dto.PublicPricingPlanResponse {
 			var resp dto.PublicPricingPlanResponse

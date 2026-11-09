@@ -22,6 +22,16 @@ type PricingPlanUpdate struct {
 	IsPublic     *bool
 }
 
+// SyncGatewayPlanResults represents synchronization results for all gateways.
+type SyncGatewayPlanResults struct {
+	PlanID        uint
+	TotalGateways int
+	SuccessCount  int
+	FailureCount  int
+	Results       map[string]*SyncResult
+	Errors        map[string]error
+}
+
 // PricingService handles pricing plan and price line management
 type PricingService interface {
 	core.Service

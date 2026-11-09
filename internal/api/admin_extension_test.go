@@ -3097,8 +3097,10 @@ func TestAdminHandleGetUserSubscribers_Success(t *testing.T) {
 		}
 
 		billingSvc.EXPECT().
-			GetSubscribersByUserID(mock.Anything, uint(123)).
-			Return(subscribers, nil).
+			ListSubscribers(mock.Anything, mock.MatchedBy(func(filters []queryutil.CrudFilter) bool {
+				return len(filters) == 1 && filters[0].GetField() == "user_id" && filters[0].GetValue() == uint64(123)
+			}), mock.Anything, mock.Anything).
+			Return(subscribers, int64(1), nil).
 			Once()
 
 		req, err := ts.createAuthenticatedRequest(ctx, "GET", "/api/billing/users/123/subscribers", nil, "1")
@@ -3124,8 +3126,10 @@ func TestAdminHandleGetUserSubscribers_EmptyResults(t *testing.T) {
 		router := ctx.Router()
 
 		billingSvc.EXPECT().
-			GetSubscribersByUserID(mock.Anything, uint(999)).
-			Return([]pluginCore.Subscriber{}, nil).
+			ListSubscribers(mock.Anything, mock.MatchedBy(func(filters []queryutil.CrudFilter) bool {
+				return len(filters) == 1 && filters[0].GetField() == "user_id" && filters[0].GetValue() == uint64(999)
+			}), mock.Anything, mock.Anything).
+			Return([]pluginCore.Subscriber{}, int64(0), nil).
 			Once()
 
 		req, err := ts.createAuthenticatedRequest(ctx, "GET", "/api/billing/users/999/subscribers", nil, "1")
@@ -3381,8 +3385,10 @@ func TestAdminHandleListGatewaySubscribers_Success(t *testing.T) {
 		}
 
 		billingSvc.EXPECT().
-			GetActiveSubscribersByGateway(mock.Anything, "stripe").
-			Return(subscribers, nil).
+			ListSubscribers(mock.Anything, mock.MatchedBy(func(filters []queryutil.CrudFilter) bool {
+				return len(filters) == 2 && filters[0].GetValue() == "stripe" && filters[1].GetValue() == true
+			}), mock.Anything, mock.Anything).
+			Return(subscribers, int64(1), nil).
 			Once()
 
 		req, err := ts.createAuthenticatedRequest(ctx, "GET", "/api/billing/gateways/stripe/subscribers", nil, "1")
@@ -3409,8 +3415,10 @@ func TestAdminHandleListGatewaySubscribers_InvalidGatewayID(t *testing.T) {
 
 		// Mock empty result for gateway "123"
 		billingSvc.EXPECT().
-			GetActiveSubscribersByGateway(mock.Anything, "123").
-			Return([]pluginCore.Subscriber{}, nil).
+			ListSubscribers(mock.Anything, mock.MatchedBy(func(filters []queryutil.CrudFilter) bool {
+				return len(filters) == 2 && filters[0].GetValue() == "123" && filters[1].GetValue() == true
+			}), mock.Anything, mock.Anything).
+			Return([]pluginCore.Subscriber{}, int64(0), nil).
 			Once()
 
 		// Create request with numeric gateway ID

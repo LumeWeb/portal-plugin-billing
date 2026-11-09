@@ -9,6 +9,7 @@ import (
 	"github.com/samber/lo"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
 	"go.lumeweb.com/portal-plugin-billing/internal"
+	"go.lumeweb.com/portal-plugin-billing/internal/api/dto"
 	"go.lumeweb.com/portal-plugin-billing/internal/config"
 	"go.lumeweb.com/portal-plugin-billing/internal/db/models"
 	"go.lumeweb.com/portal-plugin-billing/internal/gateway"
@@ -783,10 +784,14 @@ func (s *BillingServiceDefault) ListSubscribers(ctx context.Context, filters []q
 	ctx, span := core.TraceMethod(ctx, "BillingServiceDefault.ListSubscribers")
 	defer span.End()
 
+	filters, err := dto.SubscriberQueryPolicy().Normalize(filters, sorts)
+	if err != nil {
+		return nil, 0, err
+	}
 	var subscribers []models.Subscriber
 	var total int64
 
-	err := db.RetryableComponentTransaction(s, ctx, func(tx *gorm.DB) *gorm.DB {
+	err = db.RetryableComponentTransaction(s, ctx, func(tx *gorm.DB) *gorm.DB {
 		query := tx.Model(&models.Subscriber{})
 
 		// Apply filters using queryutil helper
@@ -794,7 +799,7 @@ func (s *BillingServiceDefault) ListSubscribers(ctx context.Context, filters []q
 
 		// Get total count
 		if err := query.Count(&total).Error; err != nil {
-			return tx
+			return query
 		}
 
 		// Apply sorts using queryutil helper

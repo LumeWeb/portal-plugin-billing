@@ -7,6 +7,7 @@ import (
 	"time"
 
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
+	"go.lumeweb.com/portal-plugin-billing/internal/api/dto"
 	"go.lumeweb.com/portal-plugin-billing/internal/config"
 	"go.lumeweb.com/portal-plugin-billing/internal/db/models"
 	"go.lumeweb.com/portal/core"
@@ -153,10 +154,8 @@ func (s *PricingServiceDefault) GetPricingPlan(ctx context.Context, id uint) (*m
 // GetPricingPlans retrieves pricing plans with filters, sorting, and pagination
 func (s *PricingServiceDefault) GetPricingPlans(ctx context.Context, userID uint, filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination) ([]*models.PricingPlan, int64, error) {
 	var plans []*models.PricingPlan
-	total := s.paginatedQuery(ctx, "GetPricingPlans", &models.PricingPlan{}, filters, sorts, pagination, &plans, func(err error) {
-		s.logger.Error("failed to count pricing plans", zap.Error(err))
-	})
-	return plans, total, nil
+	total, err := s.paginatedQuery(ctx, "GetPricingPlans", &models.PricingPlan{}, dto.PricingPlanQueryPolicy(), filters, sorts, pagination, &plans)
+	return plans, total, err
 }
 
 // CreatePriceLine creates a new price line
@@ -421,10 +420,8 @@ func (s *PricingServiceDefault) GetDefaultPriceLine(ctx context.Context) (*model
 // GetPriceLines retrieves price lines with filters, sorting, and pagination
 func (s *PricingServiceDefault) GetPriceLines(ctx context.Context, userID uint, filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination) ([]*models.PriceLine, int64, error) {
 	var lines []*models.PriceLine
-	total := s.paginatedQuery(ctx, "GetPriceLines", &models.PriceLine{}, filters, sorts, pagination, &lines, func(err error) {
-		s.logger.Error("failed to count price lines", zap.Error(err))
-	})
-	return lines, total, nil
+	total, err := s.paginatedQuery(ctx, "GetPriceLines", &models.PriceLine{}, dto.PriceLineQueryPolicy(), filters, sorts, pagination, &lines)
+	return lines, total, err
 }
 
 // GetPriceLine retrieves a single price line by ID
@@ -833,10 +830,8 @@ func (s *PricingServiceDefault) GetPricingPlanPeriods(ctx context.Context, planI
 // GetPricingPlanPeriodsWithFilter retrieves pricing plan periods with filters, sorting, and pagination
 func (s *PricingServiceDefault) GetPricingPlanPeriodsWithFilter(ctx context.Context, filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination) ([]*models.PricingPlanPeriod, int64, error) {
 	var periods []*models.PricingPlanPeriod
-	total := s.paginatedQuery(ctx, "GetPricingPlanPeriodsWithFilter", &models.PricingPlanPeriod{}, filters, sorts, pagination, &periods, func(err error) {
-		s.logger.Error("failed to count pricing plan periods", zap.Error(err))
-	})
-	return periods, total, nil
+	total, err := s.paginatedQuery(ctx, "GetPricingPlanPeriodsWithFilter", &models.PricingPlanPeriod{}, dto.PricingPeriodQueryPolicy(), filters, sorts, pagination, &periods)
+	return periods, total, err
 }
 
 // Helper methods for DRY
@@ -869,27 +864,28 @@ func (s *PricingServiceDefault) withTracedTransactionResult(ctx context.Context,
 }
 
 // paginatedQuery handles the common pattern for paginated queries
-func (s *PricingServiceDefault) paginatedQuery(ctx context.Context, methodName string, model any, filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination, results any, countErrorHandler func(error)) int64 {
+func (s *PricingServiceDefault) paginatedQuery(ctx context.Context, methodName string, model any, policy dto.ListQueryPolicy, filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination, results any) (int64, error) {
 	ctx, span := core.TraceMethod(ctx, "PricingServiceDefault."+methodName)
 	defer span.End()
 
+	filters, err := policy.Normalize(filters, sorts)
+	if err != nil {
+		return 0, err
+	}
 	var total int64
-	_ = db.RetryableComponentTransaction(s, ctx, func(tx *gorm.DB) *gorm.DB {
-		q := tx.Model(model)
-
-		q = queryutil.ApplyFilters(q, filters, nil)
-		q = queryutil.ApplySort(q, sorts)
-
-		if err := q.Count(&total).Error; err != nil && countErrorHandler != nil {
-			countErrorHandler(err)
+	err = db.RetryableComponentTransaction(s, ctx, func(tx *gorm.DB) *gorm.DB {
+		q := queryutil.ApplyFilters(tx.Model(model), filters, nil)
+		if err := q.Count(&total).Error; err != nil {
+			return q
 		}
-
-		q = queryutil.ApplyPagination(q, pagination)
-
-		return q.Find(results)
+		q = queryutil.ApplySort(q, sorts)
+		return queryutil.ApplyPagination(q, pagination).Find(results)
 	})
-
-	return total
+	if err != nil {
+		s.logger.Error("failed to list pricing records", zap.String("operation", methodName), zap.Error(err))
+		return 0, err
+	}
+	return total, nil
 }
 
 // deleteEntity handles the common delete operation pattern

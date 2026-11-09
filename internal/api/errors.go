@@ -1,9 +1,12 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 
 	core "go.lumeweb.com/portal/core"
+	"go.lumeweb.com/queryutil/filter"
+	"gorm.io/gorm"
 )
 
 // Error keys
@@ -231,6 +234,19 @@ func init() {
 		ErrKeyInvalidCreditAmount:    http.StatusBadRequest,
 		ErrKeyInvalidCreditDirection: http.StatusBadRequest,
 	})
+}
+
+// publicListError preserves status classification without exposing the original
+// service error through queryutil's HTTP response. Handlers log the original.
+func publicListError(err error) error {
+	switch {
+	case errors.Is(err, filter.ErrInvalidQuery):
+		return filter.ErrInvalidQuery
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		return gorm.ErrRecordNotFound
+	default:
+		return errors.New("failed to list records")
+	}
 }
 
 func NewError(key core.ErrorType, err error, args ...any) *core.Error {

@@ -13,6 +13,7 @@ import (
 	"gorm.io/gorm"
 
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
+	"go.lumeweb.com/portal-plugin-billing/internal/api/dto"
 	"go.lumeweb.com/portal-plugin-billing/internal/db/models"
 	ledger "go.lumeweb.com/portal-plugin-billing/pkg/ledger"
 	"go.lumeweb.com/queryutil"
@@ -168,8 +169,6 @@ func (r *CreditRepository) PurgeDeletedCredits(ctx context.Context, olderThan ti
 	return int(result.RowsAffected), nil
 }
 
-
-
 // GetCreditsByReference finds credits by reference ID and type.
 func (r *CreditRepository) GetCreditsByReference(ctx context.Context, referenceID string, referenceType string) ([]ledger.Credit, error) {
 	var views []models.CreditActiveView
@@ -195,6 +194,10 @@ func (r *CreditRepository) GetCreditsByReference(ctx context.Context, referenceI
 // ListCredits retrieves credits with filtering, sorting, and pagination.
 // Use WithIncludeDeleted option to include soft-deleted records.
 func (r *CreditRepository) ListCredits(ctx context.Context, filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination, opts ...pluginCore.ListCreditsOption) ([]ledger.Credit, int64, error) {
+	filters, err := dto.CreditQueryPolicy().Normalize(filters, sorts)
+	if err != nil {
+		return nil, 0, err
+	}
 	options := pluginCore.ApplyListCreditsOptions(opts...)
 
 	var creditModels []models.CreditModel
@@ -202,8 +205,8 @@ func (r *CreditRepository) ListCredits(ctx context.Context, filters []queryutil.
 
 	q := r.db.WithContext(ctx).Model(&models.CreditModel{})
 
-	if options.IncludeDeleted {
-		q = q.Unscoped()
+	if !options.IncludeDeleted {
+		q = q.Where("deleted_at IS NULL")
 	}
 
 	q = queryutil.ApplyFilters(q, filters, nil)

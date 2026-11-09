@@ -16,15 +16,15 @@ import (
 	"go.lumeweb.com/portal-middleware/middleware"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
 	"go.lumeweb.com/portal-plugin-billing/internal/api/dto"
-	"go.lumeweb.com/portal-plugin-billing/internal/service/pricing"
 	_ "go.lumeweb.com/portal-plugin-billing/internal/api/dto"
 	"go.lumeweb.com/portal-plugin-billing/internal/db/models"
+	"go.lumeweb.com/portal-plugin-billing/internal/service/pricing"
 	"go.lumeweb.com/portal-plugin-billing/pkg/ledger"
 	router "go.lumeweb.com/portal-router"
 	"go.lumeweb.com/portal/config"
 	"go.lumeweb.com/portal/core"
 	"go.lumeweb.com/queryutil"
-	queryutilHttp "go.lumeweb.com/queryutil/http"
+	queryutilHTTP "go.lumeweb.com/queryutil/http"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
@@ -954,12 +954,18 @@ func (e *AdminExtension) handleListPricingPlans(c echo.Context) error {
 	ctx := httputil.Context(c)
 	reqCtx := ctx.Context.Request().Context()
 
-	return queryutilHttp.ProcessListRequest(
+	policy := dto.PricingPlanQueryPolicy()
+	return queryutilHTTP.ProcessListRequestWithPolicy(
 		c.Response(),
 		c.Request(),
-		"pricing_plans",
+		"pricing_plans", policy.QueryPolicy,
 		func(filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination) ([]*models.PricingPlan, int64, error) {
-			return e.pricingService.GetPricingPlans(reqCtx, 0, filters, sorts, pagination)
+			items, total, err := e.pricingService.GetPricingPlans(reqCtx, 0, filters, sorts, pagination)
+			if err != nil {
+				e.Logger().Error("failed to list pricing records", zap.Error(err))
+				return nil, 0, publicListError(err)
+			}
+			return items, total, nil
 		},
 		func(plan *models.PricingPlan) dto.PricingPlanResponse {
 			var resp dto.PricingPlanResponse
@@ -977,6 +983,7 @@ func (e *AdminExtension) handleListPricingPlans(c echo.Context) error {
 
 			return resp
 		},
+		queryutil.WithStringFields(policy.StringFields...),
 	)
 }
 
@@ -985,18 +992,25 @@ func (e *AdminExtension) handleListPriceLines(c echo.Context) error {
 	ctx := httputil.Context(c)
 	reqCtx := ctx.Context.Request().Context()
 
-	return queryutilHttp.ProcessListRequest(
+	policy := dto.PriceLineQueryPolicy()
+	return queryutilHTTP.ProcessListRequestWithPolicy(
 		c.Response(),
 		c.Request(),
-		"price_lines",
+		"price_lines", policy.QueryPolicy,
 		func(filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination) ([]*models.PriceLine, int64, error) {
-			return e.pricingService.GetPriceLines(reqCtx, 0, filters, sorts, pagination)
+			items, total, err := e.pricingService.GetPriceLines(reqCtx, 0, filters, sorts, pagination)
+			if err != nil {
+				e.Logger().Error("failed to list pricing records", zap.Error(err))
+				return nil, 0, publicListError(err)
+			}
+			return items, total, nil
 		},
 		func(line *models.PriceLine) dto.PriceLineResponse {
 			var resp dto.PriceLineResponse
 			_ = resp.FromModel(line)
 			return resp
 		},
+		queryutil.WithStringFields(policy.StringFields...),
 	)
 }
 
@@ -1377,16 +1391,17 @@ func (e *AdminExtension) handleListCredits(c echo.Context) error {
 	ctx := httputil.Context(c)
 	reqCtx := ctx.Context.Request().Context()
 
-	return queryutilHttp.ProcessListRequest(
+	policy := dto.CreditQueryPolicy()
+	return queryutilHTTP.ProcessListRequestWithPolicy(
 		c.Response(),
 		c.Request(),
-		"credits",
+		"credits", policy.QueryPolicy,
 		func(filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination) ([]*models.CreditModel, int64, error) {
 			// Get credits from service
 			credits, total, err := e.creditService.ListCredits(reqCtx, filters, sorts, pagination)
 			if err != nil {
 				e.Logger().Error("failed to get credits", zap.Error(err))
-				return nil, 0, err
+				return nil, 0, publicListError(err)
 			}
 
 			// Convert ledger.Credit to CreditModel for response
@@ -1401,6 +1416,7 @@ func (e *AdminExtension) handleListCredits(c echo.Context) error {
 			_ = resp.FromModel(credit)
 			return resp
 		},
+		queryutil.WithStringFields(policy.StringFields...),
 	)
 }
 
@@ -1464,17 +1480,19 @@ func (e *AdminExtension) handleListDeletedCredits(c echo.Context) error {
 		return ctx.Error(NewError(ErrKeyInvalidIdentifier, fmt.Errorf("invalid user id: %w", err)), http.StatusBadRequest)
 	}
 
-	return queryutilHttp.ProcessListRequest(
+	policy := dto.CreditQueryPolicy()
+	return queryutilHTTP.ProcessListRequestWithPolicy(
 		c.Response(),
 		c.Request(),
-		"deleted_credits",
+		"deleted_credits", policy.QueryPolicy,
 		func(filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination) ([]*models.CreditModel, int64, error) {
 			userFilter := queryutil.FieldEqual("user_id", userID)
-			filters = append([]queryutil.CrudFilter{userFilter}, filters...)
+			filters = append([]queryutil.CrudFilter{userFilter, queryutil.FieldIsNotNull("deleted_at")}, filters...)
 
 			credits, total, err := e.creditService.ListCredits(reqCtx, filters, sorts, pagination, pluginCore.WithIncludeDeleted(true))
 			if err != nil {
-				return nil, 0, err
+				e.Logger().Error("failed to list billing records", zap.Error(err))
+				return nil, 0, publicListError(err)
 			}
 
 			result := make([]*models.CreditModel, len(credits))
@@ -1498,6 +1516,7 @@ func (e *AdminExtension) handleListDeletedCredits(c echo.Context) error {
 				DeletedAt:       credit.DeletedAt,
 			}
 		},
+		queryutil.WithStringFields(policy.StringFields...),
 	)
 }
 
@@ -1654,18 +1673,25 @@ func (e *AdminExtension) handleListPricingPlanPeriods(c echo.Context) error {
 	ctx := httputil.Context(c)
 	reqCtx := ctx.Context.Request().Context()
 
-	return queryutilHttp.ProcessListRequest(
+	policy := dto.PricingPeriodQueryPolicy()
+	return queryutilHTTP.ProcessListRequestWithPolicy(
 		c.Response(),
 		c.Request(),
-		"pricing_plan_periods",
+		"pricing_plan_periods", policy.QueryPolicy,
 		func(filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination) ([]*models.PricingPlanPeriod, int64, error) {
-			return e.pricingService.GetPricingPlanPeriodsWithFilter(reqCtx, filters, sorts, pagination)
+			items, total, err := e.pricingService.GetPricingPlanPeriodsWithFilter(reqCtx, filters, sorts, pagination)
+			if err != nil {
+				e.Logger().Error("failed to list pricing records", zap.Error(err))
+				return nil, 0, publicListError(err)
+			}
+			return items, total, nil
 		},
 		func(period *models.PricingPlanPeriod) dto.PricingPlanPeriodDTO {
 			var dto dto.PricingPlanPeriodDTO
 			_ = dto.FromModel(period)
 			return dto
 		},
+		queryutil.WithStringFields(policy.StringFields...),
 	)
 }
 
@@ -1695,14 +1721,16 @@ func (e *AdminExtension) handleListSubscribers(c echo.Context) error {
 	ctx := httputil.Context(c)
 	reqCtx := ctx.Context.Request().Context()
 
-	return queryutilHttp.ProcessListRequest(
+	policy := dto.SubscriberQueryPolicy()
+	return queryutilHTTP.ProcessListRequestWithPolicy(
 		c.Response(),
 		c.Request(),
-		"billing_subscribers",
+		"billing_subscribers", policy.QueryPolicy,
 		func(filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination) ([]*models.Subscriber, int64, error) {
 			subscribers, total, err := e.billingService.ListSubscribers(reqCtx, filters, sorts, pagination)
 			if err != nil {
-				return nil, 0, err
+				e.Logger().Error("failed to list billing records", zap.Error(err))
+				return nil, 0, publicListError(err)
 			}
 
 			// Convert to []*models.Subscriber for queryutil compatibility
@@ -1718,6 +1746,7 @@ func (e *AdminExtension) handleListSubscribers(c echo.Context) error {
 			_ = resp.FromModel((*pluginCore.Subscriber)(subscriber))
 			return resp
 		},
+		queryutil.WithStringFields(policy.StringFields...),
 	)
 }
 
@@ -1756,16 +1785,17 @@ func (e *AdminExtension) handleGetUserSubscribers(c echo.Context) error {
 		return ctx.Error(NewError(ErrKeyInvalidIdentifier, fmt.Errorf("invalid user id: %w", err)), http.StatusBadRequest)
 	}
 
-	return queryutilHttp.ProcessListRequest(
+	policy := dto.SubscriberQueryPolicy()
+	return queryutilHTTP.ProcessListRequestWithPolicy(
 		c.Response(),
 		c.Request(),
-		"billing_subscribers",
+		"billing_subscribers", policy.QueryPolicy,
 		func(filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination) ([]*models.Subscriber, int64, error) {
-			// Get subscribers from service
-			subscribers, err := e.billingService.GetSubscribersByUserID(reqCtx, uint(userID))
+			filters = append([]queryutil.CrudFilter{queryutil.FieldEqual("user_id", userID)}, filters...)
+			subscribers, total, err := e.billingService.ListSubscribers(reqCtx, filters, sorts, pagination)
 			if err != nil {
 				e.Logger().Error("failed to get user subscribers", zap.Uint("user_id", uint(userID)), zap.Error(err))
-				return nil, 0, err
+				return nil, 0, publicListError(err)
 			}
 
 			// Convert to models for response
@@ -1774,13 +1804,14 @@ func (e *AdminExtension) handleGetUserSubscribers(c echo.Context) error {
 				return &s
 			})
 
-			return result, int64(len(result)), nil
+			return result, total, nil
 		},
 		func(subscriber *models.Subscriber) dto.SubscriberItem {
 			var resp dto.SubscriberItem
 			_ = resp.FromModel((*pluginCore.Subscriber)(subscriber))
 			return resp
 		},
+		queryutil.WithStringFields(policy.StringFields...),
 	)
 }
 
@@ -2184,18 +2215,19 @@ func (e *AdminExtension) handleListGatewaySubscribers(c echo.Context) error {
 		return ctx.Error(NewError(ErrKeyInvalidRequest, fmt.Errorf("gateway ID is required")), http.StatusBadRequest)
 	}
 
-	return queryutilHttp.ProcessListRequest(
+	policy := dto.SubscriberQueryPolicy()
+	return queryutilHTTP.ProcessListRequestWithPolicy(
 		c.Response(),
 		c.Request(),
-		"billing_subscribers",
+		"billing_subscribers", policy.QueryPolicy,
 		func(filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination) ([]*models.Subscriber, int64, error) {
-			// Get subscribers from service
-			subscribers, err := e.billingService.GetActiveSubscribersByGateway(reqCtx, gatewayId)
+			filters = append([]queryutil.CrudFilter{queryutil.FieldEqual("gateway_type", gatewayId), queryutil.FieldEqual("is_active", true)}, filters...)
+			subscribers, total, err := e.billingService.ListSubscribers(reqCtx, filters, sorts, pagination)
 			if err != nil {
 				e.Logger().Error("failed to get gateway subscribers",
 					zap.String("gateway_id", gatewayId),
 					zap.Error(err))
-				return nil, 0, err
+				return nil, 0, publicListError(err)
 			}
 
 			// Convert to models for response
@@ -2204,13 +2236,14 @@ func (e *AdminExtension) handleListGatewaySubscribers(c echo.Context) error {
 				return &s
 			})
 
-			return result, int64(len(result)), nil
+			return result, total, nil
 		},
 		func(subscriber *models.Subscriber) dto.SubscriberItem {
 			var resp dto.SubscriberItem
 			_ = resp.FromModel((*pluginCore.Subscriber)(subscriber))
 			return resp
 		},
+		queryutil.WithStringFields(policy.StringFields...),
 	)
 }
 
