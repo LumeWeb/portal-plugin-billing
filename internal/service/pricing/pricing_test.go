@@ -238,7 +238,7 @@ func TestPricingService_UpdatePricingPlan(t *testing.T) {
 
 		// Update the plan
 		updatedName := "Updated Plan Name"
-		updatedPlan := &models.PricingPlan{
+		updatedPlan := &pluginCore.PricingPlanUpdate{
 			Name:        updatedName,
 			Description: "Updated description",
 		}
@@ -257,7 +257,7 @@ func TestPricingService_UpdatePricingPlan_NotFound(t *testing.T) {
 	coreTesting.RunTestCaseWithDB(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
 		service := setupPricingTestContext(tb, ctx, false)
 
-		updatedPlan := &models.PricingPlan{
+		updatedPlan := &pluginCore.PricingPlanUpdate{
 			Name:        "Updated Plan",
 			Description: "Updated description",
 		}

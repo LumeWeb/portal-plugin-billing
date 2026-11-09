@@ -11,6 +11,17 @@ import (
 // PRICING_SERVICE is the service ID for PricingService
 const PRICING_SERVICE = "billing.pricing"
 
+// PricingPlanUpdate preserves whether availability flags were supplied.
+// Empty strings leave existing text unchanged; a nil pointer leaves its field unchanged.
+type PricingPlanUpdate struct {
+	Name         string
+	Description  string
+	Currency     string
+	FeaturesJSON *string
+	IsActive     *bool
+	IsPublic     *bool
+}
+
 // PricingService handles pricing plan and price line management
 type PricingService interface {
 	core.Service
@@ -20,7 +31,7 @@ type PricingService interface {
 	CreatePricingPlan(ctx context.Context, plan *models.PricingPlan) error
 
 	// UpdatePricingPlan updates an existing pricing plan
-	UpdatePricingPlan(ctx context.Context, id uint, plan *models.PricingPlan) error
+	UpdatePricingPlan(ctx context.Context, id uint, update *PricingPlanUpdate) error
 
 	// DeletePricingPlan deletes a pricing plan (soft delete)
 	DeletePricingPlan(ctx context.Context, id uint) error
