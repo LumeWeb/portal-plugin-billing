@@ -2450,8 +2450,11 @@ func TestHandleChangePlanOperation_Success_APIBased(t *testing.T) {
 		}
 		mockGateway.EXPECT().GetManagementInfo(mock.Anything, uint(1)).Return(capabilities, nil).Once()
 
-		// API mode: ExecutePlanChange is called directly (no GetManagementURL)
+		// Only the target must be public; legacy current plans remain manageable.
 		newPeriodID := uint(99)
+		pricingSvc := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
+		pricingSvc.EXPECT().GetPricingPlanPeriod(mock.Anything, newPeriodID).Return(&internalModels.PricingPlanPeriod{PricingPlanID: 2}, nil).Once()
+		pricingSvc.EXPECT().GetPricingPlan(mock.Anything, uint(2)).Return(&internalModels.PricingPlan{IsActive: true, IsPublic: true}, nil).Once()
 		planChangeResult := &pluginCore.PlanChangeResult{
 			Action:       pluginCore.PlanChangeActionCheckoutRequired,
 			CheckoutLink: "123-period99",

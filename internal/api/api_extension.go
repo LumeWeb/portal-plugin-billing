@@ -1355,6 +1355,25 @@ func (e *APIExtension) handleChangePlanOperation(c echo.Context) error {
 			return ctx.Error(NewError(ErrKeyPaymentGatewayFailed, fmt.Errorf("gateway does not support plan change execution")), http.StatusInternalServerError)
 		}
 
+		// Executors also serve privileged admin changes. Enforce public target
+		// eligibility at the self-service boundary, before any billing effects.
+		period, err := e.pricingService.GetPricingPlanPeriod(c.Request().Context(), request.PeriodID)
+		if err != nil && !errors.Is(err, pricing.ErrPricingPlanPeriodNotFound) {
+			e.Logger().Error("failed to validate plan change period", zap.Error(err))
+			return ctx.Error(NewError(ErrKeyPricingPlanFetchFailed, fmt.Errorf("failed to validate target plan")), http.StatusInternalServerError)
+		}
+		if err != nil || period == nil {
+			return ctx.Error(NewError(ErrKeyInvalidRequest, fmt.Errorf("target plan is not available")), http.StatusBadRequest)
+		}
+		plan, err := e.pricingService.GetPricingPlan(c.Request().Context(), period.PricingPlanID)
+		if err != nil && !errors.Is(err, pricing.ErrPricingPlanNotFound) {
+			e.Logger().Error("failed to validate plan change plan", zap.Error(err))
+			return ctx.Error(NewError(ErrKeyPricingPlanFetchFailed, fmt.Errorf("failed to validate target plan")), http.StatusInternalServerError)
+		}
+		if err != nil || plan == nil || !plan.IsActive || !plan.IsPublic {
+			return ctx.Error(NewError(ErrKeyInvalidRequest, fmt.Errorf("target plan is not available")), http.StatusBadRequest)
+		}
+
 		result, err := executor.ExecutePlanChange(c.Request().Context(), userID, request.PeriodID)
 		if err != nil {
 			e.Logger().Error("failed to execute plan change",
