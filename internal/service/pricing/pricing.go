@@ -87,11 +87,33 @@ func (s *PricingServiceDefault) CreatePricingPlan(ctx context.Context, plan *mod
 }
 
 // UpdatePricingPlan updates an existing pricing plan
-func (s *PricingServiceDefault) UpdatePricingPlan(ctx context.Context, id uint, plan *models.PricingPlan) error {
+func (s *PricingServiceDefault) UpdatePricingPlan(ctx context.Context, id uint, update *pluginCore.PricingPlanUpdate) error {
+	if update == nil {
+		return fmt.Errorf("pricing plan update is required")
+	}
+	fields := map[string]any{}
+	if update.Name != "" {
+		fields["name"] = update.Name
+	}
+	if update.Description != "" {
+		fields["description"] = update.Description
+	}
+	if update.Currency != "" {
+		fields["currency"] = update.Currency
+	}
+	if update.FeaturesJSON != nil {
+		fields["features_json"] = *update.FeaturesJSON
+	}
+	if update.IsActive != nil {
+		fields["is_active"] = *update.IsActive
+	}
+	if update.IsPublic != nil {
+		fields["is_public"] = *update.IsPublic
+	}
 	result, err := s.withTracedTransactionResult(ctx, "UpdatePricingPlan", func(tx *gorm.DB) *gorm.DB {
 		return tx.Model(&models.PricingPlan{}).
 			Where("id = ?", id).
-			Updates(plan)
+			Updates(fields)
 	})
 
 	if err != nil {

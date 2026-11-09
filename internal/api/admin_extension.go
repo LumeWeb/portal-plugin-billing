@@ -859,8 +859,12 @@ func (e *AdminExtension) handleUpdatePricingPlan(c echo.Context) error {
 		return ctx.Error(NewError(ErrKeyInvalidRequest, fmt.Errorf("invalid request: %w", err)), http.StatusBadRequest)
 	}
 
-	// Update plan
-	if err := e.pricingService.UpdatePricingPlan(reqCtx, uint(id), plan); err != nil {
+	// Preserve omitted flags separately from explicit false values.
+	update := &pluginCore.PricingPlanUpdate{
+		Name: plan.Name, Description: plan.Description, Currency: plan.Currency,
+		FeaturesJSON: plan.FeaturesJSON, IsActive: req.IsActive, IsPublic: req.IsPublic,
+	}
+	if err := e.pricingService.UpdatePricingPlan(reqCtx, uint(id), update); err != nil {
 		e.Logger().Error("failed to update pricing plan", zap.Error(err))
 		return ctx.Error(NewError(ErrKeyPricingPlanUpdateFailed, fmt.Errorf("failed to update pricing plan: %w", err)), http.StatusInternalServerError)
 	}

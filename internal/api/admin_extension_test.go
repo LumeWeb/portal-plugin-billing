@@ -342,7 +342,9 @@ func TestAdminHandleUpdatePricingPlan_Success(t *testing.T) {
 		bodyBytes, _ := json.Marshal(requestBody)
 
 		// Mock pricing service to update plan
-		ts.pricingSvc.EXPECT().UpdatePricingPlan(mock.Anything, uint(1), mock.AnythingOfType("*models.PricingPlan")).Return(nil).Once()
+		ts.pricingSvc.EXPECT().UpdatePricingPlan(mock.Anything, uint(1), mock.MatchedBy(func(update *pluginCore.PricingPlanUpdate) bool {
+			return update.IsActive != nil && *update.IsActive && update.IsPublic != nil && !*update.IsPublic
+		})).Return(nil).Once()
 
 		updatedPlan := &internalModels.PricingPlan{
 			Name:         "Updated Plan",
@@ -419,7 +421,9 @@ func TestAdminHandleUpdatePricingPlan_ValidationError(t *testing.T) {
 		bodyBytes, _ := json.Marshal(requestBody)
 
 		// Set up mock in case service is called (validation may not prevent it)
-		ts.pricingSvc.EXPECT().UpdatePricingPlan(mock.Anything, uint(1), mock.AnythingOfType("*models.PricingPlan")).Return(nil).Once()
+		ts.pricingSvc.EXPECT().UpdatePricingPlan(mock.Anything, uint(1), mock.MatchedBy(func(update *pluginCore.PricingPlanUpdate) bool {
+			return update.IsActive == nil && update.IsPublic == nil
+		})).Return(nil).Once()
 
 		validationPlan := &internalModels.PricingPlan{
 			Name:         "",

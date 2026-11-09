@@ -2630,16 +2630,16 @@ func (_c *MockPricingService_UpdatePriceLine_Call) RunAndReturn(run func(ctx con
 }
 
 // UpdatePricingPlan provides a mock function for the type MockPricingService
-func (_mock *MockPricingService) UpdatePricingPlan(ctx context.Context, id uint, plan *models.PricingPlan) error {
-	ret := _mock.Called(ctx, id, plan)
+func (_mock *MockPricingService) UpdatePricingPlan(ctx context.Context, id uint, update *PricingPlanUpdate) error {
+	ret := _mock.Called(ctx, id, update)
 
 	if len(ret) == 0 {
 		panic("no return value specified for UpdatePricingPlan")
 	}
 
 	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, uint, *models.PricingPlan) error); ok {
-		r0 = returnFunc(ctx, id, plan)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uint, *PricingPlanUpdate) error); ok {
+		r0 = returnFunc(ctx, id, update)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -2654,12 +2654,12 @@ type MockPricingService_UpdatePricingPlan_Call struct {
 // UpdatePricingPlan is a helper method to define mock.On call
 //   - ctx context.Context
 //   - id uint
-//   - plan *models.PricingPlan
-func (_e *MockPricingService_Expecter) UpdatePricingPlan(ctx interface{}, id interface{}, plan interface{}) *MockPricingService_UpdatePricingPlan_Call {
-	return &MockPricingService_UpdatePricingPlan_Call{Call: _e.mock.On("UpdatePricingPlan", ctx, id, plan)}
+//   - update *PricingPlanUpdate
+func (_e *MockPricingService_Expecter) UpdatePricingPlan(ctx interface{}, id interface{}, update interface{}) *MockPricingService_UpdatePricingPlan_Call {
+	return &MockPricingService_UpdatePricingPlan_Call{Call: _e.mock.On("UpdatePricingPlan", ctx, id, update)}
 }
 
-func (_c *MockPricingService_UpdatePricingPlan_Call) Run(run func(ctx context.Context, id uint, plan *models.PricingPlan)) *MockPricingService_UpdatePricingPlan_Call {
+func (_c *MockPricingService_UpdatePricingPlan_Call) Run(run func(ctx context.Context, id uint, update *PricingPlanUpdate)) *MockPricingService_UpdatePricingPlan_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -2669,9 +2669,9 @@ func (_c *MockPricingService_UpdatePricingPlan_Call) Run(run func(ctx context.Co
 		if args[1] != nil {
 			arg1 = args[1].(uint)
 		}
-		var arg2 *models.PricingPlan
+		var arg2 *PricingPlanUpdate
 		if args[2] != nil {
-			arg2 = args[2].(*models.PricingPlan)
+			arg2 = args[2].(*PricingPlanUpdate)
 		}
 		run(
 			arg0,
@@ -2687,7 +2687,7 @@ func (_c *MockPricingService_UpdatePricingPlan_Call) Return(err error) *MockPric
 	return _c
 }
 
-func (_c *MockPricingService_UpdatePricingPlan_Call) RunAndReturn(run func(ctx context.Context, id uint, plan *models.PricingPlan) error) *MockPricingService_UpdatePricingPlan_Call {
+func (_c *MockPricingService_UpdatePricingPlan_Call) RunAndReturn(run func(ctx context.Context, id uint, update *PricingPlanUpdate) error) *MockPricingService_UpdatePricingPlan_Call {
 	_c.Call.Return(run)
 	return _c
 }
