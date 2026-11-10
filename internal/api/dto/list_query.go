@@ -12,6 +12,14 @@ type ListQueryPolicy struct {
 	StringFields []string
 }
 
+// HTTPPolicyWithReservedNodes limits client filters while leaving room for
+// trusted scope filters appended before the service applies the full policy.
+func (p ListQueryPolicy) HTTPPolicyWithReservedNodes(reserved int) filter.QueryPolicy {
+	policy := p.QueryPolicy
+	policy.MaxFilterNodes -= reserved
+	return policy
+}
+
 func PricingPlanQueryPolicy() ListQueryPolicy {
 	return listQueryPolicy(
 		[]string{"id", "created_at", "updated_at"},

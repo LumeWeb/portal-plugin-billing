@@ -1484,7 +1484,7 @@ func (e *AdminExtension) handleListDeletedCredits(c echo.Context) error {
 	return queryutilHTTP.ProcessListRequestWithPolicy(
 		c.Response(),
 		c.Request(),
-		"deleted_credits", policy.QueryPolicy,
+		"deleted_credits", policy.HTTPPolicyWithReservedNodes(2),
 		func(filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination) ([]*models.CreditModel, int64, error) {
 			userFilter := queryutil.FieldEqual("user_id", userID)
 			filters = append([]queryutil.CrudFilter{userFilter, queryutil.FieldIsNotNull("deleted_at")}, filters...)
@@ -1789,7 +1789,7 @@ func (e *AdminExtension) handleGetUserSubscribers(c echo.Context) error {
 	return queryutilHTTP.ProcessListRequestWithPolicy(
 		c.Response(),
 		c.Request(),
-		"billing_subscribers", policy.QueryPolicy,
+		"billing_subscribers", policy.HTTPPolicyWithReservedNodes(1),
 		func(filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination) ([]*models.Subscriber, int64, error) {
 			filters = append([]queryutil.CrudFilter{queryutil.FieldEqual("user_id", userID)}, filters...)
 			subscribers, total, err := e.billingService.ListSubscribers(reqCtx, filters, sorts, pagination)
@@ -2219,7 +2219,7 @@ func (e *AdminExtension) handleListGatewaySubscribers(c echo.Context) error {
 	return queryutilHTTP.ProcessListRequestWithPolicy(
 		c.Response(),
 		c.Request(),
-		"billing_subscribers", policy.QueryPolicy,
+		"billing_subscribers", policy.HTTPPolicyWithReservedNodes(2),
 		func(filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination) ([]*models.Subscriber, int64, error) {
 			filters = append([]queryutil.CrudFilter{queryutil.FieldEqual("gateway_type", gatewayId), queryutil.FieldEqual("is_active", true)}, filters...)
 			subscribers, total, err := e.billingService.ListSubscribers(reqCtx, filters, sorts, pagination)

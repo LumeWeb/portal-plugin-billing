@@ -342,7 +342,7 @@ func (e *APIExtension) handleListUserCredits(c echo.Context) error {
 	return queryutilHTTP.ProcessListRequestWithPolicy(
 		c.Response(),
 		c.Request(),
-		"credits", policy.QueryPolicy,
+		"credits", policy.HTTPPolicyWithReservedNodes(1),
 		func(filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination) ([]*models.CreditModel, int64, error) {
 			// Always filter by the authenticated user's ID
 			userFilter := queryutil.FieldEqual("user_id", userID)

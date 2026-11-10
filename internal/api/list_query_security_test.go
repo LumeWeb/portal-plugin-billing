@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,6 +22,7 @@ import (
 	"go.lumeweb.com/portal-plugin-billing/internal/db/migrations"
 	"go.lumeweb.com/portal-plugin-billing/internal/db/models"
 	creditService "go.lumeweb.com/portal-plugin-billing/internal/service/credit"
+	"go.lumeweb.com/portal-plugin-billing/pkg/ledger"
 	"go.lumeweb.com/portal/core"
 	coreTesting "go.lumeweb.com/portal/core/testing"
 	"go.lumeweb.com/queryutil"
@@ -174,6 +176,71 @@ func TestListPricingPlans_PaginatesBeforeLoadingPeriods(t *testing.T) {
 				}
 				require.Equal(tb, fmt.Sprint(wantLen), w.Result().Header.Get("X-Total-Count"))
 			}, getUserAPITestOptions())
+		})
+	}
+}
+
+func TestScopedBillingListings_ReserveMandatoryFilterNodes(t *testing.T) {
+	for _, tc := range []struct {
+		route         string
+		admin         bool
+		credit        bool
+		deletedCredit bool
+		maxLeaves     int // plus the client OR group and mandatory scope leaves = 64
+	}{
+		{"/api/account/billing/credits", false, true, false, 62},
+		{"/api/billing/users/1/deleted-credits", true, true, true, 61},
+		{"/api/billing/users/1/subscribers", true, false, false, 62},
+		{"/api/billing/gateways/stripe/subscribers", true, false, false, 61},
+	} {
+		t.Run(tc.route, func(t *testing.T) {
+			opts := getUserAPITestOptions()
+			if tc.admin {
+				opts = getAdminAPITestOptions()
+			}
+			coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+				core.GetService[*coreTesting.MockUserService](ctx, core.USER_SERVICE).EXPECT().AccountExists(mock.Anything, uint(1)).Return(true, nil, nil)
+				credit := core.GetService[*pluginCore.MockCreditService](ctx, pluginCore.CREDIT_SERVICE)
+				billing := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+				if tc.credit {
+					list := func(_ context.Context, filters []queryutil.CrudFilter, sorts []queryutil.Sort, _ queryutil.Pagination, _ ...pluginCore.ListCreditsOption) ([]ledger.Credit, int64, error) {
+						_, err := dto.CreditQueryPolicy().Normalize(filters, sorts)
+						return nil, 0, err
+					}
+					if tc.deletedCredit {
+						credit.EXPECT().ListCredits(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).RunAndReturn(list).Maybe()
+					} else {
+						credit.EXPECT().ListCredits(mock.Anything, mock.Anything, mock.Anything, mock.Anything).RunAndReturn(list).Maybe()
+					}
+				} else {
+					billing.EXPECT().ListSubscribers(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+						RunAndReturn(func(_ context.Context, filters []queryutil.CrudFilter, sorts []queryutil.Sort, _ queryutil.Pagination) ([]pluginCore.Subscriber, int64, error) {
+							_, err := dto.SubscriberQueryPolicy().Normalize(filters, sorts)
+							return nil, 0, err
+						}).Maybe()
+				}
+				token := coreTesting.CreateTestLoginToken(t, ctx, "1")
+				for _, count := range []int{tc.maxLeaves, tc.maxLeaves + 1} {
+					query := url.Values{}
+					for i := 0; i < count; i++ {
+						query.Set(fmt.Sprintf("filters[or][%d][id][eq]", i), "1")
+					}
+					req := ctx.NewAPIRequest(http.MethodGet, tc.route+"?"+query.Encode(), nil)
+					req.Header.Set("Authorization", "Bearer "+token)
+					w := httptest.NewRecorder()
+					ctx.Router().ServeHTTP(w, req)
+					want := http.StatusOK
+					if count > tc.maxLeaves {
+						want = http.StatusBadRequest
+					}
+					require.Equal(tb, want, w.Code, w.Body.String())
+				}
+				if tc.credit {
+					credit.AssertNumberOfCalls(tb, "ListCredits", 1)
+				} else {
+					billing.AssertNumberOfCalls(tb, "ListSubscribers", 1)
+				}
+			}, opts)
 		})
 	}
 }
