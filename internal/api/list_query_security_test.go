@@ -178,6 +178,25 @@ func TestListPricingPlans_PaginatesBeforeLoadingPeriods(t *testing.T) {
 	}
 }
 
+func TestBillingListings_RejectExcessiveFilterWidthBeforeService(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		core.GetService[*coreTesting.MockUserService](ctx, core.USER_SERVICE).EXPECT().AccountExists(mock.Anything, uint(1)).Return(true, nil, nil)
+		pricing := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
+		pricing.EXPECT().GetPricingPlans(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil, int64(0), nil).Maybe()
+
+		query := url.Values{}
+		for i := 0; i < 65; i++ {
+			query.Set(fmt.Sprintf("filters[or][%d][id][eq]", i), "1")
+		}
+		req := ctx.NewAPIRequest(http.MethodGet, "/api/billing/pricing-plans?"+query.Encode(), nil)
+		req.Header.Set("Authorization", "Bearer "+coreTesting.CreateTestLoginToken(t, ctx, "1"))
+		w := httptest.NewRecorder()
+		ctx.Router().ServeHTTP(w, req)
+		require.Equal(tb, http.StatusBadRequest, w.Code, w.Body.String())
+		pricing.AssertNotCalled(tb, "GetPricingPlans", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	}, getAdminAPITestOptions())
+}
+
 func TestBillingListings_RejectUnsafeQueriesBeforeService(t *testing.T) {
 	for _, tc := range []struct {
 		route string
