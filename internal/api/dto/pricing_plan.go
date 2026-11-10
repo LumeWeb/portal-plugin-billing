@@ -7,8 +7,8 @@ import (
 
 	z "github.com/Oudwins/zog"
 	"go.lumeweb.com/httputil"
+	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
 	"go.lumeweb.com/portal-plugin-billing/internal/db/models"
-	"go.lumeweb.com/portal-plugin-billing/internal/service/pricing"
 )
 
 var _ httputil.DTOResponse[*models.PricingPlan] = (*PricingPlanResponse)(nil)
@@ -536,10 +536,10 @@ type PricingPlanSyncResponse struct {
 	GatewayResults map[string]GatewaySyncResult `json:"gateway_results"`
 }
 
-var _ httputil.DTOResponse[*pricing.SyncGatewayPlanResults] = (*PricingPlanSyncResponse)(nil)
+var _ httputil.DTOResponse[*pluginCore.SyncGatewayPlanResults] = (*PricingPlanSyncResponse)(nil)
 
 // FromModel converts SyncGatewayPlanResults to PricingPlanSyncResponse
-func (r *PricingPlanSyncResponse) FromModel(result *pricing.SyncGatewayPlanResults) error {
+func (r *PricingPlanSyncResponse) FromModel(result *pluginCore.SyncGatewayPlanResults) error {
 	if result == nil {
 		return nil
 	}
@@ -595,7 +595,7 @@ type PricingPlanSyncAllResponse struct {
 
 // SyncAllResult represents the aggregated result of syncing all plans
 type SyncAllResult struct {
-	PlanResults []*pricing.SyncGatewayPlanResults
+	PlanResults []*pluginCore.SyncGatewayPlanResults
 }
 
 var _ httputil.DTOResponse[*SyncAllResult] = (*PricingPlanSyncAllResponse)(nil)

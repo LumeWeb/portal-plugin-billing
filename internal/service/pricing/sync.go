@@ -30,14 +30,7 @@ func NewSyncManager(pricingSvc pluginCore.PricingService, billingSvc pluginCore.
 }
 
 // SyncGatewayPlanResults represents synchronization results for all gateways
-type SyncGatewayPlanResults struct {
-	PlanID        uint
-	TotalGateways int
-	SuccessCount  int
-	FailureCount  int
-	Results       map[string]*pluginCore.SyncResult
-	Errors        map[string]error
-}
+type SyncGatewayPlanResults = pluginCore.SyncGatewayPlanResults
 
 // SyncPricingPlan synchronizes a pricing plan with all payment gateways
 func (s *SyncManager) SyncPricingPlan(ctx context.Context, planID uint) (*SyncGatewayPlanResults, error) {

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
 	"go.lumeweb.com/portal-plugin-billing/internal"
 	"go.lumeweb.com/portal-plugin-billing/internal/config"
@@ -77,10 +78,10 @@ func getPricingPeriodsTestOptions() coreTesting.TestContextBuilderOption {
 // setupPricingPeriodsTestContext provides setup for period tests
 func setupPricingPeriodsTestContext(tb coreTesting.TB, ctx coreTesting.TestContext) pluginCore.PricingService {
 	tb.Helper()
-	
+
 	// Setup CronService mock before getting the pricing service
 	setupCronServiceMock(tb, ctx)
-	
+
 	return goPortalCore.GetService[pluginCore.PricingService](ctx, pluginCore.PRICING_SERVICE)
 }
 
@@ -323,6 +324,43 @@ func TestPricingService_GetPricingPlanPeriods(t *testing.T) {
 		assert.NoError(t, err)
 		assert.NotEmpty(t, periods)
 		assert.Len(t, periods, 3)
+	}, getPricingPeriodsTestOptions())
+}
+
+func TestPricingService_GetPricingPlanPeriodsForPlans_OnlyRequestedActivePeriods(t *testing.T) {
+	coreTesting.RunTestCaseWithDB(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		service := setupPricingPeriodsTestContext(tb, ctx)
+		testCtx := context.Background()
+		first := createPricingPlanForPeriods(t, testCtx, service)
+		second := createPricingPlanForPeriods(t, testCtx, service)
+		other := createPricingPlanForPeriods(t, testCtx, service)
+		for _, id := range []uint{first, second, other} {
+			period := createTestPricingPlanPeriodWithOptions(id, "monthly", 9.99, 123, nil)
+			require.NoError(tb, service.CreatePricingPlanPeriod(testCtx, period))
+			if id == second {
+				require.NoError(tb, service.DeletePricingPlanPeriod(testCtx, period.ID))
+				active := createTestPricingPlanPeriodWithOptions(id, "yearly", 99.99, 123, nil)
+				require.NoError(tb, service.CreatePricingPlanPeriod(testCtx, active))
+			}
+		}
+
+		periods, err := service.GetPricingPlanPeriodsForPlans(testCtx, []uint{second, first})
+		require.NoError(tb, err)
+		require.Len(tb, periods, 2)
+		require.Equal(tb, first, periods[0].PricingPlanID)
+		require.Equal(tb, second, periods[1].PricingPlanID)
+		require.Equal(tb, "yearly", periods[1].Cadence)
+
+		// Crossing a query batch boundary must not lose periods.
+		manyIDs := make([]uint, 501)
+		manyIDs[0], manyIDs[500] = first, second
+		periods, err = service.GetPricingPlanPeriodsForPlans(testCtx, manyIDs)
+		require.NoError(tb, err)
+		require.Len(tb, periods, 2)
+
+		periods, err = service.GetPricingPlanPeriodsForPlans(testCtx, nil)
+		require.NoError(tb, err)
+		require.Empty(tb, periods)
 	}, getPricingPeriodsTestOptions())
 }
 
