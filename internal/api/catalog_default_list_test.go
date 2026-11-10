@@ -32,11 +32,11 @@ func TestPublicCatalogWithoutPaginationReturnsAllVisiblePlans(t *testing.T) {
 		}
 		pricing.EXPECT().GetDefaultPriceLine(mock.Anything).Return(line, nil).Once()
 		pricing.EXPECT().GetPlansForPriceLine(mock.Anything, uint(1)).Return(plans, nil).Once()
-		for _, plan := range plans {
-			if plan.IsPublic {
-				pricing.EXPECT().GetPricingPlanPeriods(mock.Anything, plan.ID).Return([]*models.PricingPlanPeriod{}, nil).Once()
-			}
-		}
+		visibleIDs := []uint{1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13}
+		pricing.EXPECT().GetPricingPlanPeriodsForPlans(mock.Anything, visibleIDs).Return([]*models.PricingPlanPeriod{
+			{PricingPlanID: 1, Cadence: "monthly", PriceUSD: 10},
+			{PricingPlanID: 13, Cadence: "yearly", PriceUSD: 100},
+		}, nil).Once()
 
 		w := httptest.NewRecorder()
 		ctx.Router().ServeHTTP(w, ctx.NewAPIRequest(http.MethodGet, "/api/billing/plans", nil))
@@ -48,6 +48,11 @@ func TestPublicCatalogWithoutPaginationReturnsAllVisiblePlans(t *testing.T) {
 		require.EqualValues(tb, 1, response.Data[0].ID)
 		require.EqualValues(tb, 3, response.Data[1].ID)
 		require.EqualValues(tb, 13, response.Data[11].ID)
+		require.Len(tb, response.Data[0].PricingPeriods, 1)
+		require.Equal(tb, "monthly", response.Data[0].PricingPeriods[0].Cadence)
+		require.Empty(tb, response.Data[1].PricingPeriods)
+		require.Len(tb, response.Data[11].PricingPeriods, 1)
+		require.Equal(tb, "yearly", response.Data[11].PricingPeriods[0].Cadence)
 		require.Equal(tb, "pricing_plans 0-11/12", w.Header().Get("Content-Range"))
 		require.Equal(tb, "12", w.Header().Get("X-Total-Count"))
 	}, getUserAPITestOptions())

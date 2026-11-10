@@ -136,6 +136,9 @@ type PricingService interface {
 	// GetPricingPlanPeriods retrieves all pricing plan periods for a given pricing plan
 	GetPricingPlanPeriods(ctx context.Context, planID uint) ([]*models.PricingPlanPeriod, error)
 
+	// GetPricingPlanPeriodsForPlans retrieves periods for multiple plans in batches.
+	GetPricingPlanPeriodsForPlans(ctx context.Context, planIDs []uint) ([]*models.PricingPlanPeriod, error)
+
 	// GetPricingPlanPeriodsWithFilter retrieves pricing plan periods with filters, sorting, and pagination
 	GetPricingPlanPeriodsWithFilter(ctx context.Context, filters []queryutil.CrudFilter, sorts []queryutil.Sort, pagination queryutil.Pagination) ([]*models.PricingPlanPeriod, int64, error)
 }

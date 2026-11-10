@@ -2,6 +2,9 @@ package dto
 
 import "go.lumeweb.com/queryutil/filter"
 
+// Bound filter work at both HTTP and direct service boundaries.
+const maxListFilterNodes = 64
+
 // ListQueryPolicy owns the allowed database fields and HTTP string parsing rules.
 // Normalize must also run at the database boundary to protect non-HTTP callers.
 type ListQueryPolicy struct {
@@ -56,7 +59,7 @@ func SubscriberQueryPolicy() ListQueryPolicy {
 // CollectionQueryPolicy rejects filters and sorts on position-ordered or fixed
 // collections whose backing operations do not support those query controls.
 func CollectionQueryPolicy() ListQueryPolicy {
-	return ListQueryPolicy{}
+	return ListQueryPolicy{QueryPolicy: filter.QueryPolicy{MaxFilterNodes: maxListFilterNodes}}
 }
 
 func listQueryPolicy(comparisons, strings, booleans []string) ListQueryPolicy {
@@ -70,7 +73,7 @@ func listQueryPolicy(comparisons, strings, booleans []string) ListQueryPolicy {
 	}
 	sorts := append(append(append([]string(nil), strings...), comparisons...), booleans...)
 	return ListQueryPolicy{
-		QueryPolicy:  filter.QueryPolicy{Fields: fields, SortFields: sorts},
+		QueryPolicy:  filter.QueryPolicy{Fields: fields, SortFields: sorts, MaxFilterNodes: maxListFilterNodes},
 		StringFields: strings,
 	}
 }

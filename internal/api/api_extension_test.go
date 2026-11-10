@@ -16,10 +16,10 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	pluginCore "go.lumeweb.com/portal-plugin-billing/core"
-	billingEvent "go.lumeweb.com/portal-plugin-billing/internal/event"
 	"go.lumeweb.com/portal-plugin-billing/internal"
 	"go.lumeweb.com/portal-plugin-billing/internal/api/dto"
 	pluginConfig "go.lumeweb.com/portal-plugin-billing/internal/config"
+	billingEvent "go.lumeweb.com/portal-plugin-billing/internal/event"
 	"go.lumeweb.com/portal-plugin-billing/internal/gateway"
 	"go.lumeweb.com/portal-plugin-billing/internal/service/pricing"
 	"go.lumeweb.com/portal/core"
@@ -30,12 +30,6 @@ import (
 
 	internalModels "go.lumeweb.com/portal-plugin-billing/internal/db/models"
 )
-
-
-
-
-
-
 
 // mockGatewayWithSession is a composite mock that implements both PaymentGateway and SessionStatusProvider
 type mockGatewayWithSession struct {
@@ -621,28 +615,28 @@ type sseTestHelper struct {
 
 // sseConnection manages an active SSE connection for testing
 type sseConnection struct {
-	req       *http.Request
-	rec       *httptest.ResponseRecorder
-	done      chan bool
-	cancel    context.CancelFunc
-	closed    bool
-	tb        coreTesting.TB
+	req    *http.Request
+	rec    *httptest.ResponseRecorder
+	done   chan bool
+	cancel context.CancelFunc
+	closed bool
+	tb     coreTesting.TB
 }
 
 // StartSSEConnection creates and starts an SSE connection in a goroutine
 // Returns a connection struct that can be used to wait for results or cancel the connection
 func (h *sseTestHelper) StartSSEConnection() *sseConnection {
-	
+
 	// Create a cancelable context for the request
 	reqCtx, cancel := context.WithCancel(context.Background())
-	
+
 	// Create the request with the cancelable context
 	req := h.ctx.NewAPIRequest("GET", "/api/account/billing/subscription/events", nil)
 	req = req.WithContext(reqCtx)
 	req.Header.Set("Authorization", "Bearer "+h.userToken)
-	
+
 	rec := httptest.NewRecorder()
-	
+
 	conn := &sseConnection{
 		req:    req,
 		rec:    rec,
@@ -651,12 +645,12 @@ func (h *sseTestHelper) StartSSEConnection() *sseConnection {
 		closed: false,
 		tb:     h.tb,
 	}
-	
+
 	go func() {
 		h.setup.router.ServeHTTP(rec, req)
 		conn.done <- true
 	}()
-	
+
 	return conn
 }
 
@@ -677,7 +671,7 @@ func (conn *sseConnection) Cancel() {
 	if conn.closed {
 		return
 	}
-	
+
 	conn.cancel()
 }
 
@@ -714,7 +708,7 @@ func (h *sseTestHelper) FirePaymentCompletedEvent(amount decimal.Decimal, gatewa
 		invoiceID,
 		externalID,
 	)
-	
+
 	// Fire[P any](ctx Context, eventName string, data *P)
 	// If P = PaymentCompletedEvent, then data *P = *PaymentCompletedEvent
 	// NewPaymentCompletedEvent returns *PaymentCompletedEvent, so pass it directly
@@ -724,11 +718,11 @@ func (h *sseTestHelper) FirePaymentCompletedEvent(amount decimal.Decimal, gatewa
 // setupSSETest creates a helper for SSE testing
 func setupSSETest(tb coreTesting.TB, ctx coreTesting.TestContext) *sseTestHelper {
 	ts := setupTest(ctx)
-	
+
 	ts.userSvc.EXPECT().AccountExists(mock.Anything, uint(1)).Return(true, nil, nil)
-	
+
 	token := coreTesting.CreateTestLoginToken(ctx.T(), ctx, "1")
-	
+
 	return &sseTestHelper{
 		tb:        tb,
 		ctx:       ctx,
@@ -1478,7 +1472,6 @@ func TestHandleListPricingPlans_Success(t *testing.T) {
 				QuotaPlanID:   100,
 			},
 		}
-		pricingSvc.EXPECT().GetPricingPlanPeriods(mock.Anything, uint(1)).Return(plan1Periods, nil).Once()
 
 		// Mock pricing plan periods for plan 2
 		plan2Periods := []*internalModels.PricingPlanPeriod{
@@ -1490,25 +1483,25 @@ func TestHandleListPricingPlans_Success(t *testing.T) {
 				QuotaPlanID:   200,
 			},
 		}
-		pricingSvc.EXPECT().GetPricingPlanPeriods(mock.Anything, uint(2)).Return(plan2Periods, nil).Once()
+		pricingSvc.EXPECT().GetPricingPlanPeriodsForPlans(mock.Anything, []uint{1, 2}).Return(append(plan1Periods, plan2Periods...), nil).Once()
 
 		// Mock pricing plans
 		plans := []*internalModels.PricingPlan{
 			{
-				Model:        gorm.Model{ID: 1},
-				Name:         "Basic Plan",
-				Description:  "Entry level plan",
-				Currency:     "USD",
-				IsActive:     true,
-				IsPublic:     true,
+				Model:       gorm.Model{ID: 1},
+				Name:        "Basic Plan",
+				Description: "Entry level plan",
+				Currency:    "USD",
+				IsActive:    true,
+				IsPublic:    true,
 			},
 			{
-				Model:        gorm.Model{ID: 2},
-				Name:         "Pro Plan",
-				Description:  "Professional plan",
-				Currency:     "USD",
-				IsActive:     true,
-				IsPublic:     true,
+				Model:       gorm.Model{ID: 2},
+				Name:        "Pro Plan",
+				Description: "Professional plan",
+				Currency:    "USD",
+				IsActive:    true,
+				IsPublic:    true,
 			},
 		}
 		pricingSvc.EXPECT().GetPlansForPriceLine(mock.Anything, uint(100)).Return(plans, nil).Once()
@@ -1578,17 +1571,17 @@ func TestHandleListPricingPlans_Unauthenticated(t *testing.T) {
 				QuotaPlanID:   100,
 			},
 		}
-		pricingSvc.EXPECT().GetPricingPlanPeriods(mock.Anything, uint(1)).Return(planPeriods, nil).Once()
+		pricingSvc.EXPECT().GetPricingPlanPeriodsForPlans(mock.Anything, []uint{1}).Return(planPeriods, nil).Once()
 
 		// Mock pricing plans
 		plans := []*internalModels.PricingPlan{
 			{
-				Model:        gorm.Model{ID: 1},
-				Name:         "Basic Plan",
-				Description:  "Entry level plan",
-				Currency:     "USD",
-				IsActive:     true,
-				IsPublic:     true,
+				Model:       gorm.Model{ID: 1},
+				Name:        "Basic Plan",
+				Description: "Entry level plan",
+				Currency:    "USD",
+				IsActive:    true,
+				IsPublic:    true,
 			},
 		}
 		pricingSvc.EXPECT().GetPlansForPriceLine(mock.Anything, uint(999)).Return(plans, nil).Once()
@@ -1910,7 +1903,7 @@ func TestHandleGetCheckoutSessionStatus_Success(t *testing.T) {
 
 		// Create a composite mock that implements both interfaces
 		compositeMock := &mockGatewayWithSession{
-			MockPaymentGateway:     mockGateway,
+			MockPaymentGateway:        mockGateway,
 			MockSessionStatusProvider: mockSessionProvider,
 		}
 		ts.billingSvc.EXPECT().GetGateway(mock.Anything, "stripe").Return(compositeMock, nil).Once()

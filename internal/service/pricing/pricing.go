@@ -19,16 +19,16 @@ import (
 
 // Predefined errors
 var (
-	ErrPricingPlanNameRequired         = errors.New("pricing plan name is required")
-	ErrPricingPlanDescriptionRequired  = errors.New("pricing plan description is required")
-	ErrPriceLineNameRequired           = errors.New("price line name is required")
-	ErrPriceLineDescriptionRequired    = errors.New("price line description is required")
-	ErrGatewayTypeRequired             = errors.New("gateway type is required")
-	ErrPricingPlanNotFound             = errors.New("pricing plan not found")
-	ErrPriceLineNotFound               = errors.New("price line not found")
-	ErrDefaultPriceLineNotFound        = errors.New("default price line not found")
-	ErrPricingPlanPeriodNotFound       = errors.New("pricing plan period not found")
-	ErrInvalidCadence                  = errors.New("invalid cadence: must be one of 'monthly', 'yearly', 'quarterly', 'weekly'")
+	ErrPricingPlanNameRequired        = errors.New("pricing plan name is required")
+	ErrPricingPlanDescriptionRequired = errors.New("pricing plan description is required")
+	ErrPriceLineNameRequired          = errors.New("price line name is required")
+	ErrPriceLineDescriptionRequired   = errors.New("price line description is required")
+	ErrGatewayTypeRequired            = errors.New("gateway type is required")
+	ErrPricingPlanNotFound            = errors.New("pricing plan not found")
+	ErrPriceLineNotFound              = errors.New("price line not found")
+	ErrDefaultPriceLineNotFound       = errors.New("default price line not found")
+	ErrPricingPlanPeriodNotFound      = errors.New("pricing plan period not found")
+	ErrInvalidCadence                 = errors.New("invalid cadence: must be one of 'monthly', 'yearly', 'quarterly', 'weekly'")
 )
 
 // Allowed cadence values for pricing plan periods
@@ -824,6 +824,35 @@ func (s *PricingServiceDefault) GetPricingPlanPeriods(ctx context.Context, planI
 		return nil, err
 	}
 
+	return periods, nil
+}
+
+// GetPricingPlanPeriodsForPlans retrieves periods in bounded batches so the
+// catalog doesn't issue a separate query and transaction for each plan.
+func (s *PricingServiceDefault) GetPricingPlanPeriodsForPlans(ctx context.Context, planIDs []uint) ([]*models.PricingPlanPeriod, error) {
+	if len(planIDs) == 0 {
+		return nil, nil
+	}
+
+	var periods []*models.PricingPlanPeriod
+	err := s.withTracedTransaction(ctx, "GetPricingPlanPeriodsForPlans", func(tx *gorm.DB) error {
+		const batchSize = 500 // Stay below SQLite's older 999-parameter limit.
+		for start := 0; start < len(planIDs); start += batchSize {
+			end := start + batchSize
+			if end > len(planIDs) {
+				end = len(planIDs)
+			}
+			var batch []*models.PricingPlanPeriod
+			if err := tx.Where("pricing_plan_id IN ?", planIDs[start:end]).Order("id ASC").Find(&batch).Error; err != nil {
+				return err
+			}
+			periods = append(periods, batch...)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
 	return periods, nil
 }
 

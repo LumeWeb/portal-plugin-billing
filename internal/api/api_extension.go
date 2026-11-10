@@ -902,6 +902,7 @@ func (e *APIExtension) handleListPricingPlans(c echo.Context) error {
 
 	// Get authenticated user ID from context (may be empty if not authenticated)
 	userID, ok := e.getUserIDFromContext(c)
+	var periodsByPlan map[uint][]*models.PricingPlanPeriod
 
 	return queryutilHTTP.ProcessListRequestWithPolicy(
 		c.Response(),
@@ -947,27 +948,41 @@ func (e *APIExtension) handleListPricingPlans(c echo.Context) error {
 			// Existing catalog clients omit pagination and expect every visible plan.
 			// Explicit page requests still load periods only for the requested plans.
 			query := c.Request().URL.Query()
-			if !query.Has("_start") && !query.Has("_end") {
-				return visiblePlans, total, nil
+			pagePlans := visiblePlans
+			if query.Has("_start") || query.Has("_end") {
+				start := pagination.GetOffset()
+				if start >= len(visiblePlans) {
+					pagePlans = visiblePlans[len(visiblePlans):]
+				} else {
+					end := start + pagination.GetLimit()
+					if end > len(visiblePlans) {
+						end = len(visiblePlans)
+					}
+					pagePlans = visiblePlans[start:end]
+				}
 			}
-			start := pagination.GetOffset()
-			if start >= len(visiblePlans) {
-				return visiblePlans[len(visiblePlans):], total, nil
+
+			if len(pagePlans) > 0 {
+				planIDs := make([]uint, len(pagePlans))
+				for i, plan := range pagePlans {
+					planIDs[i] = plan.ID
+				}
+				periods, err := e.pricingService.GetPricingPlanPeriodsForPlans(reqCtx, planIDs)
+				if err != nil {
+					e.Logger().Error("failed to get pricing plan periods", zap.Error(err))
+				} else {
+					periodsByPlan = make(map[uint][]*models.PricingPlanPeriod)
+					for _, period := range periods {
+						periodsByPlan[period.PricingPlanID] = append(periodsByPlan[period.PricingPlanID], period)
+					}
+				}
 			}
-			end := start + pagination.GetLimit()
-			if end > len(visiblePlans) {
-				end = len(visiblePlans)
-			}
-			return visiblePlans[start:end], total, nil
+			return pagePlans, total, nil
 		},
 		func(plan *models.PricingPlan) dto.PublicPricingPlanResponse {
 			var resp dto.PublicPricingPlanResponse
 			_ = resp.FromModel(plan)
-			// Fetch periods for each plan
-			periods, err := e.pricingService.GetPricingPlanPeriods(reqCtx, plan.ID)
-			if err != nil {
-				e.Logger().Error("failed to get pricing plan periods", zap.Uint("plan_id", plan.ID), zap.Error(err))
-			} else if len(periods) > 0 {
+			if periods := periodsByPlan[plan.ID]; len(periods) > 0 {
 				resp.SetPricingPeriods(periods)
 			}
 			return resp

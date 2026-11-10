@@ -96,12 +96,10 @@ func TestHandleListPricingPlans_ExcludesUnavailablePlans(t *testing.T) {
 					if visible {
 						plans = append(plans, &models.PricingPlan{Model: gorm.Model{ID: 1}, Name: "Public offer", IsActive: true, IsPublic: true})
 						wantIDs = []uint{1}
-						pricing.EXPECT().GetPricingPlanPeriods(mock.Anything, uint(1)).Return([]*models.PricingPlanPeriod{{Model: gorm.Model{ID: 10}, PricingPlanID: 1, PriceUSD: 20}}, nil).Once()
+						pricing.EXPECT().GetPricingPlanPeriodsForPlans(mock.Anything, []uint{1}).Return([]*models.PricingPlanPeriod{{Model: gorm.Model{ID: 10}, PricingPlanID: 1, PriceUSD: 20}}, nil).Once()
 					}
 					pricing.EXPECT().GetPlansForPriceLine(mock.Anything, uint(100)).Return(plans, nil).Once()
 					// Hidden records must neither be serialized nor have their periods loaded.
-					pricing.EXPECT().GetPricingPlanPeriods(mock.Anything, uint(2)).Return([]*models.PricingPlanPeriod{{Model: gorm.Model{ID: 22}, PriceUSD: 1}}, nil).Maybe()
-					pricing.EXPECT().GetPricingPlanPeriods(mock.Anything, uint(3)).Return([]*models.PricingPlanPeriod{{Model: gorm.Model{ID: 33}, PriceUSD: 2}}, nil).Maybe()
 
 					req := ctx.NewAPIRequest(http.MethodGet, "/api/billing/plans", nil)
 					if authenticated {

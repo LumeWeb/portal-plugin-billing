@@ -44,6 +44,18 @@ func TestListQueryPolicies_RejectUnsafeFieldsSortsAndTrees(t *testing.T) {
 	}
 }
 
+func TestListQueryPolicies_RejectExcessiveFilterWidth(t *testing.T) {
+	filters := make([]queryutil.CrudFilter, 65)
+	for i := range filters {
+		filters[i] = queryutil.FieldEqual("amount", i)
+	}
+	_, err := CreditQueryPolicy().Normalize(filters, nil)
+	require.ErrorIs(t, err, filter.ErrInvalidQuery)
+
+	_, err = CreditQueryPolicy().Normalize(filters[:64], nil)
+	require.NoError(t, err)
+}
+
 func TestListQueryPolicies_AllowModelFieldsAndNestedGroups(t *testing.T) {
 	for _, tc := range []struct {
 		policy ListQueryPolicy
