@@ -944,6 +944,12 @@ func (e *APIExtension) handleListPricingPlans(c echo.Context) error {
 				}
 			}
 			total := int64(len(visiblePlans))
+			// Existing catalog clients omit pagination and expect every visible plan.
+			// Explicit page requests still load periods only for the requested plans.
+			query := c.Request().URL.Query()
+			if !query.Has("_start") && !query.Has("_end") {
+				return visiblePlans, total, nil
+			}
 			start := pagination.GetOffset()
 			if start >= len(visiblePlans) {
 				return visiblePlans[len(visiblePlans):], total, nil
