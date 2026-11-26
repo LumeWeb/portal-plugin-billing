@@ -1107,6 +1107,35 @@ func (g *AtlosGateway) recalculateProrationAmount(
 	return subscription.NetResult(prorationResult), nil
 }
 
+// assignQuotaPlan assigns the quota plan configured on the given pricing plan
+// period (parity with the Stripe gateway). Assignment is idempotent, so it is
+// safe to repeat across activations, renewals, and plan changes. A quota
+// assignment failure is logged but never fails the caller: payment and
+// subscription state are already recorded at that point, and failing (e.g. a
+// webhook) would cause ATLOS to retry a postback whose side effects have
+// already been applied.
+func (g *AtlosGateway) assignQuotaPlan(ctx context.Context, userID uint, period *billingModels.PricingPlanPeriod) {
+	if period == nil || period.QuotaPlanID == 0 {
+		return
+	}
+
+	if g.quota == nil {
+		g.coreCtx.Logger().Error("quota service not configured, cannot assign quota plan",
+			zap.Uint("user_id", userID),
+			zap.Uint("period_id", period.ID),
+			zap.Uint("quota_plan_id", period.QuotaPlanID))
+		return
+	}
+
+	if err := g.quota.AssignUserToPlan(ctx, userID, period.QuotaPlanID); err != nil {
+		g.coreCtx.Logger().Error("failed to assign quota plan",
+			zap.Uint("user_id", userID),
+			zap.Uint("period_id", period.ID),
+			zap.Uint("quota_plan_id", period.QuotaPlanID),
+			zap.Error(err))
+	}
+}
+
 // handleCreditOnlyPlanChange handles plan changes where user has net credit.
 // This method skips the checkout flow and issues credit directly.
 func (g *AtlosGateway) handleCreditOnlyPlanChange(
@@ -1185,6 +1214,10 @@ func (g *AtlosGateway) handleCreditOnlyPlanChange(
 		return nil, fmt.Errorf("failed to activate new subscription: %w", err)
 	}
 
+	// The new period is active without checkout, so the postback handler is
+	// never reached — assign the new quota plan here.
+	g.assignQuotaPlan(ctx, userID, calc.NewPeriod)
+
 	g.coreCtx.Logger().Debug("Credit-only plan change completed",
 		zap.Uint("user_id", userID),
 		zap.String("credit_issued", calc.CreditToIssue.String()),
@@ -1261,6 +1294,10 @@ func (g *AtlosGateway) handleZeroAmountPlanChange(
 	); err != nil {
 		return nil, fmt.Errorf("failed to activate new subscription: %w", err)
 	}
+
+	// The new period is active without checkout, so the postback handler is
+	// never reached — assign the new quota plan here.
+	g.assignQuotaPlan(ctx, userID, calc.NewPeriod)
 
 	g.coreCtx.Logger().Debug("Zero-amount plan change completed",
 		zap.Uint("user_id", userID),
@@ -1620,6 +1657,21 @@ func (g *AtlosGateway) HandleWebhook(ctx context.Context, payload []byte) error 
 		pluginCore.WithBillingPeriodEnd(&billingCycle.EndAt),
 	); err != nil {
 		return fmt.Errorf("failed to create or update subscriber: %w", err)
+	}
+
+	// Assign the quota plan configured on the pricing plan period (parity with
+	// the Stripe gateway). Every successful postback flows through this
+	// handler, so this covers new subscriptions, renewals, and checkout-based
+	// prorated plan changes. Credit-only and zero-amount plan changes are
+	// handled in their own paths below.
+	g.assignQuotaPlan(ctx, userID, period)
+
+	// Fire the subscription active event for new subscriptions so downstream
+	// listeners (e.g. SSE billing event broadcasting) behave consistently
+	// across gateways. Renewals keep the subscription active and do not fire it.
+	if isNewSubscription {
+		evt := billingEvent.NewSubscriptionActiveEvent(ctx, userID, subscriptionID, GatewayID, planID, periodID)
+		core.Fire(g.coreCtx, billingEvent.EVENT_SUBSCRIPTION_ACTIVE, evt)
 	}
 
 	// Credit the user using PaidAmount (the crypto amount converted to OrderCurrency).
