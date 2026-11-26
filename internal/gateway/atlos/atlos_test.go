@@ -305,6 +305,7 @@ func TestAtlosGateway_HandleWebhook_Success(t *testing.T) {
 
 		userID := uint(456)
 		periodID := uint(2)
+		quotaPlanID := uint(3)
 		gwForOrder := New(ctx, pluginConfig.AtlosConfig{APIKey: TestAPISecret, MerchantID: TestMerchantID}, nil, nil, nil, nil, nil, nil)
 		orderID, err := gwForOrder.GenerateOrderID(userID, periodID)
 		require.NoError(t, err)
@@ -323,6 +324,7 @@ func TestAtlosGateway_HandleWebhook_Success(t *testing.T) {
 			PricingPlanID: 1,
 			Cadence:       "monthly",
 			PriceUSD:      10.0,
+			QuotaPlanID:   quotaPlanID,
 		}
 
 		// Pricing plan for validation
@@ -370,12 +372,197 @@ func TestAtlosGateway_HandleWebhook_Success(t *testing.T) {
 			mock.Anything, mock.Anything, // Two SubscriberOption args: WithBillingPeriodStart and WithBillingPeriodEnd
 		).Return(nil)
 
+		// Quota plan assignment (Stripe parity: fire-and-forget after subscriber creation)
+		mockQuota.EXPECT().AssignUserToPlan(mock.AnythingOfType("*context.valueCtx"), userID, quotaPlanID).Return(nil)
+
 		// Issue payment credit
 		mockCredit.EXPECT().IssueCreditWithIdempotency(
 			mock.AnythingOfType("*context.valueCtx"),
 			uint64(userID),
 			pluginCore.TransactionTypeCharge,
 			mock.AnythingOfType("decimal.Decimal"), // Use AnythingOfType since decimal representation may differ
+			pluginCore.ReferenceTypeAtlosPayment,
+			TestTransactionID,
+			"ATLOS payment completed",
+			uint64(0),
+		).Return(nil)
+
+		handlerGw := New(ctx, pluginConfig.AtlosConfig{APIKey: TestAPISecret, MerchantID: TestMerchantID}, nil, mockQuota, mockUsers, mockBilling, mockPricing, mockCredit)
+		err = handlerGw.HandleWebhook(context.Background(), payload)
+
+		assert.NoError(t, err)
+	})
+}
+
+// Verifies that when the pricing plan period has no quota plan configured
+// (QuotaPlanID == 0), the webhook still succeeds and no quota assignment is
+// attempted.
+func TestAtlosGateway_HandleWebhook_NoQuotaPlan_SkipsAssignment(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockQuota := core.GetService[*quotaCore.MockQuotaService](ctx, quotaCore.QUOTA_SERVICE)
+		mockUsers := core.GetService[*coreTesting.MockUserService](ctx, core.USER_SERVICE)
+		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+		mockPricing := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
+		mockCredit := core.GetService[*pluginCore.MockCreditService](ctx, pluginCore.CREDIT_SERVICE)
+
+		userID := uint(789)
+		periodID := uint(4)
+		gwForOrder := New(ctx, pluginConfig.AtlosConfig{APIKey: TestAPISecret, MerchantID: TestMerchantID}, nil, nil, nil, nil, nil, nil)
+		orderID, err := gwForOrder.GenerateOrderID(userID, periodID)
+		require.NoError(t, err)
+
+		notification := atlos.CreateTestPostback(TestMerchantID)
+		notification.OrderId = orderID
+		notification.TransactionId = TestTransactionID
+		notification.SubscriptionId = TestSubscriptionID
+		notification.OrderAmount = 10.0
+		notification.PaidAmount = 10.0
+		payload, _ := json.Marshal(notification)
+
+		// Pricing plan period with no quota plan configured
+		period := &billingModels.PricingPlanPeriod{
+			Model:         gorm.Model{ID: periodID},
+			PricingPlanID: 1,
+			Cadence:       "monthly",
+			PriceUSD:      10.0,
+			QuotaPlanID:   0,
+		}
+
+		pricingPlan := &billingModels.PricingPlan{
+			Model:       gorm.Model{ID: 1},
+			Name:        "Test Plan",
+			Description: "Test Description",
+			IsActive:    true,
+		}
+
+		mockPricing.EXPECT().GetPricingPlanPeriod(mock.AnythingOfType("*context.valueCtx"), periodID).Return(period, nil)
+		mockPricing.EXPECT().GetPricingPlanPeriod(mock.AnythingOfType("*context.valueCtx"), periodID).Return(period, nil)
+		mockPricing.EXPECT().GetPricingPlan(mock.AnythingOfType("*context.valueCtx"), uint(1)).Return(pricingPlan, nil)
+
+		mockBilling.EXPECT().GetActiveSubscriber(mock.AnythingOfType("*context.valueCtx"), userID, GatewayID).Return(nil, nil)
+
+		cadence := subscription.Cadence(period.Cadence)
+		billingCycle := subscription.CalculateFirstCycle(time.Now().UTC(), cadence)
+
+		mockCredit.EXPECT().IssueUsageCredit(
+			mock.AnythingOfType("*context.valueCtx"),
+			uint64(userID),
+			pluginCore.TransactionTypeTime,
+			mock.AnythingOfType("decimal.Decimal"),
+			TestTransactionID,
+			"Subscription period "+billingCycle.StartAt.Format("2006-01-02")+" to "+billingCycle.EndAt.Format("2006-01-02"),
+			uint64(0),
+		).Return(nil)
+
+		mockBilling.EXPECT().CreateOrUpdateSubscriber(
+			mock.Anything,
+			userID,
+			GatewayID,
+			TestTransactionID,
+			TestSubscriptionID,
+			true,
+			&periodID,
+			mock.Anything, mock.Anything,
+		).Return(nil)
+
+		mockCredit.EXPECT().IssueCreditWithIdempotency(
+			mock.AnythingOfType("*context.valueCtx"),
+			uint64(userID),
+			pluginCore.TransactionTypeCharge,
+			mock.AnythingOfType("decimal.Decimal"),
+			pluginCore.ReferenceTypeAtlosPayment,
+			TestTransactionID,
+			"ATLOS payment completed",
+			uint64(0),
+		).Return(nil)
+
+		handlerGw := New(ctx, pluginConfig.AtlosConfig{APIKey: TestAPISecret, MerchantID: TestMerchantID}, nil, mockQuota, mockUsers, mockBilling, mockPricing, mockCredit)
+		err = handlerGw.HandleWebhook(context.Background(), payload)
+
+		assert.NoError(t, err)
+		mockQuota.AssertNotCalled(t, "AssignUserToPlan")
+	})
+}
+
+// Verifies that a quota assignment failure does not fail the webhook — the
+// payment and subscription state are already recorded at that point, so the
+// error is logged only (Stripe parity).
+func TestAtlosGateway_HandleWebhook_QuotaAssignmentError_StillSucceeds(t *testing.T) {
+	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockQuota := core.GetService[*quotaCore.MockQuotaService](ctx, quotaCore.QUOTA_SERVICE)
+		mockUsers := core.GetService[*coreTesting.MockUserService](ctx, core.USER_SERVICE)
+		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
+		mockPricing := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
+		mockCredit := core.GetService[*pluginCore.MockCreditService](ctx, pluginCore.CREDIT_SERVICE)
+
+		userID := uint(321)
+		periodID := uint(6)
+		gwForOrder := New(ctx, pluginConfig.AtlosConfig{APIKey: TestAPISecret, MerchantID: TestMerchantID}, nil, nil, nil, nil, nil, nil)
+		orderID, err := gwForOrder.GenerateOrderID(userID, periodID)
+		require.NoError(t, err)
+
+		notification := atlos.CreateTestPostback(TestMerchantID)
+		notification.OrderId = orderID
+		notification.TransactionId = TestTransactionID
+		notification.SubscriptionId = TestSubscriptionID
+		notification.OrderAmount = 10.0
+		notification.PaidAmount = 10.0
+		payload, _ := json.Marshal(notification)
+
+		quotaPlanID := uint(7)
+		period := &billingModels.PricingPlanPeriod{
+			Model:         gorm.Model{ID: periodID},
+			PricingPlanID: 1,
+			Cadence:       "monthly",
+			PriceUSD:      10.0,
+			QuotaPlanID:   quotaPlanID,
+		}
+
+		pricingPlan := &billingModels.PricingPlan{
+			Model:       gorm.Model{ID: 1},
+			Name:        "Test Plan",
+			Description: "Test Description",
+			IsActive:    true,
+		}
+
+		mockPricing.EXPECT().GetPricingPlanPeriod(mock.AnythingOfType("*context.valueCtx"), periodID).Return(period, nil)
+		mockPricing.EXPECT().GetPricingPlanPeriod(mock.AnythingOfType("*context.valueCtx"), periodID).Return(period, nil)
+		mockPricing.EXPECT().GetPricingPlan(mock.AnythingOfType("*context.valueCtx"), uint(1)).Return(pricingPlan, nil)
+
+		mockBilling.EXPECT().GetActiveSubscriber(mock.AnythingOfType("*context.valueCtx"), userID, GatewayID).Return(nil, nil)
+
+		cadence := subscription.Cadence(period.Cadence)
+		billingCycle := subscription.CalculateFirstCycle(time.Now().UTC(), cadence)
+
+		mockCredit.EXPECT().IssueUsageCredit(
+			mock.AnythingOfType("*context.valueCtx"),
+			uint64(userID),
+			pluginCore.TransactionTypeTime,
+			mock.AnythingOfType("decimal.Decimal"),
+			TestTransactionID,
+			"Subscription period "+billingCycle.StartAt.Format("2006-01-02")+" to "+billingCycle.EndAt.Format("2006-01-02"),
+			uint64(0),
+		).Return(nil)
+
+		mockBilling.EXPECT().CreateOrUpdateSubscriber(
+			mock.Anything,
+			userID,
+			GatewayID,
+			TestTransactionID,
+			TestSubscriptionID,
+			true,
+			&periodID,
+			mock.Anything, mock.Anything,
+		).Return(nil)
+
+		// Quota assignment fails — the webhook must still succeed (log-only)
+		mockQuota.EXPECT().AssignUserToPlan(mock.AnythingOfType("*context.valueCtx"), userID, quotaPlanID).Return(assert.AnError)
+
+		mockCredit.EXPECT().IssueCreditWithIdempotency(
+			mock.AnythingOfType("*context.valueCtx"),
+			uint64(userID),
+			pluginCore.TransactionTypeCharge,
+			mock.AnythingOfType("decimal.Decimal"),
 			pluginCore.ReferenceTypeAtlosPayment,
 			TestTransactionID,
 			"ATLOS payment completed",

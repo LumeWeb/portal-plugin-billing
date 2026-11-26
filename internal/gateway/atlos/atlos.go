@@ -1622,6 +1622,36 @@ func (g *AtlosGateway) HandleWebhook(ctx context.Context, payload []byte) error 
 		return fmt.Errorf("failed to create or update subscriber: %w", err)
 	}
 
+	// Assign the quota plan configured on the pricing plan period (parity with
+	// the Stripe gateway). Assignment is idempotent, so it is safe to repeat on
+	// renewals and prorated plan changes — every successful postback flows
+	// through this handler. A quota assignment failure must NOT fail the
+	// webhook: the payment and subscription state are already recorded, and
+	// failing would cause ATLOS to retry a postback whose side effects have
+	// already been applied.
+	if period.QuotaPlanID != 0 {
+		if g.quota == nil {
+			g.coreCtx.Logger().Error("quota service not configured, cannot assign quota plan",
+				zap.Uint("user_id", userID),
+				zap.Uint("period_id", periodID),
+				zap.Uint("quota_plan_id", period.QuotaPlanID))
+		} else if err := g.quota.AssignUserToPlan(ctx, userID, period.QuotaPlanID); err != nil {
+			g.coreCtx.Logger().Error("failed to assign quota plan",
+				zap.Uint("user_id", userID),
+				zap.Uint("period_id", periodID),
+				zap.Uint("quota_plan_id", period.QuotaPlanID),
+				zap.Error(err))
+		}
+	}
+
+	// Fire the subscription active event for new subscriptions so downstream
+	// listeners (e.g. SSE billing event broadcasting) behave consistently
+	// across gateways. Renewals keep the subscription active and do not fire it.
+	if isNewSubscription {
+		evt := billingEvent.NewSubscriptionActiveEvent(ctx, userID, subscriptionID, GatewayID, planID, periodID)
+		core.Fire(g.coreCtx, billingEvent.EVENT_SUBSCRIPTION_ACTIVE, evt)
+	}
+
 	// Credit the user using PaidAmount (the crypto amount converted to OrderCurrency).
 	// The ATLOS fee comes out of their share, not the user's payment, so PaidAmount
 	// represents the full fiat value the user paid.
