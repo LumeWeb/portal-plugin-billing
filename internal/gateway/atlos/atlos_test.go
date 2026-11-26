@@ -611,6 +611,7 @@ func TestAtlosGateway_ExecutePlanChange_SamePeriod_ReturnsError(t *testing.T) {
 
 func TestAtlosGateway_ExecutePlanChange_CreditOnly_Downgrade_RoundedAmounts(t *testing.T) {
 	coreTesting.RunTestCase(t, func(tb coreTesting.TB, ctx coreTesting.TestContext) {
+		mockQuota := core.GetService[*quotaCore.MockQuotaService](ctx, quotaCore.QUOTA_SERVICE)
 		mockBilling := core.GetService[*pluginCore.MockBillingService](ctx, pluginCore.BILLING_SERVICE)
 		mockPricing := core.GetService[*pluginCore.MockPricingService](ctx, pluginCore.PRICING_SERVICE)
 		mockCredit := core.GetService[*pluginCore.MockCreditService](ctx, pluginCore.CREDIT_SERVICE)
@@ -644,6 +645,7 @@ func TestAtlosGateway_ExecutePlanChange_CreditOnly_Downgrade_RoundedAmounts(t *t
 			PricingPlanID: 2,
 			Cadence:       "monthly",
 			PriceUSD:      1.0,
+			QuotaPlanID:   9,
 		}
 		newPlan := &billingModels.PricingPlan{
 			Model:       gorm.Model{ID: 2},
@@ -684,7 +686,11 @@ func TestAtlosGateway_ExecutePlanChange_CreditOnly_Downgrade_RoundedAmounts(t *t
 			mock.Anything,
 		).Return(nil)
 
-		gw := New(ctx, pluginConfig.AtlosConfig{APIKey: TestAPISecret, MerchantID: TestMerchantID, Endpoint: newMockAtlosServer(t)}, nil, nil, nil, mockBilling, mockPricing, mockCredit)
+		// Credit-only plan changes activate the new period without checkout,
+		// so the new quota plan must be assigned in this path
+		mockQuota.EXPECT().AssignUserToPlan(mock.Anything, userID, uint(9)).Return(nil)
+
+		gw := New(ctx, pluginConfig.AtlosConfig{APIKey: TestAPISecret, MerchantID: TestMerchantID, Endpoint: newMockAtlosServer(t)}, nil, mockQuota, nil, mockBilling, mockPricing, mockCredit)
 		result, err := gw.ExecutePlanChange(context.Background(), userID, newPeriodID)
 
 		require.NoError(tb, err)
